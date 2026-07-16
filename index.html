@@ -189,6 +189,62 @@
 
   .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--surface-2); border: 1px solid var(--border); color: var(--text); padding: 10px 16px; border-radius: 8px; font-size: 13px; z-index: 70; box-shadow: 0 6px 20px #00000060; max-width: calc(100vw - 32px); text-align: center; }
 
+  /* ---------- auth screen ---------- */
+  .auth-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .auth-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 28px 26px; width: 100%; max-width: 380px; box-shadow: 0 20px 50px #00000040; }
+  .auth-eyebrow { text-align: center; display: block; margin-bottom: 4px; }
+  .auth-title { font-family: 'Oswald', sans-serif; font-weight: 600; font-size: 22px; margin: 4px 0 6px; text-align: center; }
+  .auth-sub { color: var(--muted); font-size: 12.5px; text-align: center; margin: 0 0 18px; line-height: 1.5; }
+  .auth-tabs { display: flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 4px; margin-bottom: 18px; gap: 4px; }
+  .auth-tab { flex: 1; background: none; border: none; color: var(--muted); padding: 8px; border-radius: 7px; font-size: 12.5px; font-weight: 600; cursor: pointer; font-family: inherit; }
+  .auth-tab.active { background: var(--bg); color: var(--amber); }
+  .auth-error { background: #E2574C1A; border: 1px solid #E2574C55; color: #E2574C; font-size: 12.5px; padding: 8px 11px; border-radius: 8px; margin: -6px 0 14px; line-height: 1.4; }
+  .pw-field { position: relative; }
+  .pw-field input { padding-right: 40px; }
+  .pw-toggle { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 6px 8px; }
+  .pw-toggle:hover { color: var(--text); }
+  .auth-switch { text-align: center; font-size: 12px; color: var(--muted); margin-top: 14px; }
+  .auth-switch button { background: none; border: none; color: var(--amber); cursor: pointer; font-family: inherit; font-size: 12px; text-decoration: underline; padding: 0; }
+
+  /* ---------- account chip / menu ---------- */
+  .account-chip { position: relative; display: inline-flex; align-items: center; gap: 7px; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 5px 10px 5px 5px; cursor: pointer; font-size: 12.5px; font-weight: 500; color: var(--text); margin-left: auto; }
+  .account-chip:hover { border-color: var(--amber); }
+  .account-avatar { border-radius: 50%; object-fit: cover; flex-shrink: 0; display: inline-flex; }
+  .account-avatar-fallback { background: var(--amber); color: #1B1F24; text-align: center; font-weight: 700; font-size: 12px; }
+  .account-name { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .account-chevron { color: var(--muted); font-size: 10px; }
+  .account-menu { position: absolute; top: calc(100% + 8px); right: 0; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 6px; min-width: 170px; box-shadow: 0 10px 30px #00000050; z-index: 40; }
+  .account-menu-item { display: flex; align-items: center; gap: 8px; width: 100%; background: none; border: none; color: var(--text); font-size: 13px; padding: 9px 10px; border-radius: 7px; cursor: pointer; text-align: left; font-family: inherit; }
+  .account-menu-item:hover { background: var(--bg); }
+  .account-menu-item.danger { color: var(--red); }
+  .account-menu-divider { height: 1px; background: var(--border); margin: 4px 2px; }
+  .header-top-row { display: flex; align-items: flex-start; gap: 10px; }
+
+  /* ---------- profile modal ---------- */
+  .avatar-upload-row { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+  .avatar-upload { width: 76px; height: 76px; border-radius: 50%; border: 1px dashed var(--border); background: var(--bg); display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; cursor: pointer; flex-shrink: 0; }
+  .avatar-upload:hover { border-color: var(--amber); }
+  .avatar-upload img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .avatar-upload span.pu-label { font-size: 10.5px; color: var(--muted); text-align: center; padding: 4px; }
+  .avatar-upload input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+  .avatar-upload-hint { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+  .profile-section-title { font-family: 'Oswald', sans-serif; font-size: 12.5px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin: 18px 0 10px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .profile-section-title:first-of-type { margin-top: 0; padding-top: 0; border-top: none; }
+  .danger-zone { background: #E2574C0D; border: 1px solid #E2574C33; border-radius: 10px; padding: 12px; margin-top: 6px; }
+  .danger-zone p { font-size: 12px; color: var(--muted); margin: 0 0 10px; line-height: 1.5; }
+  .btn-danger { display: inline-flex; align-items: center; gap: 6px; background: none; color: var(--red); border: 1px solid #E2574C55; border-radius: 8px; padding: 8px 13px; font-weight: 600; font-size: 12.5px; cursor: pointer; font-family: inherit; }
+  .btn-danger:hover { background: #E2574C1A; }
+  .btn-danger.full { width: 100%; justify-content: center; }
+
+  /* ---------- in-app confirm popup ---------- */
+  .confirm-backdrop { z-index: 65; }
+  .confirm-modal { max-width: 340px; }
+  .confirm-modal .modal-head { margin-bottom: 10px; }
+  .confirm-message { font-size: 13.5px; color: var(--text); line-height: 1.55; margin: 0 0 18px; }
+  .confirm-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+  .confirm-actions button { min-width: 96px; }
+  @media (max-width: 480px) { .confirm-actions { flex-direction: column-reverse; } .confirm-actions button { width: 100%; } }
+
   @media (max-width: 480px) {
     .wrap { padding: 12px; }
     .gd-title h1 { font-size: 21px; }
@@ -209,6 +265,8 @@
     .cat-chip { font-size: 11px; padding: 6px 7px; }
     .modal { padding: 16px; border-radius: 12px; max-height: 92vh; }
     .modal-head h3 { font-size: 16px; }
+    .auth-card { padding: 22px 18px; }
+    .account-name { max-width: 70px; }
   }
 </style>
 </head>
@@ -235,6 +293,12 @@
   var MONTHS_TR = ["Oca","Şub","Mar","Nis","May","Haz","Tem","Ağu","Eyl","Eki","Kas","Ara"];
   var CARS_KEY = "garaj_cars_v1";
   var EXPENSES_KEY = "garaj_expenses_v1";
+  var USERS_KEY = "garaj_users_v1";
+  var SESSION_KEY = "garaj_session_v1";
+  var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  // en az 6 karakter, en az 1 büyük harf, 1 küçük harf, 1 sembol
+  var PASSWORD_RE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*[^A-Za-z0-9]).{6,}$/;
+  var PASSWORD_HINT = "Şifre en az 6 karakter olmalı; en az bir büyük harf, bir küçük harf ve bir sembol (örn. !?%*-) içermeli.";
 
   function catById(id) {
     for (var i = 0; i < CATEGORIES.length; i++) if (CATEGORIES[i].id === id) return CATEGORIES[i];
@@ -304,18 +368,56 @@
     });
   }
 
+  // ---------- auth helpers ----------
+  function genSalt() { return Math.random().toString(36).slice(2) + Date.now().toString(36); }
+
+  function hashPassword(password, salt) {
+    var data = new TextEncoder().encode(salt + ":" + password);
+    if (window.crypto && window.crypto.subtle) {
+      return window.crypto.subtle.digest("SHA-256", data).then(function (buf) {
+        return Array.prototype.map.call(new Uint8Array(buf), function (b) { return b.toString(16).padStart(2, "0"); }).join("");
+      });
+    }
+    // fallback (very old browsers without SubtleCrypto): weak but functional
+    var str = salt + ":" + password, hash = 0;
+    for (var i = 0; i < str.length; i++) { hash = ((hash << 5) - hash) + str.charCodeAt(i); hash |= 0; }
+    return Promise.resolve("fallback" + Math.abs(hash));
+  }
+
+  function carsKey(userId) { return CARS_KEY + "_" + userId; }
+  function expensesKey(userId) { return EXPENSES_KEY + "_" + userId; }
+
+  function initials(name) {
+    var parts = (name || "?").trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return "?";
+    return (parts[0][0] + (parts[1] ? parts[1][0] : "")).toUpperCase();
+  }
+
+  function userAvatarHTML(user, size) {
+    size = size || 30;
+    if (user.avatar) return '<img class="account-avatar" src="' + user.avatar + '" alt="" style="width:' + size + 'px;height:' + size + 'px" />';
+    return '<span class="account-avatar account-avatar-fallback" style="width:' + size + 'px;height:' + size + 'px;line-height:' + size + 'px">' + esc(initials(user.name)) + '</span>';
+  }
+
   // ---------- state ----------
   var state = {
+    users: null,
+    currentUser: null,
+    authMode: "login", // 'login' | 'register'
+    authError: null,
+    authBusy: false,
+    accountMenuOpen: false,
     cars: null,
     expenses: null,
     selectedCarId: "all",
     view: "panel",
-    modal: null, // { type: 'addCar' | 'editCar' | 'addExpense', carId }
+    modal: null, // { type: 'addCar' | 'editCar' | 'addExpense' | 'profile', carId }
     lightbox: null
   };
 
-  function persistCars() { saveJSON(CARS_KEY, state.cars); }
-  function persistExpenses() { saveJSON(EXPENSES_KEY, state.expenses); }
+  function persistCars() { if (state.currentUser) saveJSON(carsKey(state.currentUser.id), state.cars); }
+  function persistExpenses() { if (state.currentUser) saveJSON(expensesKey(state.currentUser.id), state.expenses); }
+  function persistUsers() { saveJSON(USERS_KEY, state.users); }
 
   function toast(msg) {
     var el = document.createElement("div");
@@ -325,13 +427,39 @@
     setTimeout(function () { el.remove(); }, 3200);
   }
 
+  // in-app confirmation popup — replaces native window.confirm
+  function showConfirm(opts) {
+    var backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop confirm-backdrop";
+    var box = document.createElement("div");
+    box.className = "modal confirm-modal";
+    box.innerHTML =
+      '<div class="modal-head"><h3>' + esc(opts.title || "Emin misin?") + '</h3></div>' +
+      '<p class="confirm-message">' + esc(opts.message || "") + '</p>' +
+      '<div class="confirm-actions">' +
+        '<button type="button" class="btn-secondary" id="confirm-cancel">' + esc(opts.cancelLabel || "Vazgeç") + '</button>' +
+        '<button type="button" class="' + (opts.danger ? "btn-danger" : "btn-primary") + '" id="confirm-ok">' + esc(opts.confirmLabel || "Onayla") + '</button>' +
+      '</div>';
+    backdrop.appendChild(box);
+    function cleanup() { backdrop.remove(); }
+    box.addEventListener("click", function (ev) { ev.stopPropagation(); });
+    backdrop.addEventListener("click", function (ev) {
+      if (ev.target === backdrop) { cleanup(); if (opts.onCancel) opts.onCancel(); }
+    });
+    box.querySelector("#confirm-cancel").addEventListener("click", function () { cleanup(); if (opts.onCancel) opts.onCancel(); });
+    box.querySelector("#confirm-ok").addEventListener("click", function () { cleanup(); if (opts.onConfirm) opts.onConfirm(); });
+    document.body.appendChild(backdrop);
+    box.querySelector("#confirm-ok").focus();
+  }
+
   function exportData() {
     var payload = { cars: state.cars, expenses: state.expenses, exportedAt: new Date().toISOString() };
     var blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     var url = URL.createObjectURL(blob);
     var a = document.createElement("a");
     a.href = url;
-    a.download = "garaj-defteri-yedek-" + todayStr() + ".json";
+    var slug = state.currentUser ? state.currentUser.name.toLowerCase().replace(/[^a-z0-9ığüşöç]+/gi, "-").replace(/^-+|-+$/g, "") : "yedek";
+    a.download = "garaj-defteri-" + slug + "-" + todayStr() + ".json";
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -345,12 +473,19 @@
       try {
         var data = JSON.parse(reader.result);
         if (!data || !Array.isArray(data.cars) || !Array.isArray(data.expenses)) throw new Error("invalid");
-        if (!window.confirm("Mevcut veriler bu yedekle değiştirilecek. Devam edilsin mi?")) return;
-        state.cars = data.cars;
-        state.expenses = data.expenses;
-        persistCars(); persistExpenses();
-        toast("Yedek geri yüklendi.");
-        render();
+        showConfirm({
+          title: "Yedeği Geri Yükle",
+          message: "Mevcut veriler bu yedekle değiştirilecek. Devam edilsin mi?",
+          confirmLabel: "Devam Et",
+          danger: true,
+          onConfirm: function () {
+            state.cars = data.cars;
+            state.expenses = data.expenses;
+            persistCars(); persistExpenses();
+            toast("Yedek geri yüklendi.");
+            render();
+          }
+        });
       } catch (e) {
         toast("Dosya okunamadı. Geçerli bir yedek dosyası seçtiğinizden emin olun.");
       }
@@ -360,15 +495,50 @@
 
 
 
-  function init() {
-    var cars = loadJSON(CARS_KEY, null);
+  function loadUserData(user) {
+    var cars = loadJSON(carsKey(user.id), null);
     if (!cars || !cars.length) {
       cars = [{ id: uid(), name: "Arabam", plate: "34 XX 000", color: CAR_COLORS[0], inspectionDate: null, maintenanceDate: null, photo: null, ruhsat: null }];
-      saveJSON(CARS_KEY, cars);
+      saveJSON(carsKey(user.id), cars);
     }
     state.cars = cars;
-    state.expenses = loadJSON(EXPENSES_KEY, []);
+    state.expenses = loadJSON(expensesKey(user.id), []);
+  }
+
+  function loginAs(user) {
+    state.currentUser = user;
+    state.selectedCarId = "all";
+    state.view = "panel";
+    state.modal = null;
+    state.accountMenuOpen = false;
+    loadUserData(user);
+    saveJSON(SESSION_KEY, { userId: user.id });
     render();
+  }
+
+  function logout() {
+    state.currentUser = null;
+    state.cars = null;
+    state.expenses = null;
+    state.selectedCarId = "all";
+    state.view = "panel";
+    state.modal = null;
+    state.accountMenuOpen = false;
+    state.authMode = "login";
+    state.authError = null;
+    try { localStorage.removeItem(SESSION_KEY); } catch (e) {}
+    renderAuth();
+  }
+
+  function init() {
+    state.users = loadJSON(USERS_KEY, []);
+    var session = loadJSON(SESSION_KEY, null);
+    var user = session && session.userId ? state.users.find(function (u) { return u.id === session.userId; }) : null;
+    if (user) {
+      loginAs(user);
+    } else {
+      renderAuth();
+    }
   }
 
   // ---------- derived data ----------
@@ -427,6 +597,126 @@
     return items;
   }
 
+  // ---------- auth screen ----------
+  function renderAuth() {
+    var app = document.getElementById("app");
+    var mode = state.authMode;
+    var html = '<div class="auth-wrap"><div class="auth-card">' +
+      '<span class="gd-title-eyebrow auth-eyebrow">GARAJ DEFTERİ</span>' +
+      '<h1 class="auth-title">' + (mode === "login" ? "Giriş Yap" : "Hesap Oluştur") + '</h1>' +
+      '<p class="auth-sub">' + (mode === "login" ? "Araçlarını ve masraflarını görmek için hesabına giriş yap." : "Birkaç saniyede ücretsiz hesap oluştur, araçlarını eklemeye başla.") + '</p>' +
+      '<div class="auth-tabs">' +
+        '<button type="button" class="auth-tab ' + (mode === "login" ? "active" : "") + '" data-action="auth-tab" data-mode="login">Giriş Yap</button>' +
+        '<button type="button" class="auth-tab ' + (mode === "register" ? "active" : "") + '" data-action="auth-tab" data-mode="register">Kayıt Ol</button>' +
+      '</div>';
+
+    if (state.authError) html += '<p class="auth-error">⚠️ ' + esc(state.authError) + '</p>';
+
+    if (mode === "register") {
+      html +=
+        '<label class="field"><span>Ad Soyad</span><input id="r-name" placeholder="Örn. Ahmet Yılmaz" autocomplete="name" /></label>' +
+        '<label class="field"><span>E-posta</span><input id="r-email" type="email" placeholder="ornek@eposta.com" autocomplete="email" /></label>' +
+        '<label class="field"><span>Şifre</span><div class="pw-field"><input id="r-pass" type="password" placeholder="Örn. Araba1!" autocomplete="new-password" /><button type="button" class="pw-toggle" data-target="r-pass">👁️</button></div></label>' +
+        '<p class="field-hint" style="margin-top:-6px">' + PASSWORD_HINT + '</p>' +
+        '<label class="field"><span>Şifre (Tekrar)</span><div class="pw-field"><input id="r-pass2" type="password" placeholder="Şifreni tekrar gir" autocomplete="new-password" /><button type="button" class="pw-toggle" data-target="r-pass2">👁️</button></div></label>' +
+        '<button type="button" class="btn-primary full" id="auth-submit" ' + (state.authBusy ? "disabled" : "") + '>' + (state.authBusy ? "Hesap oluşturuluyor…" : "Hesap Oluştur") + '</button>' +
+        '<p class="field-hint" style="margin-top:10px">Kayıt olarak devam ederek verilerinin bu tarayıcıda, sana özel olarak saklanacağını kabul etmiş olursun.</p>';
+    } else {
+      html +=
+        '<label class="field"><span>E-posta</span><input id="l-email" type="email" placeholder="ornek@eposta.com" autocomplete="email" /></label>' +
+        '<label class="field"><span>Şifre</span><div class="pw-field"><input id="l-pass" type="password" placeholder="Şifren" autocomplete="current-password" /><button type="button" class="pw-toggle" data-target="l-pass">👁️</button></div></label>' +
+        '<button type="button" class="btn-primary full" id="auth-submit" ' + (state.authBusy ? "disabled" : "") + '>' + (state.authBusy ? "Giriş yapılıyor…" : "Giriş Yap") + '</button>';
+    }
+    html += '</div></div>';
+    app.innerHTML = html;
+    bindAuthActions();
+  }
+
+  function bindAuthActions() {
+    document.querySelectorAll('[data-action="auth-tab"]').forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        state.authMode = btn.getAttribute("data-mode");
+        state.authError = null;
+        renderAuth();
+      });
+    });
+    document.querySelectorAll(".pw-toggle").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var input = document.getElementById(btn.getAttribute("data-target"));
+        if (!input) return;
+        input.type = input.type === "password" ? "text" : "password";
+        btn.textContent = input.type === "password" ? "👁️" : "🙈";
+      });
+    });
+    var submit = document.getElementById("auth-submit");
+    if (submit) submit.addEventListener("click", function () {
+      if (state.authMode === "register") handleRegister(); else handleLogin();
+    });
+    document.querySelectorAll(".auth-card input").forEach(function (input) {
+      input.addEventListener("keydown", function (ev) {
+        if (ev.key === "Enter") { ev.preventDefault(); if (submit) submit.click(); }
+      });
+    });
+    var firstInput = document.querySelector(".auth-card input");
+    if (firstInput) firstInput.focus();
+  }
+
+  function handleRegister() {
+    var name = document.getElementById("r-name").value.trim();
+    var email = document.getElementById("r-email").value.trim();
+    var pass = document.getElementById("r-pass").value;
+    var pass2 = document.getElementById("r-pass2").value;
+
+    if (name.length < 2) { state.authError = "Lütfen ad soyad gir."; renderAuth(); return; }
+    if (!EMAIL_RE.test(email)) { state.authError = "Geçerli bir e-posta adresi gir."; renderAuth(); return; }
+    if (pass.length < 6 || !PASSWORD_RE.test(pass)) { state.authError = PASSWORD_HINT; renderAuth(); return; }
+    if (pass !== pass2) { state.authError = "Şifreler eşleşmiyor."; renderAuth(); return; }
+    var exists = state.users.some(function (u) { return u.emailLower === email.toLowerCase(); });
+    if (exists) { state.authError = "Bu e-posta ile zaten bir hesap var. Giriş yapmayı dene."; renderAuth(); return; }
+
+    state.authError = null; state.authBusy = true; renderAuth();
+    var salt = genSalt();
+    hashPassword(pass, salt).then(function (hash) {
+      var user = {
+        id: uid(), name: name, email: email, emailLower: email.toLowerCase(),
+        passwordHash: hash, salt: salt, avatar: null, createdAt: new Date().toISOString()
+      };
+      state.users = state.users.concat([user]);
+      persistUsers();
+      state.authBusy = false;
+      loginAs(user);
+      toast("Hoş geldin, " + name.split(" ")[0] + "! Hesabın oluşturuldu.");
+    }).catch(function () {
+      state.authBusy = false;
+      state.authError = "Bir şeyler ters gitti, tekrar dener misin?";
+      renderAuth();
+    });
+  }
+
+  function handleLogin() {
+    var email = document.getElementById("l-email").value.trim();
+    var pass = document.getElementById("l-pass").value;
+    if (!email || !pass) { state.authError = "E-posta ve şifreni gir."; renderAuth(); return; }
+    var user = state.users.find(function (u) { return u.emailLower === email.toLowerCase(); });
+    if (!user) { state.authError = "E-posta veya şifre hatalı."; renderAuth(); return; }
+
+    state.authError = null; state.authBusy = true; renderAuth();
+    hashPassword(pass, user.salt).then(function (hash) {
+      state.authBusy = false;
+      if (hash !== user.passwordHash) {
+        state.authError = "E-posta veya şifre hatalı.";
+        renderAuth();
+        return;
+      }
+      loginAs(user);
+      toast("Tekrar hoş geldin, " + user.name.split(" ")[0] + "!");
+    }).catch(function () {
+      state.authBusy = false;
+      state.authError = "Bir şeyler ters gitti, tekrar dener misin?";
+      renderAuth();
+    });
+  }
+
   // ---------- rendering ----------
   var charts = { donut: null, bar: null };
 
@@ -437,11 +727,22 @@
       return;
     }
 
+    var user = state.currentUser;
     var html = "";
     html += '<header class="gd-header">' +
-      '<span class="gd-title-eyebrow">GARAJ DEFTERİ</span>' +
-      '<div class="gd-title"><h1>Araç Masraf Takibi</h1></div>' +
-      '<p class="storage-note">Veriler bu tarayıcının kendi hafızasında (localStorage) tutulur.</p>' +
+      '<div class="header-top-row">' +
+        '<div><span class="gd-title-eyebrow">GARAJ DEFTERİ</span>' +
+        '<div class="gd-title"><h1>Araç Masraf Takibi</h1></div></div>' +
+        (user ? '<div class="account-chip" data-action="toggle-account-menu">' + userAvatarHTML(user, 28) +
+          '<span class="account-name">' + esc(user.name) + '</span><span class="account-chevron">▾</span>' +
+          (state.accountMenuOpen ? '<div class="account-menu">' +
+            '<button type="button" class="account-menu-item" data-action="open-profile">👤 Hesabım</button>' +
+            '<div class="account-menu-divider"></div>' +
+            '<button type="button" class="account-menu-item danger" data-action="logout">🚪 Çıkış Yap</button>' +
+          '</div>' : '') +
+        '</div>' : '') +
+      '</div>' +
+      '<p class="storage-note">Veriler bu tarayıcının kendi hafızasında (localStorage), hesabına özel olarak tutulur.</p>' +
       '<div class="header-actions">' +
         '<button class="btn-secondary" data-action="export-data">⬇️ Yedekle</button>' +
         '<label class="btn-secondary" style="cursor:pointer;position:relative;overflow:hidden;">⬆️ Geri Yükle<input type="file" accept="application/json" id="import-input" style="position:absolute;inset:0;opacity:0;cursor:pointer;" /></label>' +
@@ -641,8 +942,128 @@
       backdrop.appendChild(buildCarModal());
     } else if (state.modal.type === "addExpense") {
       backdrop.appendChild(buildExpenseModal());
+    } else if (state.modal.type === "profile") {
+      backdrop.appendChild(buildProfileModal());
     }
     document.body.appendChild(backdrop);
+  }
+
+  function buildProfileModal() {
+    var user = state.currentUser;
+    var modal = document.createElement("div");
+    modal.className = "modal wide";
+    modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
+    modal.__avatar = user.avatar || null;
+
+    modal.innerHTML =
+      '<div class="modal-head"><h3>Hesabım</h3><button class="icon-btn" data-action="close-modal">✕</button></div>' +
+      '<p class="profile-section-title">Profil Bilgileri</p>' +
+      '<div class="avatar-upload-row">' +
+        '<div class="avatar-upload" id="pu-avatar">' +
+          (user.avatar ? '<img src="' + user.avatar + '" alt="" />' : '<span class="pu-label">📷<br/>Ekle</span>') +
+          '<input type="file" accept="image/*" id="avatar-file" />' +
+        '</div>' +
+        '<p class="avatar-upload-hint">Profil fotoğrafı ekle veya değiştir. Fotoğraflar otomatik küçültülerek saklanır.</p>' +
+      '</div>' +
+      '<label class="field"><span>Ad Soyad</span><input id="p-name" value="' + esc(user.name) + '" /></label>' +
+      '<label class="field"><span>E-posta</span><input id="p-email" type="email" value="' + esc(user.email) + '" /></label>' +
+      '<button type="button" class="btn-primary full" id="p-save">Profili Kaydet</button>' +
+
+      '<p class="profile-section-title">Şifre Değiştir</p>' +
+      '<label class="field"><span>Mevcut şifre</span><input id="p-cur-pass" type="password" autocomplete="current-password" /></label>' +
+      '<label class="field"><span>Yeni şifre</span><input id="p-new-pass" type="password" placeholder="Örn. Araba1!" autocomplete="new-password" /></label>' +
+      '<p class="field-hint" style="margin-top:-6px">' + PASSWORD_HINT + '</p>' +
+      '<label class="field"><span>Yeni şifre (tekrar)</span><input id="p-new-pass2" type="password" autocomplete="new-password" /></label>' +
+      '<button type="button" class="btn-secondary full" id="p-pass-save">Şifreyi Güncelle</button>' +
+
+      '<p class="profile-section-title">Tehlikeli Alan</p>' +
+      '<div class="danger-zone">' +
+        '<p>Hesabını sildiğinde bu hesaba ait tüm araçlar ve masraf kayıtları kalıcı olarak silinir. Bu işlem geri alınamaz.</p>' +
+        '<button type="button" class="btn-danger full" id="p-delete-account">🗑️ Hesabımı Sil</button>' +
+      '</div>';
+
+    function bindAvatarInput() {
+      var input = modal.querySelector("#avatar-file");
+      input.addEventListener("change", function (ev) {
+        var file = ev.target.files && ev.target.files[0];
+        if (!file) return;
+        compressImage(file, 300, 0.8).then(function (dataUrl) {
+          modal.__avatar = dataUrl;
+          var box = modal.querySelector("#pu-avatar");
+          box.innerHTML = '<img src="' + dataUrl + '" alt="" /><input type="file" accept="image/*" id="avatar-file" />';
+          bindAvatarInput();
+        }).catch(function () { toast("Fotoğraf yüklenemedi."); });
+      });
+    }
+    bindAvatarInput();
+
+    modal.querySelector("#p-save").addEventListener("click", function () {
+      var name = modal.querySelector("#p-name").value.trim();
+      var email = modal.querySelector("#p-email").value.trim();
+      if (name.length < 2) { toast("Lütfen ad soyad gir."); return; }
+      if (!EMAIL_RE.test(email)) { toast("Geçerli bir e-posta adresi gir."); return; }
+      var dup = state.users.some(function (u) { return u.id !== user.id && u.emailLower === email.toLowerCase(); });
+      if (dup) { toast("Bu e-posta başka bir hesapta kullanılıyor."); return; }
+
+      var patch = { name: name, email: email, emailLower: email.toLowerCase(), avatar: modal.__avatar };
+      state.users = state.users.map(function (u) { return u.id === user.id ? Object.assign({}, u, patch) : u; });
+      state.currentUser = Object.assign({}, user, patch);
+      persistUsers();
+      toast("Profil güncellendi.");
+      closeModal();
+      render();
+    });
+
+    modal.querySelector("#p-pass-save").addEventListener("click", function () {
+      var cur = modal.querySelector("#p-cur-pass").value;
+      var next = modal.querySelector("#p-new-pass").value;
+      var next2 = modal.querySelector("#p-new-pass2").value;
+      if (!cur) { toast("Mevcut şifreni gir."); return; }
+      if (next.length < 6 || !PASSWORD_RE.test(next)) { toast(PASSWORD_HINT); return; }
+      if (next !== next2) { toast("Yeni şifreler eşleşmiyor."); return; }
+      var btn = modal.querySelector("#p-pass-save");
+      btn.disabled = true; btn.textContent = "Kontrol ediliyor…";
+      hashPassword(cur, user.salt).then(function (curHash) {
+        if (curHash !== user.passwordHash) {
+          btn.disabled = false; btn.textContent = "Şifreyi Güncelle";
+          toast("Mevcut şifre yanlış.");
+          return null;
+        }
+        var newSalt = genSalt();
+        return hashPassword(next, newSalt).then(function (newHash) { return { salt: newSalt, hash: newHash }; });
+      }).then(function (res) {
+        if (!res) return;
+        var patch = { salt: res.salt, passwordHash: res.hash };
+        state.users = state.users.map(function (u) { return u.id === user.id ? Object.assign({}, u, patch) : u; });
+        state.currentUser = Object.assign({}, user, patch);
+        persistUsers();
+        toast("Şifre güncellendi.");
+        closeModal();
+        render();
+      }).catch(function () {
+        btn.disabled = false; btn.textContent = "Şifreyi Güncelle";
+        toast("Bir şeyler ters gitti, tekrar dener misin?");
+      });
+    });
+
+    modal.querySelector("#p-delete-account").addEventListener("click", function () {
+      showConfirm({
+        title: "Hesabı Sil",
+        message: "Hesabını ve bu hesaba ait tüm araç/masraf verilerini kalıcı olarak silmek istediğine emin misin? Bu işlem geri alınamaz.",
+        confirmLabel: "Evet, Hesabımı Sil",
+        danger: true,
+        onConfirm: function () {
+          try { localStorage.removeItem(carsKey(user.id)); localStorage.removeItem(expensesKey(user.id)); } catch (e) {}
+          state.users = state.users.filter(function (u) { return u.id !== user.id; });
+          persistUsers();
+          closeModal();
+          toast("Hesabın silindi.");
+          logout();
+        }
+      });
+    });
+
+    return modal;
   }
 
   function buildCarModal() {
@@ -856,15 +1277,36 @@
         }
         else if (action === "delete-car") {
           var carId = el.getAttribute("data-car");
-          if (!window.confirm("Bu aracı ve tüm masraf kayıtlarını silmek istediğinize emin misiniz?")) return;
-          state.cars = state.cars.filter(function (c) { return c.id !== carId; });
-          state.expenses = state.expenses.filter(function (e) { return e.carId !== carId; });
-          if (state.selectedCarId === carId) state.selectedCarId = "all";
-          persistCars(); persistExpenses(); render();
+          showConfirm({
+            title: "Aracı Sil",
+            message: "Bu aracı ve tüm masraf kayıtlarını silmek istediğinize emin misiniz? Bu işlem geri alınamaz.",
+            confirmLabel: "Sil",
+            danger: true,
+            onConfirm: function () {
+              state.cars = state.cars.filter(function (c) { return c.id !== carId; });
+              state.expenses = state.expenses.filter(function (e) { return e.carId !== carId; });
+              if (state.selectedCarId === carId) state.selectedCarId = "all";
+              persistCars(); persistExpenses(); render();
+            }
+          });
         }
         else if (action === "close-modal") { closeModal(); }
         else if (action === "close-modal-backdrop" && ev.target === el) { closeModal(); }
         else if (action === "export-data") { exportData(); }
+        else if (action === "toggle-account-menu") { ev.stopPropagation(); state.accountMenuOpen = !state.accountMenuOpen; render(); }
+        else if (action === "open-profile") { ev.stopPropagation(); state.modal = { type: "profile" }; state.accountMenuOpen = false; render(); }
+        else if (action === "logout") {
+          ev.stopPropagation();
+          state.accountMenuOpen = false;
+          render();
+          showConfirm({
+            title: "Çıkış Yap",
+            message: "Çıkış yapmak istediğine emin misin?",
+            confirmLabel: "Çıkış Yap",
+            danger: true,
+            onConfirm: function () { logout(); }
+          });
+        }
       });
     });
     var importInput = document.getElementById("import-input");
@@ -875,6 +1317,13 @@
       });
     }
   }
+
+  document.addEventListener("click", function (ev) {
+    if (state.accountMenuOpen && !ev.target.closest(".account-chip")) {
+      state.accountMenuOpen = false;
+      render();
+    }
+  });
 
   init();
 })();
