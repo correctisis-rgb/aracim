@@ -5,6 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Garaj Defteri</title>
 <link rel="manifest" href="manifest.json">
+<!-- PWA Manifest Bağlantısı -->
+<link rel="manifest" href="/aracim/manifest.json">
+
+<!-- iOS (Safari) Uyumluluk Detayları -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Aracım">
+<link rel="apple-touch-icon" href="/aracim/icon-192.png">
+
+<!-- Mobil Tarayıcı Adres Çubuğu Rengi -->
+<meta name="theme-color" content="#9B51E0">
+  
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <style>
@@ -315,7 +327,7 @@
   var unsubscribeUserDoc = null;
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.0.0"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.0.1"; // Dynamic Version Tracking
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -1479,6 +1491,20 @@
 
   init();
 })();
+
+
+
+
+
+
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/aracim/sw.js')
+        .then(reg => console.log('Service Worker kayıt başarılı!', reg))
+        .catch(err => console.warn('Service Worker kaydı başarısız:', err));
+    });
+  }
+
 </script>
 </body>
 </html>
