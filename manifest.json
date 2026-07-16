@@ -1,0 +1,21 @@
+{
+  "short_name": "GarajDefteri",
+  "name": "Garaj Defteri Araç Masraf Takibi",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3202/3202923.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3202/3202923.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": ".",
+  "background_color": "#1B1F24",
+  "theme_color": "#F2A93B",
+  "display": "standalone",
+  "orientation": "portrait"
+}
