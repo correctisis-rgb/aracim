@@ -1,21 +1,22 @@
 {
-  "short_name": "GarajDefteri",
-  "name": "Garaj Defteri Araç Masraf Takibi",
+  "short_name": "Aracım",
+  "name": "Aracım - Garaj Defteri",
+  "description": "Aracınızın bakım, yakıt ve masraf kayıtlarını tutun.",
   "icons": [
     {
-      "src": "https://cdn-icons-png.flaticon.com/512/3202/3202923.png",
+      "src": "icon-192.png",
       "type": "image/png",
       "sizes": "192x192"
     },
     {
-      "src": "https://cdn-icons-png.flaticon.com/512/3202/3202923.png",
+      "src": "icon-512.png",
       "type": "image/png",
       "sizes": "512x512"
     }
   ],
-  "start_url": ".",
-  "background_color": "#1B1F24",
-  "theme_color": "#F2A93B",
+  "start_url": "/aracim/index.html",
+  "background_color": "#07080C",
+  "theme_color": "#9B51E0",
   "display": "standalone",
   "orientation": "portrait"
 }
