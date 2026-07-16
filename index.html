@@ -276,9 +276,27 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+<script>
+  var firebaseConfig = {
+    apiKey: "AIzaSyCcfODFLDPVA4zr7L6xKPjEA6-Vle3XPio",
+    authDomain: "garaj-defteri-2bcdd.firebaseapp.com",
+    projectId: "garaj-defteri-2bcdd",
+    storageBucket: "garaj-defteri-2bcdd.firebasestorage.app",
+    messagingSenderId: "983721667235",
+    appId: "1:983721667235:web:6e47457841795e700ded16"
+  };
+  firebase.initializeApp(firebaseConfig);
+</script>
 <script>
 (function () {
   "use strict";
+
+  var auth = firebase.auth();
+  var db = firebase.firestore();
+  var unsubscribeUserDoc = null;
 
   // ---------- constants ----------
   var CATEGORIES = [
@@ -291,10 +309,6 @@
   ];
   var CAR_COLORS = ["#F2A93B", "#4FA8D8", "#7BC67E", "#C77DE0", "#E2574C"];
   var MONTHS_TR = ["Oca","Şub","Mar","Nis","May","Haz","Tem","Ağu","Eyl","Eki","Kas","Ara"];
-  var CARS_KEY = "garaj_cars_v1";
-  var EXPENSES_KEY = "garaj_expenses_v1";
-  var USERS_KEY = "garaj_users_v1";
-  var SESSION_KEY = "garaj_session_v1";
   var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   // en az 6 karakter, en az 1 büyük harf, 1 küçük harf, 1 sembol
   var PASSWORD_RE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*[^A-Za-z0-9]).{6,}$/;
@@ -325,24 +339,6 @@
     return { key: "ok", label: days + " gün kaldı", color: "#7BC67E" };
   }
 
-  // ---------- storage ----------
-  function loadJSON(key, fallback) {
-    try {
-      var raw = localStorage.getItem(key);
-      return raw ? JSON.parse(raw) : fallback;
-    } catch (e) { return fallback; }
-  }
-  function saveJSON(key, value) {
-    try {
-      localStorage.setItem(key, JSON.stringify(value));
-      return true;
-    } catch (e) {
-      console.error("Kayıt hatası:", e);
-      toast("Kaydedilemedi: tarayıcı depolama alanı dolu olabilir. Fotoğraf boyutunu küçültmeyi deneyin.");
-      return false;
-    }
-  }
-
   // ---------- image helper ----------
   function compressImage(file, maxDim, quality) {
     maxDim = maxDim || 900; quality = quality || 0.72;
@@ -369,23 +365,21 @@
   }
 
   // ---------- auth helpers ----------
-  function genSalt() { return Math.random().toString(36).slice(2) + Date.now().toString(36); }
-
-  function hashPassword(password, salt) {
-    var data = new TextEncoder().encode(salt + ":" + password);
-    if (window.crypto && window.crypto.subtle) {
-      return window.crypto.subtle.digest("SHA-256", data).then(function (buf) {
-        return Array.prototype.map.call(new Uint8Array(buf), function (b) { return b.toString(16).padStart(2, "0"); }).join("");
-      });
+  function authErrorMessage(err) {
+    var code = err && err.code;
+    switch (code) {
+      case "auth/email-already-in-use": return "Bu e-posta ile zaten bir hesap var. Giriş yapmayı dene.";
+      case "auth/invalid-email": return "Geçerli bir e-posta adresi gir.";
+      case "auth/weak-password": return PASSWORD_HINT;
+      case "auth/user-not-found":
+      case "auth/wrong-password":
+      case "auth/invalid-credential": return "E-posta veya şifre hatalı.";
+      case "auth/too-many-requests": return "Çok fazla deneme yapıldı. Biraz sonra tekrar dener misin?";
+      case "auth/requires-recent-login": return "Bu işlem için tekrar giriş yapman gerekiyor. Çıkış yapıp tekrar giriş yap.";
+      case "auth/network-request-failed": return "Bağlantı sorunu oluştu. İnternetini kontrol edip tekrar dener misin?";
+      default: return "Bir şeyler ters gitti, tekrar dener misin?";
     }
-    // fallback (very old browsers without SubtleCrypto): weak but functional
-    var str = salt + ":" + password, hash = 0;
-    for (var i = 0; i < str.length; i++) { hash = ((hash << 5) - hash) + str.charCodeAt(i); hash |= 0; }
-    return Promise.resolve("fallback" + Math.abs(hash));
   }
-
-  function carsKey(userId) { return CARS_KEY + "_" + userId; }
-  function expensesKey(userId) { return EXPENSES_KEY + "_" + userId; }
 
   function initials(name) {
     var parts = (name || "?").trim().split(/\s+/).filter(Boolean);
@@ -401,12 +395,12 @@
 
   // ---------- state ----------
   var state = {
-    users: null,
     currentUser: null,
     authMode: "login", // 'login' | 'register'
     authError: null,
     authBusy: false,
     accountMenuOpen: false,
+    online: navigator.onLine,
     cars: null,
     expenses: null,
     selectedCarId: "all",
@@ -415,9 +409,20 @@
     lightbox: null
   };
 
-  function persistCars() { if (state.currentUser) saveJSON(carsKey(state.currentUser.id), state.cars); }
-  function persistExpenses() { if (state.currentUser) saveJSON(expensesKey(state.currentUser.id), state.expenses); }
-  function persistUsers() { saveJSON(USERS_KEY, state.users); }
+  function defaultCar() {
+    return { id: uid(), name: "Arabam", plate: "34 XX 000", color: CAR_COLORS[0], inspectionDate: null, maintenanceDate: null, photo: null, ruhsat: null };
+  }
+
+  function persistCars() {
+    if (!state.currentUser) return;
+    db.collection("users").doc(state.currentUser.id).set({ cars: state.cars }, { merge: true })
+      .catch(function (err) { console.error(err); toast("Kaydedilemedi: " + authErrorMessage(err)); });
+  }
+  function persistExpenses() {
+    if (!state.currentUser) return;
+    db.collection("users").doc(state.currentUser.id).set({ expenses: state.expenses }, { merge: true })
+      .catch(function (err) { console.error(err); toast("Kaydedilemedi: " + authErrorMessage(err)); });
+  }
 
   function toast(msg) {
     var el = document.createElement("div");
@@ -495,50 +500,72 @@
 
 
 
-  function loadUserData(user) {
-    var cars = loadJSON(carsKey(user.id), null);
-    if (!cars || !cars.length) {
-      cars = [{ id: uid(), name: "Arabam", plate: "34 XX 000", color: CAR_COLORS[0], inspectionDate: null, maintenanceDate: null, photo: null, ruhsat: null }];
-      saveJSON(carsKey(user.id), cars);
-    }
-    state.cars = cars;
-    state.expenses = loadJSON(expensesKey(user.id), []);
-  }
-
-  function loginAs(user) {
-    state.currentUser = user;
+  function loginAs(fbUser) {
+    state.currentUser = { id: fbUser.uid, name: fbUser.displayName || "Kullanıcı", email: fbUser.email, avatar: null };
     state.selectedCarId = "all";
     state.view = "panel";
     state.modal = null;
     state.accountMenuOpen = false;
-    loadUserData(user);
-    saveJSON(SESSION_KEY, { userId: user.id });
-    render();
+    state.cars = null;
+    state.expenses = null;
+    render(); // shows loading screen while the first snapshot arrives
+
+    if (unsubscribeUserDoc) unsubscribeUserDoc();
+    var docRef = db.collection("users").doc(fbUser.uid);
+    unsubscribeUserDoc = docRef.onSnapshot(function (snap) {
+      if (!snap.exists) {
+        docRef.set({
+          name: fbUser.displayName || "Kullanıcı",
+          email: fbUser.email,
+          avatar: null,
+          cars: [defaultCar()],
+          expenses: [],
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        }).catch(function (err) { console.error(err); toast("Hesap verisi oluşturulamadı: " + authErrorMessage(err)); });
+        return; // the write above will re-trigger this listener
+      }
+      var data = snap.data() || {};
+      if (!state.currentUser || state.currentUser.id !== fbUser.uid) return; // stale listener after logout
+      state.currentUser = { id: fbUser.uid, name: data.name || fbUser.displayName || "Kullanıcı", email: data.email || fbUser.email, avatar: data.avatar || null };
+      state.cars = (data.cars && data.cars.length) ? data.cars : [defaultCar()];
+      state.expenses = data.expenses || [];
+      render();
+    }, function (err) {
+      console.error(err);
+      toast("Veriler yüklenemedi: " + authErrorMessage(err));
+    });
   }
 
   function logout() {
-    state.currentUser = null;
-    state.cars = null;
-    state.expenses = null;
-    state.selectedCarId = "all";
-    state.view = "panel";
-    state.modal = null;
-    state.accountMenuOpen = false;
-    state.authMode = "login";
-    state.authError = null;
-    try { localStorage.removeItem(SESSION_KEY); } catch (e) {}
-    renderAuth();
+    if (unsubscribeUserDoc) { unsubscribeUserDoc(); unsubscribeUserDoc = null; }
+    auth.signOut().then(function () {
+      state.currentUser = null;
+      state.cars = null;
+      state.expenses = null;
+      state.selectedCarId = "all";
+      state.view = "panel";
+      state.modal = null;
+      state.accountMenuOpen = false;
+      state.authMode = "login";
+      state.authError = null;
+      renderAuth();
+    }).catch(function (err) { toast("Çıkış yapılamadı: " + authErrorMessage(err)); });
   }
 
   function init() {
-    state.users = loadJSON(USERS_KEY, []);
-    var session = loadJSON(SESSION_KEY, null);
-    var user = session && session.userId ? state.users.find(function (u) { return u.id === session.userId; }) : null;
-    if (user) {
-      loginAs(user);
-    } else {
-      renderAuth();
-    }
+    window.addEventListener("online", function () { state.online = true; if (state.currentUser) render(); });
+    window.addEventListener("offline", function () { state.online = false; if (state.currentUser) render(); });
+    auth.onAuthStateChanged(function (fbUser) {
+      if (fbUser) {
+        loginAs(fbUser);
+      } else {
+        if (unsubscribeUserDoc) { unsubscribeUserDoc(); unsubscribeUserDoc = null; }
+        state.currentUser = null;
+        state.cars = null;
+        state.expenses = null;
+        renderAuth();
+      }
+    });
   }
 
   // ---------- derived data ----------
@@ -671,24 +698,23 @@
     if (!EMAIL_RE.test(email)) { state.authError = "Geçerli bir e-posta adresi gir."; renderAuth(); return; }
     if (pass.length < 6 || !PASSWORD_RE.test(pass)) { state.authError = PASSWORD_HINT; renderAuth(); return; }
     if (pass !== pass2) { state.authError = "Şifreler eşleşmiyor."; renderAuth(); return; }
-    var exists = state.users.some(function (u) { return u.emailLower === email.toLowerCase(); });
-    if (exists) { state.authError = "Bu e-posta ile zaten bir hesap var. Giriş yapmayı dene."; renderAuth(); return; }
 
     state.authError = null; state.authBusy = true; renderAuth();
-    var salt = genSalt();
-    hashPassword(pass, salt).then(function (hash) {
-      var user = {
-        id: uid(), name: name, email: email, emailLower: email.toLowerCase(),
-        passwordHash: hash, salt: salt, avatar: null, createdAt: new Date().toISOString()
-      };
-      state.users = state.users.concat([user]);
-      persistUsers();
+    auth.createUserWithEmailAndPassword(email, pass).then(function (cred) {
+      return cred.user.updateProfile({ displayName: name }).then(function () {
+        return db.collection("users").doc(cred.user.uid).set({
+          name: name, email: email, avatar: null,
+          cars: [defaultCar()], expenses: [],
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      });
+    }).then(function () {
       state.authBusy = false;
-      loginAs(user);
       toast("Hoş geldin, " + name.split(" ")[0] + "! Hesabın oluşturuldu.");
-    }).catch(function () {
+      // auth.onAuthStateChanged fires loginAs automatically
+    }).catch(function (err) {
       state.authBusy = false;
-      state.authError = "Bir şeyler ters gitti, tekrar dener misin?";
+      state.authError = authErrorMessage(err);
       renderAuth();
     });
   }
@@ -697,22 +723,15 @@
     var email = document.getElementById("l-email").value.trim();
     var pass = document.getElementById("l-pass").value;
     if (!email || !pass) { state.authError = "E-posta ve şifreni gir."; renderAuth(); return; }
-    var user = state.users.find(function (u) { return u.emailLower === email.toLowerCase(); });
-    if (!user) { state.authError = "E-posta veya şifre hatalı."; renderAuth(); return; }
 
     state.authError = null; state.authBusy = true; renderAuth();
-    hashPassword(pass, user.salt).then(function (hash) {
+    auth.signInWithEmailAndPassword(email, pass).then(function (cred) {
       state.authBusy = false;
-      if (hash !== user.passwordHash) {
-        state.authError = "E-posta veya şifre hatalı.";
-        renderAuth();
-        return;
-      }
-      loginAs(user);
-      toast("Tekrar hoş geldin, " + user.name.split(" ")[0] + "!");
-    }).catch(function () {
+      toast("Tekrar hoş geldin, " + (cred.user.displayName || "").split(" ")[0] + "!");
+      // auth.onAuthStateChanged fires loginAs automatically
+    }).catch(function (err) {
       state.authBusy = false;
-      state.authError = "Bir şeyler ters gitti, tekrar dener misin?";
+      state.authError = authErrorMessage(err);
       renderAuth();
     });
   }
@@ -742,8 +761,9 @@
           '</div>' : '') +
         '</div>' : '') +
       '</div>' +
-      '<p class="storage-note">Veriler bu tarayıcının kendi hafızasında (localStorage), hesabına özel olarak tutulur.</p>' +
+      '<p class="storage-note">Veriler Firebase üzerinden hesabına özel olarak buluta kaydedilir ve cihazların arasında otomatik senkronize olur.</p>' +
       '<div class="header-actions">' +
+        (user ? '<span class="sync-badge" style="color:' + (state.online ? "#7BC67E" : "#E2574C") + ';border-color:' + (state.online ? "#7BC67E" : "#E2574C") + '55;background:' + (state.online ? "#7BC67E" : "#E2574C") + '18">' + (state.online ? "🟢 Senkronize" : "🔴 Çevrimdışı") + '</span>' : '') +
         '<button class="btn-secondary" data-action="export-data">⬇️ Yedekle</button>' +
         '<label class="btn-secondary" style="cursor:pointer;position:relative;overflow:hidden;">⬆️ Geri Yükle<input type="file" accept="application/json" id="import-input" style="position:absolute;inset:0;opacity:0;cursor:pointer;" /></label>' +
       '</div>' +
@@ -1002,16 +1022,22 @@
       var email = modal.querySelector("#p-email").value.trim();
       if (name.length < 2) { toast("Lütfen ad soyad gir."); return; }
       if (!EMAIL_RE.test(email)) { toast("Geçerli bir e-posta adresi gir."); return; }
-      var dup = state.users.some(function (u) { return u.id !== user.id && u.emailLower === email.toLowerCase(); });
-      if (dup) { toast("Bu e-posta başka bir hesapta kullanılıyor."); return; }
 
-      var patch = { name: name, email: email, emailLower: email.toLowerCase(), avatar: modal.__avatar };
-      state.users = state.users.map(function (u) { return u.id === user.id ? Object.assign({}, u, patch) : u; });
-      state.currentUser = Object.assign({}, user, patch);
-      persistUsers();
-      toast("Profil güncellendi.");
-      closeModal();
-      render();
+      var fbUser = auth.currentUser;
+      var btn = modal.querySelector("#p-save");
+      btn.disabled = true; btn.textContent = "Kaydediliyor…";
+      var tasks = [];
+      if (name !== fbUser.displayName) tasks.push(fbUser.updateProfile({ displayName: name }));
+      if (email !== fbUser.email) tasks.push(fbUser.updateEmail(email));
+      Promise.all(tasks).then(function () {
+        return db.collection("users").doc(fbUser.uid).set({ name: name, email: email, avatar: modal.__avatar }, { merge: true });
+      }).then(function () {
+        toast("Profil güncellendi.");
+        closeModal();
+      }).catch(function (err) {
+        btn.disabled = false; btn.textContent = "Profili Kaydet";
+        toast(authErrorMessage(err));
+      });
     });
 
     modal.querySelector("#p-pass-save").addEventListener("click", function () {
@@ -1023,26 +1049,16 @@
       if (next !== next2) { toast("Yeni şifreler eşleşmiyor."); return; }
       var btn = modal.querySelector("#p-pass-save");
       btn.disabled = true; btn.textContent = "Kontrol ediliyor…";
-      hashPassword(cur, user.salt).then(function (curHash) {
-        if (curHash !== user.passwordHash) {
-          btn.disabled = false; btn.textContent = "Şifreyi Güncelle";
-          toast("Mevcut şifre yanlış.");
-          return null;
-        }
-        var newSalt = genSalt();
-        return hashPassword(next, newSalt).then(function (newHash) { return { salt: newSalt, hash: newHash }; });
-      }).then(function (res) {
-        if (!res) return;
-        var patch = { salt: res.salt, passwordHash: res.hash };
-        state.users = state.users.map(function (u) { return u.id === user.id ? Object.assign({}, u, patch) : u; });
-        state.currentUser = Object.assign({}, user, patch);
-        persistUsers();
+      var fbUser = auth.currentUser;
+      var credential = firebase.auth.EmailAuthProvider.credential(fbUser.email, cur);
+      fbUser.reauthenticateWithCredential(credential).then(function () {
+        return fbUser.updatePassword(next);
+      }).then(function () {
         toast("Şifre güncellendi.");
         closeModal();
-        render();
-      }).catch(function () {
+      }).catch(function (err) {
         btn.disabled = false; btn.textContent = "Şifreyi Güncelle";
-        toast("Bir şeyler ters gitti, tekrar dener misin?");
+        toast(authErrorMessage(err));
       });
     });
 
@@ -1053,12 +1069,18 @@
         confirmLabel: "Evet, Hesabımı Sil",
         danger: true,
         onConfirm: function () {
-          try { localStorage.removeItem(carsKey(user.id)); localStorage.removeItem(expensesKey(user.id)); } catch (e) {}
-          state.users = state.users.filter(function (u) { return u.id !== user.id; });
-          persistUsers();
-          closeModal();
-          toast("Hesabın silindi.");
-          logout();
+          var fbUser = auth.currentUser;
+          var docRef = db.collection("users").doc(fbUser.uid);
+          if (unsubscribeUserDoc) { unsubscribeUserDoc(); unsubscribeUserDoc = null; }
+          docRef.delete().then(function () {
+            return fbUser.delete();
+          }).then(function () {
+            closeModal();
+            toast("Hesabın silindi.");
+            // auth.onAuthStateChanged fires the sign-out screen automatically
+          }).catch(function (err) {
+            toast("Hesap silinemedi: " + authErrorMessage(err));
+          });
         }
       });
     });
