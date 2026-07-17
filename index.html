@@ -392,8 +392,7 @@
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.1.3"; // Dynamic Version Tracking
-  var APP_UPDATED = "17 Temmuz 2026";
+  var APP_VERSION = "v1.1.4"; // Dynamic Version Tracking
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -625,6 +624,33 @@
         toast("Bildirimler kapatıldı.");
         render();
       }).catch(function (err) { console.error(err); });
+    });
+  }
+
+  // --- Admin: bildirim gönderimini manuel tetikleme ---
+  // NOT: Bu buton doğrudan GitHub Actions'ı tetiklemiyor (bunun için bir
+  // GitHub token gerekirdi ve bu token'ı istemci koduna koymak, sayfa
+  // herkese açık olduğu için güvenlik riski olurdu). Bunun yerine sadece
+  // Firestore'da bir "tetikleme isteği" bayrağı bırakıyor. GitHub Actions
+  // tarafında ayrı, sık aralıklı (her ~10 dakikada bir) çalışan bir kontrol
+  // bu bayrağı görüp gerçek gönderimi yapıyor ve bayrağı sıfırlıyor. Yani
+  // tetikleme anlık değil, en fazla ~10 dakika içinde gerçekleşir.
+  var ADMIN_EMAIL = "emre121856031@gmail.com";
+  function isAdminUser(user) {
+    return !!(user && user.email && user.email.toLowerCase() === ADMIN_EMAIL);
+  }
+
+  function triggerReminders() {
+    if (!state.currentUser || !isAdminUser(state.currentUser)) return;
+    db.collection("admin").doc("reminderTrigger").set({
+      requested: true,
+      requestedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      requestedBy: state.currentUser.email
+    }, { merge: true }).then(function () {
+      toast("Tetikleme isteği gönderildi. En fazla ~10 dakika içinde işlenecek.");
+    }).catch(function (err) {
+      console.error(err);
+      toast("Tetikleme isteği gönderilemedi: " + (err && err.message ? err.message : err));
     });
   }
 
@@ -1058,6 +1084,10 @@
           '<span class="account-name">' + esc(user.name) + '</span><span class="account-chevron">▾</span>' +
           (state.accountMenuOpen ? '<div class="account-menu">' +
             '<button type="button" class="account-menu-item" data-action="open-profile">👤 Hesabım</button>' +
+            (isAdminUser(user) ?
+              '<div class="account-menu-divider"></div>' +
+              '<button type="button" class="account-menu-item" data-action="trigger-reminders">🛠️ Bildirimleri Tetikle</button>'
+              : '') +
             '<div class="account-menu-divider"></div>' +
             '<button type="button" class="account-menu-item danger" data-action="logout">🚪 Çıkış Yap</button>' +
           '</div>' : '') +
@@ -1834,6 +1864,7 @@
         else if (action === "enable-notifications") { enableNotifications(); }
         else if (action === "disable-notifications") { disableNotifications(); }
         else if (action === "toggle-account-menu") { ev.stopPropagation(); state.accountMenuOpen = !state.accountMenuOpen; render(); }
+        else if (action === "trigger-reminders") { ev.stopPropagation(); state.accountMenuOpen = false; triggerReminders(); render(); }
         else if (action === "open-profile") { ev.stopPropagation(); state.modal = { type: "profile" }; state.accountMenuOpen = false; render(); }
         else if (action === "logout") {
           ev.stopPropagation();
