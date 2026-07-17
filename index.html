@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Garaj Defteri</title>
 <link rel="manifest" href="/aracim/manifest.json">
-<link rel="icon" href="/aracim/icon-192.png" type="image/png">
+<link rel="icon" href="/aracim/favicon.ico" type="image/png">
 
 <!-- iOS (Safari) Uyumluluk Detayları -->
 <meta name="mobile-web-app-capable" content="yes">
@@ -345,7 +345,7 @@
   var unsubscribeUserDoc = null;
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.0.6"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.0.7"; // Dynamic Version Tracking
   var APP_UPDATED = "17 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -710,6 +710,21 @@
 
   function monthKey(d) { return d.getFullYear() + "-" + d.getMonth(); }
 
+  function computeCostPerKm(carId) {
+    var fuelExpenses = (state.expenses || [])
+      .filter(function (e) { return e.carId === carId && e.category === "yakit" && e.km != null; })
+      .sort(function (a, b) { return a.km - b.km; });
+    if (fuelExpenses.length < 2) return null;
+    var recent = fuelExpenses.slice(-5); // en fazla son 5 kayıt (4 segment) üzerinden ortalama al
+    var totalDist = 0, totalAmount = 0;
+    for (var i = 1; i < recent.length; i++) {
+      var dist = recent[i].km - recent[i - 1].km;
+      if (dist > 0) { totalDist += dist; totalAmount += Number(recent[i].amount || 0); }
+    }
+    if (totalDist <= 0) return null;
+    return totalAmount / totalDist;
+  }
+
   function computeFuelStats(carId) {
     var fuelExpenses = (state.expenses || [])
       .filter(function (e) { return e.carId === carId && e.category === "yakit" && e.km != null && e.liter != null; })
@@ -1026,16 +1041,13 @@
     if (car.plate) detailBits.push(esc(car.plate));
     var meta = detailBits.length ? detailBits.join(" · ") : "Detayları eklemek için düzenle'ye dokun";
 
-    var costPerKm = null;
-    var fuelTotal = (state.expenses || [])
-      .filter(function (e) { return e.carId === car.id && e.category === "yakit"; })
-      .reduce(function (s, e) { return s + Number(e.amount || 0); }, 0);
-    if (car.currentKm && fuelTotal > 0) costPerKm = fuelTotal / car.currentKm;
+    var costPerKm = computeCostPerKm(car.id);
     var fuelStats = computeFuelStats(car.id);
 
     var stats = "";
     if (car.currentKm != null) stats += '<span class="car-stat-chip"><span class="csc-label">Km</span>🛣️ ' + new Intl.NumberFormat("tr-TR").format(car.currentKm) + '</span>';
-    if (costPerKm != null) stats += '<span class="car-stat-chip"><span class="csc-label">Km başı yakıt</span>⛽ ' + new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY", maximumFractionDigits: 2 }).format(costPerKm) + '</span>';
+    if (car.tankCapacity != null) stats += '<span class="car-stat-chip"><span class="csc-label">Depo</span>🛢️ ' + new Intl.NumberFormat("tr-TR").format(car.tankCapacity) + ' lt</span>';
+    if (costPerKm != null) stats += '<span class="car-stat-chip"><span class="csc-label">Km başı yakıt (ort.)</span>⛽ ' + new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY", maximumFractionDigits: 2 }).format(costPerKm) + '</span>';
     if (fuelStats) stats += '<span class="car-stat-chip"><span class="csc-label">Ort. tüketim</span>⛽ ' + fuelStats.avgConsumption.toFixed(1).replace(".", ",") + ' L/100km</span>';
     if (!stats) stats = '<span class="empty-hint" style="font-size:12px">Km ve masraf ekledikçe istatistikler burada görünecek.</span>';
 
@@ -1371,6 +1383,7 @@
           ["", "Manuel", "Otomatik", "Yarı Otomatik"].map(function (o) { return '<option value="' + o + '"' + (car && car.transmission === o ? " selected" : "") + '>' + (o || "Seçilmedi") + '</option>'; }).join("") +
         '</select></label>' +
       '</div>' +
+      '<label class="field"><span>Depo hacmi (lt, opsiyonel)</span><input id="f-tankcap" type="text" inputmode="numeric" value="' + (car && car.tankCapacity != null ? groupThousands(String(car.tankCapacity)) : "") + '" placeholder="Örn. 50" /></label>' +
       '<div class="field-row">' +
         '<label class="field"><span>Muayene tarihi</span><input id="f-inspection" type="date" value="' + (car && car.inspectionDate ? car.inspectionDate : "") + '" /></label>' +
         '<label class="field"><span>Sonraki bakım tarihi</span><input id="f-maintenance" type="date" value="' + (car && car.maintenanceDate ? car.maintenanceDate : "") + '" /></label>' +
@@ -1398,6 +1411,7 @@
 
     attachThousandsInput(modal.querySelector("#f-km"), false);
     attachThousandsInput(modal.querySelector("#f-maintkm"), false);
+    attachThousandsInput(modal.querySelector("#f-tankcap"), false);
 
     modal.__photos = { carPhoto: car ? car.photo : null, ruhsatPhoto: car ? car.ruhsat : null };
 
@@ -1438,6 +1452,7 @@
         year: modal.querySelector("#f-year").value.trim(),
         fuelType: modal.querySelector("#f-fuel").value,
         transmission: modal.querySelector("#f-trans").value,
+        tankCapacity: parseFormattedNumber(modal.querySelector("#f-tankcap").value),
         inspectionDate: modal.querySelector("#f-inspection").value || null,
         maintenanceDate: modal.querySelector("#f-maintenance").value || null,
         insuranceDate: modal.querySelector("#f-insurance").value || null,
