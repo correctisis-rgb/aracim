@@ -31,6 +31,24 @@ const db = admin.firestore();
 const TRIGGER_SOURCE = process.env.TRIGGER_SOURCE || "";
 const IS_DAILY_RUN = TRIGGER_SOURCE === "0 6 * * *" || TRIGGER_SOURCE === "workflow_dispatch" || !TRIGGER_SOURCE;
 
+// ---------- Sağlık izleme: runLogs kaydı ----------
+// Her gerçek tarama çalıştırmasının sonucunu (başarılı/başarısız, kaç
+// bildirim gönderildi, hata var mı) Firestore'daki runLogs koleksiyonuna
+// yazar. Uygulama içindeki admin "Sağlık" paneli bu kayıtları okuyup
+// gösterir. Sık kontrol çalıştırmasının tetiklenmeden çıktığı durumlar
+// (manuel bayrak yoksa) burada loglanmaz — sadece gerçek taramalar yazılır.
+async function writeRunLog(logData) {
+  try {
+    await db.collection("runLogs").add(Object.assign({
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      triggerSource: TRIGGER_SOURCE || (IS_DAILY_RUN ? "daily" : "manual"),
+      isDailyRun: IS_DAILY_RUN
+    }, logData));
+  } catch (e) {
+    console.error("runLog yazılamadı:", e && e.message ? e.message : e);
+  }
+}
+
 async function checkManualTriggerFlag() {
   const ref = db.collection("admin").doc("reminderTrigger");
   const snap = await ref.get();
@@ -84,6 +102,10 @@ async function main() {
 
   const usersSnap = await db.collection("users").get();
   console.log(`Toplam ${usersSnap.size} kullanıcı taranıyor...`);
+
+  let usersNotified = 0;
+  let totalSent = 0;
+  let totalFailed = 0;
 
   for (const userDoc of usersSnap.docs) {
     const user = userDoc.data();
@@ -144,6 +166,9 @@ async function main() {
     });
 
     console.log(`  Sonuç: ${response.successCount} başarılı, ${response.failureCount} başarısız.`);
+    usersNotified++;
+    totalSent += response.successCount;
+    totalFailed += response.failureCount;
     response.responses.forEach((r, i) => {
       if (!r.success) {
         console.log(`  ✗ Token ${i}: ${r.error && r.error.code} — ${r.error && r.error.message}`);
@@ -168,9 +193,25 @@ async function main() {
   }
 
   console.log("Bitti.");
+
+  await writeRunLog({
+    success: true,
+    summary: usersNotified
+      ? `${usersNotified} kullanıcıya bildirim gönderildi (${totalSent} başarılı, ${totalFailed} başarısız)`
+      : "Taransa bildirim gönderilecek durum bulunamadı",
+    scannedUsers: usersSnap.size,
+    usersNotified,
+    sentCount: totalSent,
+    failedCount: totalFailed
+  });
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
   console.error("Hata:", err);
+  await writeRunLog({
+    success: false,
+    summary: "Çalışma hata ile sonuçlandı",
+    error: err && err.message ? err.message : String(err)
+  });
   process.exit(1);
 });
