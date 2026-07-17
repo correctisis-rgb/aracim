@@ -263,6 +263,18 @@
   .log-filter-clear:hover { border-color: var(--red); color: var(--red); }
   .log-result-count { font-size: 11.5px; color: var(--muted); margin: -2px 0 10px; }
 
+  /* ---------- Analiz / Bütçe ---------- */
+  .budget-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+  .budget-row input { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); padding: 8px 10px; font-size: 14px; font-family: inherit; width: 140px; }
+  .budget-row input:focus { outline: 2px solid var(--amber); outline-offset: 1px; }
+  .budget-bar-track { background: var(--bg); border: 1px solid var(--border); border-radius: 999px; height: 14px; overflow: hidden; margin-bottom: 8px; }
+  .budget-bar-fill { height: 100%; border-radius: 999px; transition: width .25s ease; }
+  .budget-stats-line { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .budget-stats-line strong { color: var(--text); font-family: 'JetBrains Mono', monospace; }
+  .fuel-chart-note { font-size: 11.5px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
+  .chart-box { position: relative; height: 220px; }
+  .chart-box.short { height: 170px; }
+
   /* ---------- Family Section ---------- */
   .family-list { list-style: none; padding: 0; margin: 10px 0 16px 0; display: flex; flex-direction: column; gap: 8px; }
   .family-item { display: flex; align-items: center; justify-content: space-between; background: var(--bg); border: 1px solid var(--border); padding: 8px 12px; border-radius: 8px; }
@@ -466,7 +478,7 @@
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.1.8"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.1.9"; // Dynamic Version Tracking
   var APP_UPDATED = "17 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -626,7 +638,8 @@
     lightboxCaption: "",
     notifStatus: (typeof Notification !== "undefined" ? Notification.permission : "unsupported"),
     onboardingDismissed: getLocalData("onboarding_dismissed", false),
-    logFilters: { search: "", category: "all", carId: "all", dateFrom: "", dateTo: "" }
+    logFilters: { search: "", category: "all", carId: "all", dateFrom: "", dateTo: "" },
+    budgets: getLocalData("budgets", {})
   };
 
   function defaultCar() {
@@ -650,6 +663,12 @@
     setLocalData("family", state.familyMembers);
     if (!state.currentUser || !state.online) return;
     db.collection("users").doc(state.currentUser.id).set({ familyMembers: state.familyMembers }, { merge: true })
+      .catch(function (err) { console.error(err); });
+  }
+  function persistBudgets() {
+    setLocalData("budgets", state.budgets);
+    if (!state.currentUser || !state.online) return;
+    db.collection("users").doc(state.currentUser.id).set({ budgets: state.budgets }, { merge: true })
       .catch(function (err) { console.error(err); });
   }
 
@@ -1020,7 +1039,7 @@
   }
 
   function exportData() {
-    var payload = { cars: state.cars, expenses: state.expenses, family: state.familyMembers, exportedAt: new Date().toISOString() };
+    var payload = { cars: state.cars, expenses: state.expenses, family: state.familyMembers, budgets: state.budgets, exportedAt: new Date().toISOString() };
     var blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     var url = URL.createObjectURL(blob);
     var a = document.createElement("a");
@@ -1049,7 +1068,8 @@
             state.cars = data.cars;
             state.expenses = data.expenses;
             state.familyMembers = data.family || [];
-            persistCars(); persistExpenses(); persistFamily();
+            state.budgets = data.budgets || {};
+            persistCars(); persistExpenses(); persistFamily(); persistBudgets();
             toast("Yedek geri yüklendi.");
             render();
           }
@@ -1080,6 +1100,7 @@
           cars: state.cars || [defaultCar()],
           expenses: state.expenses || [],
           familyMembers: state.familyMembers || [],
+          budgets: state.budgets || {},
           createdAt: firebase.firestore.FieldValue.serverTimestamp()
         }).catch(function (err) { console.error(err); });
         return;
@@ -1092,10 +1113,12 @@
       state.cars = data.cars || state.cars || [defaultCar()];
       state.expenses = data.expenses || state.expenses || [];
       state.familyMembers = data.familyMembers || state.familyMembers || [];
+      state.budgets = data.budgets || state.budgets || {};
 
       setLocalData("cars", state.cars);
       setLocalData("expenses", state.expenses);
       setLocalData("family", state.familyMembers);
+      setLocalData("budgets", state.budgets);
 
       render();
     }, function (err) {
@@ -1117,6 +1140,7 @@
       state.cars = null;
       state.expenses = null;
       state.familyMembers = [];
+      state.budgets = {};
       state.selectedCarId = "all";
       state.view = "panel";
       state.modal = null;
@@ -1249,6 +1273,57 @@
 
     var totalAllTime = visible.reduce(function (s, e) { return s + Number(e.amount || 0); }, 0);
     return { monthTotal: monthTotal, gaugePct: gaugePct, categoryData: categoryData, totalAllTime: totalAllTime };
+  }
+
+  // ---------- Analiz: aylık trend, bütçe, yakıt serileri ----------
+  function computeMonthlyTrend(monthsBack) {
+    var visible = getVisibleExpenses();
+    var now = new Date();
+    var months = [];
+    for (var i = monthsBack - 1; i >= 0; i--) {
+      var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      months.push({ key: monthKey(d), label: MONTHS_TR[d.getMonth()] + " " + String(d.getFullYear()).slice(2), total: 0 });
+    }
+    visible.forEach(function (e) {
+      if (!e.date) return;
+      var k = monthKey(new Date(e.date));
+      var bucket = null;
+      for (var j = 0; j < months.length; j++) { if (months[j].key === k) { bucket = months[j]; break; } }
+      if (bucket) bucket.total += Number(e.amount || 0);
+    });
+    return months;
+  }
+
+  function budgetKey() { return state.selectedCarId || "all"; }
+
+  function computeBudgetInfo() {
+    var key = budgetKey();
+    var budget = (state.budgets || {})[key];
+    var monthTotal = computeDashboard().monthTotal;
+    if (!budget || budget <= 0) return { key: key, budget: null, spent: monthTotal, pct: 0, status: "none" };
+    var pct = monthTotal / budget;
+    var status = pct >= 1 ? "over" : pct >= 0.85 ? "watch" : "ok";
+    return { key: key, budget: budget, spent: monthTotal, pct: Math.min(1, pct), rawPct: pct, status: status };
+  }
+
+  function computeFuelSeries(carId) {
+    var fuelExpenses = (state.expenses || [])
+      .filter(function (e) { return e.carId === carId && e.category === "yakit" && e.km != null; })
+      .sort(function (a, b) { return a.km - b.km; });
+    var consumptionSeries = [];
+    for (var i = 1; i < fuelExpenses.length; i++) {
+      var prev = fuelExpenses[i - 1], cur = fuelExpenses[i];
+      var dist = cur.km - prev.km;
+      if (dist <= 0) continue;
+      var point = { date: cur.date, dateLabel: fmtDateTR(cur.date), costPerKm: Number(cur.amount || 0) / dist };
+      if (cur.liter != null) point.consumption = (cur.liter / dist) * 100;
+      consumptionSeries.push(point);
+    }
+    var priceSeries = fuelExpenses
+      .filter(function (e) { return e.liter != null && e.liter > 0; })
+      .sort(function (a, b) { return new Date(a.date) - new Date(b.date); })
+      .map(function (e) { return { date: e.date, dateLabel: fmtDateTR(e.date), price: Number(e.amount || 0) / e.liter }; });
+    return { consumptionSeries: consumptionSeries, priceSeries: priceSeries };
   }
 
   function kmUrgency(remaining) {
@@ -1413,7 +1488,7 @@
   }
 
   // ---------- rendering ----------
-  var charts = { donut: null };
+  var charts = { donut: null, trend: null, consumption: null, price: null };
 
   function render() {
     var app = document.getElementById("app");
@@ -1493,11 +1568,14 @@
       var hasUrgent = summaryItems.some(function (it) { return it.status.key === "overdue" || it.status.key === "today" || it.status.key === "soon"; });
       html += '<nav class="view-tabs" aria-label="Görünüm seçimi">' +
         '<button class="view-tab ' + (state.view === "panel" ? "active" : "") + '" data-action="set-view" data-view="panel">📊 Panel</button>' +
+        '<button class="view-tab ' + (state.view === "analiz" ? "active" : "") + '" data-action="set-view" data-view="analiz">📈 Analiz</button>' +
         '<button class="view-tab ' + (state.view === "ozet" ? "active" : "") + '" data-action="set-view" data-view="ozet">✅ Özet' + (hasUrgent ? '<span class="view-tab-flag"></span>' : '') + '</button>' +
         '</nav>';
 
       if (state.view === "ozet") {
         html += renderSummaryPanel(summaryItems);
+      } else if (state.view === "analiz") {
+        html += renderAnalysisPanel();
       } else {
         html += renderDashboard(summaryItems);
       }
@@ -1507,12 +1585,13 @@
 
     app.innerHTML = html;
 
-    if (state.view === "panel") drawCharts();
+    if (state.view === "panel" || state.view === "analiz") drawCharts();
     if (state.modal) renderModal();
     if (state.lightbox) renderLightbox();
 
     bindGlobalActions();
     bindLogFilters();
+    bindAnalysisPanel();
 
     if (activeId) {
       var restoredEl = document.getElementById(activeId);
@@ -1690,10 +1769,11 @@
   }
 
   function drawCharts() {
+    if (typeof Chart === "undefined") return;
+
     var d = window.__dashboardData;
-    if (!d || typeof Chart === "undefined") return;
     var donutEl = document.getElementById("donutChart");
-    if (donutEl && d.categoryData.length) {
+    if (d && donutEl && d.categoryData.length) {
       if (charts.donut) charts.donut.destroy();
       charts.donut = new Chart(donutEl, {
         type: "doughnut",
@@ -1702,6 +1782,72 @@
           datasets: [{ data: d.categoryData.map(function (c) { return c.value; }), backgroundColor: d.categoryData.map(function (c) { return c.color; }), borderWidth: 0 }]
         },
         options: { plugins: { legend: { display: false }, tooltip: { callbacks: { label: function (ctx) { return ctx.label + ": " + fmtTL(ctx.parsed); } } } }, cutout: "62%" }
+      });
+    }
+
+    var a = window.__analysisData;
+    if (!a) return;
+
+    var trendEl = document.getElementById("trendChart");
+    if (trendEl && a.months && a.months.some(function (m) { return m.total > 0; })) {
+      if (charts.trend) charts.trend.destroy();
+      charts.trend = new Chart(trendEl, {
+        type: "bar",
+        data: {
+          labels: a.months.map(function (m) { return m.label; }),
+          datasets: [{ data: a.months.map(function (m) { return m.total; }), backgroundColor: "#F2A93B", borderRadius: 6, maxBarThickness: 46 }]
+        },
+        options: {
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { callbacks: { label: function (ctx) { return fmtTL(ctx.parsed.y); } } } },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: "#8B939D" } },
+            y: { grid: { color: "#383F47" }, ticks: { color: "#8B939D" } }
+          }
+        }
+      });
+    }
+
+    var consumptionEl = document.getElementById("consumptionChart");
+    if (consumptionEl && a.fuelSeries) {
+      var consPts = a.fuelSeries.consumptionSeries.filter(function (p) { return p.consumption != null; });
+      if (consPts.length) {
+        if (charts.consumption) charts.consumption.destroy();
+        charts.consumption = new Chart(consumptionEl, {
+          type: "line",
+          data: {
+            labels: consPts.map(function (p) { return p.dateLabel; }),
+            datasets: [{ data: consPts.map(function (p) { return p.consumption; }), borderColor: "#4FA8D8", backgroundColor: "#4FA8D833", tension: 0.3, fill: true, pointRadius: 3 }]
+          },
+          options: {
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false }, tooltip: { callbacks: { label: function (ctx) { return ctx.parsed.y.toFixed(1).replace(".", ",") + " L/100km"; } } } },
+            scales: {
+              x: { grid: { display: false }, ticks: { color: "#8B939D" } },
+              y: { grid: { color: "#383F47" }, ticks: { color: "#8B939D" } }
+            }
+          }
+        });
+      }
+    }
+
+    var priceEl = document.getElementById("priceChart");
+    if (priceEl && a.fuelSeries && a.fuelSeries.priceSeries.length > 1) {
+      if (charts.price) charts.price.destroy();
+      charts.price = new Chart(priceEl, {
+        type: "line",
+        data: {
+          labels: a.fuelSeries.priceSeries.map(function (p) { return p.dateLabel; }),
+          datasets: [{ data: a.fuelSeries.priceSeries.map(function (p) { return p.price; }), borderColor: "#C77DE0", backgroundColor: "#C77DE033", tension: 0.3, fill: true, pointRadius: 3 }]
+        },
+        options: {
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { callbacks: { label: function (ctx) { return fmtTL(ctx.parsed.y) + "/L"; } } } },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: "#8B939D" } },
+            y: { grid: { color: "#383F47" }, ticks: { color: "#8B939D" } }
+          }
+        }
       });
     }
   }
@@ -1728,6 +1874,91 @@
     html += '<p class="summary-hint">30 gün içinde: kırmızı · 90 gün içinde: turuncu · daha uzak: yeşil. Tarihleri araç kartındaki kalem simgesinden güncelleyebilirsiniz.</p>';
     html += '</section>';
     return html;
+  }
+
+  function renderAnalysisPanel() {
+    var carsList = state.cars || [];
+    var selectedCar = carsList.find(function (c) { return c.id === state.selectedCarId; });
+    var scopeLabel = selectedCar ? selectedCar.name : "Tüm Araçlar";
+    var months = computeMonthlyTrend(6);
+    var budgetInfo = computeBudgetInfo();
+    var fuelSeries = null;
+
+    var html = '<main class="gd-grid">';
+
+    // trend chart
+    html += '<section class="panel span-2"><h2>Aylık Harcama Trendi — ' + esc(scopeLabel) + ' (Son 6 Ay)</h2>';
+    if (!months.some(function (m) { return m.total > 0; })) {
+      html += '<p class="empty-hint">Henüz masraf kaydı yok. Trend grafiği burada dolacak.</p>';
+    } else {
+      html += '<div class="chart-box"><canvas id="trendChart"></canvas></div>';
+    }
+    html += '</section>';
+
+    // budget panel
+    html += '<section class="panel"><h2>Aylık Bütçe — ' + esc(scopeLabel) + '</h2>' +
+      '<div class="budget-row">' +
+        '<input type="text" inputmode="numeric" id="budget-input" placeholder="Örn. 5.000" value="' + (budgetInfo.budget ? groupThousands(String(Math.round(budgetInfo.budget))) : "") + '" aria-label="Aylık bütçe tutarı" />' +
+        '<button type="button" class="btn-secondary" id="budget-save">Kaydet</button>' +
+        (budgetInfo.budget ? '<button type="button" class="btn-secondary" id="budget-clear">Kaldır</button>' : '') +
+      '</div>';
+    if (budgetInfo.budget) {
+      var pctLabel = Math.round((budgetInfo.rawPct || 0) * 100);
+      var barColor = budgetInfo.status === "over" ? "#E2574C" : budgetInfo.status === "watch" ? "#F2A93B" : "#7BC67E";
+      html += '<div class="budget-stats-line"><span>Bu ay harcanan</span><strong>' + fmtTL(budgetInfo.spent) + ' / ' + fmtTL(budgetInfo.budget) + '</strong></div>' +
+        '<div class="budget-bar-track"><div class="budget-bar-fill" style="width:' + Math.min(100, pctLabel) + '%;background:' + barColor + '"></div></div>' +
+        '<p class="fuel-chart-note">' + (budgetInfo.status === "over" ? "⚠️ Bu ay bütçeni %" + (pctLabel - 100) + " aştın." : pctLabel + "% kullanıldı.") + '</p>';
+    } else {
+      html += '<p class="empty-hint">Bu ay ne kadar harcadığını takip etmek için bir bütçe belirle.</p>';
+    }
+    html += '</section>';
+
+    // fuel charts (yalnızca belirli bir araç seçiliyken anlamlı)
+    if (selectedCar) {
+      fuelSeries = computeFuelSeries(selectedCar.id);
+      var hasConsumption = fuelSeries.consumptionSeries.some(function (p) { return p.consumption != null; });
+      var hasPrice = fuelSeries.priceSeries.length > 1;
+      if (hasConsumption) {
+        html += '<section class="panel span-2"><h2>Yakıt Tüketimi (L/100km) — ' + esc(selectedCar.name) + '</h2>' +
+          '<div class="chart-box short"><canvas id="consumptionChart"></canvas></div></section>';
+      }
+      if (hasPrice) {
+        html += '<section class="panel span-2"><h2>Litre Fiyatı Değişimi — ' + esc(selectedCar.name) + '</h2>' +
+          '<div class="chart-box short"><canvas id="priceChart"></canvas></div>' +
+          '<p class="fuel-chart-note">Her dolumun tutar/litre oranını gösterir; fiyat artışlarını ve istasyon farklarını takip etmene yardımcı olur.</p></section>';
+      }
+      if (!hasConsumption && !hasPrice) {
+        html += '<section class="panel span-2"><p class="empty-hint">Bu araç için yakıt grafiklerini görmek üzere en az iki yakıt kaydını km ve litre bilgisiyle girmen gerekiyor.</p></section>';
+      }
+    } else {
+      html += '<section class="panel span-2"><p class="empty-hint">Yakıt tüketimi ve litre fiyatı grafiklerini görmek için üstteki sekmelerden belirli bir araç seç.</p></section>';
+    }
+
+    html += '</main>';
+    window.__analysisData = { months: months, fuelSeries: fuelSeries };
+    return html;
+  }
+
+  function bindAnalysisPanel() {
+    var inputEl = document.getElementById("budget-input");
+    if (inputEl) attachThousandsInput(inputEl, false);
+    var saveBtn = document.getElementById("budget-save");
+    if (saveBtn) saveBtn.addEventListener("click", function () {
+      var val = inputEl ? parseFormattedNumber(inputEl.value) : null;
+      if (val == null || val <= 0) { toast("Geçerli bir bütçe tutarı gir."); return; }
+      state.budgets = state.budgets || {};
+      state.budgets[budgetKey()] = val;
+      persistBudgets();
+      render();
+      toast("Bütçe kaydedildi.");
+    });
+    var clearBtn = document.getElementById("budget-clear");
+    if (clearBtn) clearBtn.addEventListener("click", function () {
+      if (state.budgets) delete state.budgets[budgetKey()];
+      persistBudgets();
+      render();
+      toast("Bütçe kaldırıldı.");
+    });
   }
 
   function renderLogPanel() {
