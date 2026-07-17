@@ -1,0 +1,29 @@
+name: Günlük Hatırlatma Bildirimi
+
+on:
+  schedule:
+    # 06:00 UTC = 09:00 Türkiye saati (Türkiye yaz/kış saati uygulamıyor, sabit UTC+3)
+    - cron: "0 6 * * *"
+  workflow_dispatch: {} # Elle tetiklemek için (test amaçlı) "Run workflow" butonu
+
+jobs:
+  send-reminders:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repoyu indir
+        uses: actions/checkout@v4
+
+      - name: Node.js kur
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Bağımlılıkları kur
+        working-directory: scripts
+        run: npm install
+
+      - name: Hatırlatma script'ini çalıştır
+        working-directory: scripts
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: node send-reminders.js
