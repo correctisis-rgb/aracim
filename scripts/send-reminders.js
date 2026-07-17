@@ -102,11 +102,19 @@ async function main() {
     const body = triggered.slice(0, 3).join("  •  ") + (triggered.length > 3 ? ` (+${triggered.length - 3} diğer)` : "");
 
     console.log(`→ ${userDoc.id}: ${body}`);
+    console.log(`  Gönderiliyor: ${tokens.length} cihaz token'ı bulundu.`);
 
     const response = await admin.messaging().sendEachForMulticast({
       tokens,
       notification: { title, body },
       data: { url: "/aracim/" }
+    });
+
+    console.log(`  Sonuç: ${response.successCount} başarılı, ${response.failureCount} başarısız.`);
+    response.responses.forEach((r, i) => {
+      if (!r.success) {
+        console.log(`  ✗ Token ${i}: ${r.error && r.error.code} — ${r.error && r.error.message}`);
+      }
     });
 
     const invalidTokens = [];
