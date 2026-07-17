@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Garaj Defteri</title>
 <link rel="manifest" href="/aracim/manifest.json">
-<link rel="icon" href="/aracim/favicon.ico" type="image/png">
+<link rel="icon" href="/aracim/icon-192.png" type="image/png">
 
 <!-- iOS (Safari) Uyumluluk Detayları -->
 <meta name="mobile-web-app-capable" content="yes">
@@ -345,7 +345,7 @@
   var unsubscribeUserDoc = null;
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.0.7"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.0.8"; // Dynamic Version Tracking
   var APP_UPDATED = "17 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -709,6 +709,18 @@
   }
 
   function monthKey(d) { return d.getFullYear() + "-" + d.getMonth(); }
+
+  function recalcCarCurrentKm(carId) {
+    var car = (state.cars || []).find(function (c) { return c.id === carId; });
+    if (!car) return;
+    var kmEntries = (state.expenses || []).filter(function (e) { return e.carId === carId && e.km != null; });
+    if (!kmEntries.length) return; // hiç km'li kayıt yoksa dokunma (manuel girilmiş olabilir)
+    var maxKm = kmEntries.reduce(function (m, e) { return Math.max(m, e.km); }, 0);
+    if (car.currentKm !== maxKm) {
+      state.cars = state.cars.map(function (c) { return c.id === carId ? Object.assign({}, c, { currentKm: maxKm }) : c; });
+      persistCars();
+    }
+  }
 
   function computeCostPerKm(carId) {
     var fuelExpenses = (state.expenses || [])
@@ -1635,13 +1647,7 @@
         state.expenses = [Object.assign({ id: uid() }, payload)].concat(state.expenses || []);
       }
       persistExpenses();
-      if (km != null) {
-        var car = (state.cars || []).find(function (c) { return c.id === carId; });
-        if (car && (car.currentKm == null || km > car.currentKm)) {
-          state.cars = state.cars.map(function (c) { return c.id === carId ? Object.assign({}, c, { currentKm: km }) : c; });
-          persistCars();
-        }
-      }
+      recalcCarCurrentKm(carId);
       closeModal();
       render();
     });
@@ -1689,8 +1695,11 @@
             confirmLabel: "Sil",
             danger: true,
             onConfirm: function () {
+              var deleted = (state.expenses || []).find(function (e) { return e.id === id; });
               state.expenses = (state.expenses || []).filter(function (e) { return e.id !== id; });
-              persistExpenses(); render();
+              persistExpenses();
+              if (deleted && deleted.carId) recalcCarCurrentKm(deleted.carId);
+              render();
             }
           });
         }
