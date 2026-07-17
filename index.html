@@ -130,7 +130,7 @@
   .btn-secondary.full { width: 100%; justify-content: center; }
 
   .expense-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 360px; overflow-y: auto; }
-  .expense-row { display: grid; grid-template-columns: 36px 1fr auto auto 28px; align-items: center; gap: 12px; padding: 9px 4px; border-bottom: 1px solid var(--border); }
+  .expense-row { display: grid; grid-template-columns: 36px 1fr auto auto 28px 28px; align-items: center; gap: 12px; padding: 9px 4px; border-bottom: 1px solid var(--border); }
   .expense-row:last-child { border-bottom: none; }
   .exp-icon { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0; }
   .exp-main { display: flex; flex-direction: column; min-width: 0; }
@@ -145,6 +145,18 @@
   .link-btn { display: inline-flex; align-items: center; gap: 4px; background: none; border: none; color: var(--muted); font-size: 12px; cursor: pointer; text-decoration: underline; font-family: inherit; }
   .link-btn.danger:hover { color: var(--red); }
   .link-btn:hover { color: var(--text); }
+
+  .car-info-card { display: flex; flex-direction: column; gap: 12px; padding: 16px 18px; }
+  .car-info-top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .car-info-photo { width: 62px; height: 62px; border-radius: 14px; object-fit: cover; background: var(--surface-2); flex-shrink: 0; cursor: zoom-in; border: 2px solid var(--border); }
+  .car-info-photo-fallback { width: 62px; height: 62px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 26px; flex-shrink: 0; border: 2px solid var(--border); }
+  .car-info-main { flex: 1; min-width: 160px; }
+  .car-info-name { font-family: 'Oswald', sans-serif; font-size: 20px; font-weight: 600; margin: 0 0 3px; }
+  .car-info-meta { font-size: 12.5px; color: var(--muted); }
+  .car-info-stats { display: flex; gap: 8px; flex-wrap: wrap; }
+  .car-stat-chip { display: inline-flex; align-items: baseline; gap: 6px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 7px 12px; font-size: 13px; font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--amber); }
+  .car-stat-chip .csc-label { color: var(--muted); font-family: 'Inter', sans-serif; font-size: 10.5px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; }
+  .car-info-actions { display: flex; gap: 16px; flex-wrap: wrap; padding-top: 4px; border-top: 1px solid var(--border); }
 
   .summary-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
   .summary-row { display: grid; grid-template-columns: 40px 1fr auto 28px; align-items: center; gap: 12px; padding: 10px 4px; border-bottom: 1px solid var(--border); }
@@ -291,7 +303,7 @@
     .odometer { font-size: 20px; padding: 5px 10px; }
     .donut-wrap { justify-content: center; }
     .donut-canvas-box { width: 120px; height: 120px; }
-    .expense-row { grid-template-columns: 30px 1fr auto 24px; gap: 8px; }
+    .expense-row { grid-template-columns: 30px 1fr auto 24px 24px; gap: 8px; }
     .exp-date { display: none; }
     .summary-row { grid-template-columns: 32px 1fr auto 24px; gap: 8px; }
     .field-row { grid-template-columns: 1fr; gap: 0; }
@@ -333,7 +345,7 @@
   var unsubscribeUserDoc = null;
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.1.0"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.0.5"; // Dynamic Version Tracking
   var APP_UPDATED = "17 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -698,6 +710,20 @@
 
   function monthKey(d) { return d.getFullYear() + "-" + d.getMonth(); }
 
+  function computeFuelStats(carId) {
+    var fuelExpenses = (state.expenses || [])
+      .filter(function (e) { return e.carId === carId && e.category === "yakit" && e.km != null && e.liter != null; })
+      .sort(function (a, b) { return a.km - b.km; });
+    if (fuelExpenses.length < 2) return null;
+    var totalDist = 0, totalLiter = 0, segments = 0;
+    for (var i = 1; i < fuelExpenses.length; i++) {
+      var dist = fuelExpenses[i].km - fuelExpenses[i - 1].km;
+      if (dist > 0) { totalDist += dist; totalLiter += fuelExpenses[i].liter; segments++; }
+    }
+    if (!segments || totalDist <= 0) return null;
+    return { avgConsumption: (totalLiter / totalDist) * 100, totalDist: totalDist, totalLiter: totalLiter };
+  }
+
   function computeDashboard() {
     var visible = getVisibleExpenses();
     var now = new Date();
@@ -929,6 +955,9 @@
     html += '<button class="car-tab car-tab-add" data-action="open-add-car">+ Araç Ekle</button>';
     html += '</nav>';
 
+    var selectedCar = carsList.find(function (c) { return c.id === state.selectedCarId; });
+    if (selectedCar) html += renderCarInfoCard(selectedCar);
+
     // view tabs
     var summaryItems = computeSummaryItems();
     var hasUrgent = summaryItems.some(function (it) { return it.status.key === "overdue" || it.status.key === "today" || it.status.key === "soon"; });
@@ -944,30 +973,6 @@
     }
 
     html += renderLogPanel();
-
-    var selectedCar = carsList.find(function (c) { return c.id === state.selectedCarId; });
-    if (selectedCar) {
-      var detailBits = [];
-      if (selectedCar.brand) detailBits.push(esc(selectedCar.brand));
-      if (selectedCar.year) detailBits.push(esc(selectedCar.year));
-      if (selectedCar.fuelType) detailBits.push(esc(selectedCar.fuelType));
-      if (selectedCar.transmission) detailBits.push(esc(selectedCar.transmission));
-      if (selectedCar.plate) detailBits.push(esc(selectedCar.plate));
-      if (detailBits.length) html += '<p class="storage-note" style="margin:-6px 0 8px">' + detailBits.join(" · ") + '</p>';
-
-      var costPerKm = null;
-      if (selectedCar.currentKm) {
-        var dd = computeDashboard();
-        if (dd.totalAllTime > 0) costPerKm = dd.totalAllTime / selectedCar.currentKm;
-      }
-      html += '<div class="car-actions">' +
-        (selectedCar.currentKm != null ? '<span class="link-btn" style="text-decoration:none;cursor:default">🛣️ ' + new Intl.NumberFormat("tr-TR").format(selectedCar.currentKm) + ' km</span>' : '') +
-        (costPerKm != null ? '<span class="link-btn" style="text-decoration:none;cursor:default">📊 Km başı ' + new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY", maximumFractionDigits: 2 }).format(costPerKm) + '</span>' : '') +
-        (selectedCar.ruhsat ? '<button class="link-btn" data-action="open-lightbox" data-src="' + selectedCar.ruhsat + '" data-caption="' + esc(selectedCar.name) + ' Ruhsatı">🪪 Ruhsatı Gör</button>' : '') +
-        '<button class="link-btn" data-action="open-edit-car" data-car="' + selectedCar.id + '">✏️ Araç / Ruhsat Düzenle</button>' +
-        '<button class="link-btn danger" data-action="delete-car" data-car="' + selectedCar.id + '">🗑️ Bu aracı sil</button>' +
-        '</div>';
-    }
 
     app.innerHTML = html;
 
@@ -1006,6 +1011,43 @@
     html += '</main>';
     window.__dashboardData = d;
     return html;
+  }
+
+  function renderCarInfoCard(car) {
+    var photo = car.photo
+      ? '<img class="car-info-photo" src="' + car.photo + '" alt="" data-action="open-lightbox" data-src="' + car.photo + '" data-caption="' + esc(car.name) + '" />'
+      : '<span class="car-info-photo-fallback" style="background:' + car.color + '22;color:' + car.color + '">🚗</span>';
+
+    var detailBits = [];
+    if (car.brand) detailBits.push(esc(car.brand));
+    if (car.year) detailBits.push(esc(car.year));
+    if (car.fuelType) detailBits.push(esc(car.fuelType));
+    if (car.transmission) detailBits.push(esc(car.transmission));
+    if (car.plate) detailBits.push(esc(car.plate));
+    var meta = detailBits.length ? detailBits.join(" · ") : "Detayları eklemek için düzenle'ye dokun";
+
+    var costPerKm = null;
+    var dd = computeDashboard();
+    if (car.currentKm && dd.totalAllTime > 0) costPerKm = dd.totalAllTime / car.currentKm;
+    var fuelStats = computeFuelStats(car.id);
+
+    var stats = "";
+    if (car.currentKm != null) stats += '<span class="car-stat-chip"><span class="csc-label">Km</span>🛣️ ' + new Intl.NumberFormat("tr-TR").format(car.currentKm) + '</span>';
+    if (costPerKm != null) stats += '<span class="car-stat-chip"><span class="csc-label">Km başı</span>📊 ' + new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY", maximumFractionDigits: 2 }).format(costPerKm) + '</span>';
+    if (fuelStats) stats += '<span class="car-stat-chip"><span class="csc-label">Ort. tüketim</span>⛽ ' + fuelStats.avgConsumption.toFixed(1).replace(".", ",") + ' L/100km</span>';
+    if (!stats) stats = '<span class="empty-hint" style="font-size:12px">Km ve masraf ekledikçe istatistikler burada görünecek.</span>';
+
+    return '<section class="panel car-info-card">' +
+      '<div class="car-info-top">' + photo +
+        '<div class="car-info-main"><h2 class="car-info-name">' + esc(car.name) + '</h2><p class="car-info-meta">' + meta + '</p></div>' +
+      '</div>' +
+      '<div class="car-info-stats">' + stats + '</div>' +
+      '<div class="car-info-actions">' +
+        (car.ruhsat ? '<button class="link-btn" data-action="open-lightbox" data-src="' + car.ruhsat + '" data-caption="' + esc(car.name) + ' Ruhsatı">🪪 Ruhsatı Gör</button>' : '') +
+        '<button class="link-btn" data-action="open-edit-car" data-car="' + car.id + '">✏️ Araç / Ruhsat Düzenle</button>' +
+        '<button class="link-btn danger" data-action="delete-car" data-car="' + car.id + '">🗑️ Bu aracı sil</button>' +
+      '</div>' +
+      '</section>';
   }
 
   function renderUpcomingPanel(items) {
@@ -1126,6 +1168,7 @@
           '<span class="exp-note">' + noteText + receiptBtn + '</span></span>' +
           '<span class="exp-date">' + fmtDateTR(e.date) + '</span>' +
           '<span class="exp-amount">' + fmtTL(e.amount) + '</span>' +
+          '<button class="exp-del" data-action="open-edit-expense" data-id="' + e.id + '" title="Düzenle">✏️</button>' +
           '<button class="exp-del" data-action="delete-expense" data-id="' + e.id + '" title="Sil">🗑️</button>' +
           '</li>';
       });
@@ -1143,7 +1186,7 @@
 
     if (state.modal.type === "addCar" || state.modal.type === "editCar") {
       backdrop.appendChild(buildCarModal());
-    } else if (state.modal.type === "addExpense") {
+    } else if (state.modal.type === "addExpense" || state.modal.type === "editExpense") {
       backdrop.appendChild(buildExpenseModal());
     } else if (state.modal.type === "profile") {
       backdrop.appendChild(buildProfileModal());
@@ -1231,12 +1274,21 @@
     modal.querySelectorAll("[data-family-id]").forEach(function(btn) {
       btn.addEventListener("click", function() {
         var idToDelete = btn.getAttribute("data-family-id");
-        state.familyMembers = state.familyMembers.filter(function(f) { return f.id !== idToDelete; });
-        persistFamily();
-        toast("Aile üyesi silindi.");
-        closeModal();
-        state.modal = { type: "profile" };
-        renderModal();
+        var member = (state.familyMembers || []).find(function (f) { return f.id === idToDelete; });
+        showConfirm({
+          title: "Aile Üyesini Sil",
+          message: (member ? esc(member.name) + " adlı üyeyi" : "Bu üyeyi") + " silmek istediğine emin misin?",
+          confirmLabel: "Sil",
+          danger: true,
+          onConfirm: function () {
+            state.familyMembers = state.familyMembers.filter(function(f) { return f.id !== idToDelete; });
+            persistFamily();
+            toast("Aile üyesi silindi.");
+            closeModal();
+            state.modal = { type: "profile" };
+            renderModal();
+          }
+        });
       });
     });
 
@@ -1454,9 +1506,19 @@
     });
   }
 
+  function numberToDisplay(n, allowDecimal) {
+    if (n === null || n === undefined || isNaN(n)) return "";
+    var parts = String(n).split(".");
+    var intPart = groupThousands(parts[0]);
+    if (allowDecimal && parts[1]) return intPart + "," + parts[1].slice(0, 2);
+    return intPart;
+  }
+
   function buildExpenseModal() {
+    var isEdit = state.modal.type === "editExpense";
+    var editingExpense = isEdit ? (state.expenses || []).find(function (e) { return e.id === state.modal.expenseId; }) : null;
     var carsList = state.cars || [];
-    var defaultCarId = state.selectedCarId !== "all" ? state.selectedCarId : (carsList[0] ? carsList[0].id : null);
+    var defaultCarId = editingExpense ? editingExpense.carId : (state.selectedCarId !== "all" ? state.selectedCarId : (carsList[0] ? carsList[0].id : null));
     var modal = document.createElement("div");
     modal.className = "modal";
     modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
@@ -1468,35 +1530,35 @@
     var familyMembers = state.familyMembers || [];
     var payerOptions = familyMembers.length
       ? '<label class="field"><span>Ödeyen (opsiyonel)</span><select id="e-payer"><option value="">Ben</option>' +
-        familyMembers.map(function (f) { return '<option value="' + f.id + '">' + esc(f.name) + '</option>'; }).join("") +
+        familyMembers.map(function (f) { return '<option value="' + f.id + '"' + (editingExpense && editingExpense.payerId === f.id ? " selected" : "") + '>' + esc(f.name) + '</option>'; }).join("") +
         '</select></label>'
       : "";
 
     modal.innerHTML =
-      '<div class="modal-head"><h3>Masraf Ekle</h3><button class="icon-btn" data-action="close-modal">✕</button></div>' +
+      '<div class="modal-head"><h3>' + (isEdit ? "Masraf Düzenle" : "Masraf Ekle") + '</h3><button class="icon-btn" data-action="close-modal">✕</button></div>' +
       '<label class="field"><span>Araç</span><select id="e-car">' + carOptions + '</select></label>' +
       '<label class="field"><span>Kategori</span><div class="cat-grid" id="e-cats">' + catChips + '</div></label>' +
       '<div class="field-row">' +
-        '<label class="field"><span>Tutar (₺)</span><input id="e-amount" type="text" inputmode="decimal" placeholder="Örn. 1.250,50" /></label>' +
-        '<label class="field"><span>Tarih</span><input id="e-date" type="date" value="' + todayStr() + '" /></label>' +
+        '<label class="field"><span>Tutar (₺)</span><input id="e-amount" type="text" inputmode="decimal" value="' + (editingExpense ? numberToDisplay(editingExpense.amount, true) : "") + '" placeholder="Örn. 1.250,50" /></label>' +
+        '<label class="field"><span>Tarih</span><input id="e-date" type="date" value="' + (editingExpense ? editingExpense.date : todayStr()) + '" /></label>' +
       '</div>' +
       '<div class="field-row">' +
-        '<label class="field"><span>Kilometre (opsiyonel)</span><input id="e-km" type="text" inputmode="numeric" placeholder="Örn. 84.500" /></label>' +
-        '<label class="field" id="e-liter-field"><span>Litre (opsiyonel)</span><input id="e-liter" type="text" inputmode="decimal" placeholder="Örn. 45,5" /></label>' +
+        '<label class="field"><span>Kilometre (opsiyonel)</span><input id="e-km" type="text" inputmode="numeric" value="' + (editingExpense && editingExpense.km != null ? numberToDisplay(editingExpense.km, false) : "") + '" placeholder="Örn. 84.500" /></label>' +
+        '<label class="field" id="e-liter-field"><span>Litre (opsiyonel)</span><input id="e-liter" type="text" inputmode="decimal" value="' + (editingExpense && editingExpense.liter != null ? numberToDisplay(editingExpense.liter, true) : "") + '" placeholder="Örn. 45,5" /></label>' +
       '</div>' +
       '<p class="field-hint" style="margin-top:-6px">Kilometreyi girersen aracın güncel kilometresi otomatik güncellenir.</p>' +
-      '<label class="field"><span>Not (opsiyonel)</span><input id="e-note" placeholder="Örn. Lastik değişimi" /></label>' +
+      '<label class="field"><span>Not (opsiyonel)</span><input id="e-note" value="' + (editingExpense ? esc(editingExpense.note || "") : "") + '" placeholder="Örn. Lastik değişimi" /></label>' +
       payerOptions +
       '<label class="field"><span>Fiş / Fatura (opsiyonel)</span></label>' +
-      photoUploadHTML("receiptPhoto", "Fiş / Fatura", null) +
-      '<button class="btn-primary full" id="e-save" style="margin-top:12px">Kaydet</button>';
+      photoUploadHTML("receiptPhoto", "Fiş / Fatura", editingExpense ? editingExpense.receipt || null : null) +
+      '<button class="btn-primary full" id="e-save" style="margin-top:12px">' + (isEdit ? "Güncelle" : "Kaydet") + '</button>';
 
     if (defaultCarId) modal.querySelector("#e-car").value = defaultCarId;
     attachThousandsInput(modal.querySelector("#e-amount"), true);
     attachThousandsInput(modal.querySelector("#e-km"), false);
     attachThousandsInput(modal.querySelector("#e-liter"), true);
 
-    modal.__photos = { receiptPhoto: null };
+    modal.__photos = { receiptPhoto: editingExpense ? editingExpense.receipt || null : null };
     modal.querySelectorAll(".photo-upload input[type=file]").forEach(function (input) {
       input.addEventListener("change", function (ev) {
         var file = ev.target.files && ev.target.files[0];
@@ -1524,7 +1586,7 @@
       });
     });
 
-    var selectedCat = CATEGORIES[0].id;
+    var selectedCat = editingExpense ? editingExpense.category : CATEGORIES[0].id;
     var chips = modal.querySelectorAll(".cat-chip");
     var literField = modal.querySelector("#e-liter-field");
     function paintChips() {
@@ -1546,10 +1608,15 @@
       var payerEl = modal.querySelector("#e-payer");
       var payerId = payerEl && payerEl.value ? payerEl.value : null;
       if (!carId || !amount || amount <= 0 || !date) { toast("Tutar ve tarih gerekli."); return; }
-      state.expenses = [{
-        id: uid(), carId: carId, category: selectedCat, amount: amount, date: date, note: note,
+      var payload = {
+        carId: carId, category: selectedCat, amount: amount, date: date, note: note,
         km: km, liter: liter, payerId: payerId, receipt: modal.__photos.receiptPhoto || null
-      }].concat(state.expenses || []);
+      };
+      if (isEdit) {
+        state.expenses = (state.expenses || []).map(function (e) { return e.id === editingExpense.id ? Object.assign({}, e, payload) : e; });
+      } else {
+        state.expenses = [Object.assign({ id: uid() }, payload)].concat(state.expenses || []);
+      }
       persistExpenses();
       if (km != null) {
         var car = (state.cars || []).find(function (c) { return c.id === carId; });
@@ -1596,10 +1663,19 @@
         else if (action === "open-add-car") { state.modal = { type: "addCar" }; render(); }
         else if (action === "open-edit-car") { state.modal = { type: "editCar", carId: el.getAttribute("data-car") }; render(); }
         else if (action === "open-add-expense") { state.modal = { type: "addExpense" }; render(); }
+        else if (action === "open-edit-expense") { state.modal = { type: "editExpense", expenseId: el.getAttribute("data-id") }; render(); }
         else if (action === "delete-expense") {
           var id = el.getAttribute("data-id");
-          state.expenses = (state.expenses || []).filter(function (e) { return e.id !== id; });
-          persistExpenses(); render();
+          showConfirm({
+            title: "Masrafı Sil",
+            message: "Bu masraf kaydını silmek istediğine emin misin? Bu işlem geri alınamaz.",
+            confirmLabel: "Sil",
+            danger: true,
+            onConfirm: function () {
+              state.expenses = (state.expenses || []).filter(function (e) { return e.id !== id; });
+              persistExpenses(); render();
+            }
+          });
         }
         else if (action === "open-lightbox") {
           ev.stopPropagation();
@@ -1659,11 +1735,6 @@
 
   init();
 })();
-
-
-
-
-
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
