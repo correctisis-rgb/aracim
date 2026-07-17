@@ -4,6 +4,10 @@ on:
   schedule:
     # 06:00 UTC = 09:00 Türkiye saati (Türkiye yaz/kış saati uygulamıyor, sabit UTC+3)
     - cron: "0 6 * * *"
+    # Sık kontrol: uygulama içindeki admin "Bildirimleri Tetikle" butonuna
+    # basılıp basılmadığını (Firestore bayrağını) her 10 dakikada bir kontrol
+    # eder. Bayrak yoksa script anında çıkar, gerçek tarama yapmaz.
+    - cron: "*/10 * * * *"
   workflow_dispatch: {} # Elle tetiklemek için (test amaçlı) "Run workflow" butonu
 
 jobs:
@@ -26,4 +30,5 @@ jobs:
         working-directory: scripts
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          TRIGGER_SOURCE: ${{ github.event.schedule || github.event_name }}
         run: node send-reminders.js
