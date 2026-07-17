@@ -345,7 +345,7 @@
   var unsubscribeUserDoc = null;
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.0.8"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.0.9"; // Dynamic Version Tracking
   var APP_UPDATED = "17 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1020,7 +1020,7 @@
       '<div class="odometer">' + fmtTL(d.totalAllTime).replace("₺", "") + '<span class="odo-currency">₺</span></div></div></section>';
 
     // category donut
-    html += '<section class="panel"><h2>Kategori Dağılımı</h2>';
+    html += '<section class="panel"><h2>Kategori Dağılımı (tüm zamanlar)</h2>';
     if (d.categoryData.length === 0) {
       html += '<p class="empty-hint">Henüz masraf kaydı yok. Gösterge burada dolacak.</p>';
     } else {
