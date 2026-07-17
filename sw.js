@@ -1,17 +1,31 @@
 // ---------- Firebase Cloud Messaging (Push Bildirimleri) ----------
-// NOT: gstatic.com isteklerini bazı reklam engelleyici / gizlilik uzantıları
-// service worker içindeyken engelleyebiliyor. Bu durumda importScripts()
-// hata fırlatır ve service worker tamamen çalışmaz hale gelir. try/catch ile
-// sarmalayarak en azından hatayı konsola düşürüyoruz; asıl 404 sorunu ise
-// bu dosyayla ilgili değil, sayfa tarafında getToken() çağrısındaydı.
-try {
-  importScripts("https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js");
-  importScripts("https://www.gstatic.com/firebasejs/10.12.5/firebase-messaging-compat.js");
-} catch (e) {
-  console.error("sw.js: Firebase SDK importScripts başarısız (reklam engelleyici olabilir):", e);
+// NOT: Bazı reklam/gizlilik engelleyici tarayıcı uzantıları, service worker
+// İÇİNDEN yapılan importScripts() isteklerini -- aynı dosya normal sayfada
+// sorunsuz yüklense bile -- ayrı bir kuralla engelleyebiliyor (SW istekleri
+// bir sekmeyle ilişkilendirilemediği için bazı uzantı kuralları yanlış
+// tetikleniyor). Çözüm: SDK dosyalarını önce KENDİ sitemizden (same-origin)
+// yüklemeyi dene; bulunamazsa gstatic CDN'e geri düş.
+function loadFirebaseSDK() {
+  try {
+    importScripts("/aracim/vendor/firebase-app-compat.js");
+    importScripts("/aracim/vendor/firebase-messaging-compat.js");
+    return true;
+  } catch (e) {
+    console.warn("sw.js: yerel Firebase SDK bulunamadı, gstatic CDN deneniyor:", e);
+  }
+  try {
+    importScripts("https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js");
+    importScripts("https://www.gstatic.com/firebasejs/10.12.5/firebase-messaging-compat.js");
+    return true;
+  } catch (e) {
+    console.error("sw.js: Firebase SDK hiçbir kaynaktan yüklenemedi (reklam engelleyici olabilir):", e);
+    return false;
+  }
 }
 
-if (typeof firebase !== "undefined") {
+var sdkLoaded = loadFirebaseSDK();
+
+if (sdkLoaded && typeof firebase !== "undefined") {
   firebase.initializeApp({
     apiKey: "AIzaSyCcfODFLDPVA4zr7L6xKPjEA6-Vle3XPio",
     authDomain: "garaj-defteri-2bcdd.firebaseapp.com",
