@@ -5,8 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Garaj Defteri</title>
 <link rel="manifest" href="/aracim/manifest.json">
+<link rel="icon" href="favicon.ico" type="image/png">
 
 <!-- iOS (Safari) Uyumluluk Detayları -->
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Aracım">
@@ -331,7 +333,7 @@
   var unsubscribeUserDoc = null;
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.0.3"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.1.0"; // Dynamic Version Tracking
   var APP_UPDATED = "17 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1657,6 +1659,11 @@
 
   init();
 })();
+
+
+
+
+
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
