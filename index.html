@@ -4,11 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Garaj Defteri</title>
-<link rel="manifest" href="manifest.json">
-<!-- PWA Manifest Bağlantısı -->
 <link rel="manifest" href="/aracim/manifest.json">
-
-  <link rel="icon" type="image/x-icon" href="/aracim/favicon.ico">
 
 <!-- iOS (Safari) Uyumluluk Detayları -->
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -199,6 +195,12 @@
   .photo-upload span.pu-label { font-size: 11.5px; color: var(--muted); text-align: center; }
   .photo-upload img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
   .photo-upload input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+  .photo-upload.has-photo input[type=file] { pointer-events: none; }
+  .photo-upload img { cursor: zoom-in; }
+  .photo-edit {
+    position: absolute; bottom: 4px; right: 4px; background: #00000099; color: #fff; border: none;
+    border-radius: 50%; width: 26px; height: 26px; font-size: 12px; cursor: pointer; z-index: 2;
+  }
   .photo-remove {
     position: absolute; top: 4px; right: 4px; background: #00000099; color: #fff; border: none;
     border-radius: 50%; width: 26px; height: 26px; font-size: 13px; cursor: pointer; z-index: 2;
@@ -329,7 +331,8 @@
   var unsubscribeUserDoc = null;
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.0.2"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.0.3"; // Dynamic Version Tracking
+  var APP_UPDATED = "17 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -715,24 +718,53 @@
     return { monthTotal: monthTotal, gaugePct: gaugePct, categoryData: categoryData, totalAllTime: totalAllTime };
   }
 
+  function kmUrgency(remaining) {
+    if (remaining === null) return { key: "none", label: "Km bilgisi yok", color: "#8B939D" };
+    var abs = groupThousands(String(Math.round(Math.abs(remaining))));
+    if (remaining <= 0) return { key: "overdue", label: abs + " km geçti", color: "#E2574C" };
+    if (remaining <= 1000) return { key: "soon", label: abs + " km kaldı", color: "#E2574C" };
+    if (remaining <= 3000) return { key: "watch", label: abs + " km kaldı", color: "#F2A93B" };
+    return { key: "ok", label: abs + " km kaldı", color: "#7BC67E" };
+  }
+  function tierOf(status) {
+    if (status.key === "overdue" || status.key === "today" || status.key === "soon") return 0;
+    if (status.key === "watch") return 1;
+    if (status.key === "ok") return 2;
+    return 3;
+  }
+
   function computeSummaryItems() {
     var carsToProcess = state.cars || [];
     var relevant = state.selectedCarId === "all" ? carsToProcess : carsToProcess.filter(function (c) { return c.id === state.selectedCarId; });
     var items = [];
     relevant.forEach(function (c) {
       items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Muayene", emoji: "🗓️", date: c.inspectionDate || null });
-      items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Bakım / Servis", emoji: "🔧", date: c.maintenanceDate || null });
+      items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Bakım / Servis (tarih)", emoji: "🔧", date: c.maintenanceDate || null });
       items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Trafik Sigortası", emoji: "🛡️", date: c.insuranceDate || null });
       items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Kasko", emoji: "🚙", date: c.kaskoDate || null });
       items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Vergi (MTV)", emoji: "💰", date: c.taxDate || null });
       items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Lastik Değişimi", emoji: "🛞", date: c.tireDate || null });
     });
-    items.forEach(function (it) { it.days = daysUntil(it.date); it.status = urgency(it.days); });
-    items.sort(function (a, b) {
-      if (a.days === null) return 1;
-      if (b.days === null) return -1;
-      return a.days - b.days;
+    items.forEach(function (it) {
+      it.days = daysUntil(it.date);
+      it.status = urgency(it.days);
+      it.dateLabel = it.date ? fmtDateTR(it.date) : "Tarih girilmedi";
+      it.tier = tierOf(it.status);
+      it.metric = it.days === null ? 99999 : it.days;
     });
+
+    relevant.forEach(function (c) {
+      if (c.maintenanceKm == null) return;
+      var remaining = c.currentKm != null ? (c.maintenanceKm - c.currentKm) : null;
+      var status = kmUrgency(remaining);
+      items.push({
+        carId: c.id, carName: c.name, carPhoto: c.photo, type: "Bakım / Servis (km)", emoji: "🔧",
+        date: null, dateLabel: status.label, status: status, isKm: true,
+        tier: tierOf(status), metric: remaining === null ? 99999 : remaining
+      });
+    });
+
+    items.sort(function (a, b) { return a.tier !== b.tier ? a.tier - b.tier : a.metric - b.metric; });
     return items;
   }
 
@@ -744,8 +776,9 @@
       '<div class="logo-area" style="justify-content:center;">' +
         '<img class="app-logo" src="icon-192.png" alt="Logo">' +
         '<span class="gd-title-eyebrow">GARAJ DEFTERİ</span>' +
-        '<span class="version-badge">' + APP_VERSION + '</span>' +
+        '<span class="version-badge" title="Son güncelleme: ' + APP_UPDATED + '">' + APP_VERSION + '</span>' +
       '</div>' +
+      '<p style="text-align:center;color:var(--muted);font-size:10.5px;margin:0 0 10px;font-family:\'JetBrains Mono\', monospace;">Son güncelleme: ' + APP_UPDATED + '</p>' +
       '<h1 class="auth-title">' + (mode === "login" ? "Giriş Yap" : "Hesap Oluştur") + '</h1>' +
       '<p class="auth-sub">' + (mode === "login" ? "Araçlarını ve masraflarını görmek için hesabına giriş yap." : "Birkaç saniyede ücretsiz hesap oluştur, araçlarını eklemeye başla.") + '</p>' +
       '<div class="auth-tabs">' +
@@ -863,7 +896,7 @@
           '<div class="logo-area">' +
             '<img class="app-logo" src="icon-192.png" alt="Logo">' +
             '<span class="gd-title-eyebrow">GARAJ DEFTERİ</span>' +
-            '<span class="version-badge">' + APP_VERSION + '</span>' +
+            '<span class="version-badge" title="Son güncelleme: ' + APP_UPDATED + '">' + APP_VERSION + '</span>' +
           '</div>' +
           '<div class="gd-title"><h1>Araç Masraf Takibi</h1></div>' +
         '</div>' +
@@ -912,8 +945,22 @@
 
     var selectedCar = carsList.find(function (c) { return c.id === state.selectedCarId; });
     if (selectedCar) {
+      var detailBits = [];
+      if (selectedCar.brand) detailBits.push(esc(selectedCar.brand));
+      if (selectedCar.year) detailBits.push(esc(selectedCar.year));
+      if (selectedCar.fuelType) detailBits.push(esc(selectedCar.fuelType));
+      if (selectedCar.transmission) detailBits.push(esc(selectedCar.transmission));
+      if (selectedCar.plate) detailBits.push(esc(selectedCar.plate));
+      if (detailBits.length) html += '<p class="storage-note" style="margin:-6px 0 8px">' + detailBits.join(" · ") + '</p>';
+
+      var costPerKm = null;
+      if (selectedCar.currentKm) {
+        var dd = computeDashboard();
+        if (dd.totalAllTime > 0) costPerKm = dd.totalAllTime / selectedCar.currentKm;
+      }
       html += '<div class="car-actions">' +
         (selectedCar.currentKm != null ? '<span class="link-btn" style="text-decoration:none;cursor:default">🛣️ ' + new Intl.NumberFormat("tr-TR").format(selectedCar.currentKm) + ' km</span>' : '') +
+        (costPerKm != null ? '<span class="link-btn" style="text-decoration:none;cursor:default">📊 Km başı ' + new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY", maximumFractionDigits: 2 }).format(costPerKm) + '</span>' : '') +
         (selectedCar.ruhsat ? '<button class="link-btn" data-action="open-lightbox" data-src="' + selectedCar.ruhsat + '" data-caption="' + esc(selectedCar.name) + ' Ruhsatı">🪪 Ruhsatı Gör</button>' : '') +
         '<button class="link-btn" data-action="open-edit-car" data-car="' + selectedCar.id + '">✏️ Araç / Ruhsat Düzenle</button>' +
         '<button class="link-btn danger" data-action="delete-car" data-car="' + selectedCar.id + '">🗑️ Bu aracı sil</button>' +
@@ -960,12 +1007,12 @@
   }
 
   function renderUpcomingPanel(items) {
-    var upcoming = items.filter(function (it) { return it.date; }).slice(0, 5);
+    var upcoming = items.filter(function (it) { return it.tier < 3; }).slice(0, 5);
     var html = '<section class="panel span-2"><h2>Yaklaşan İşlemler</h2>';
     if (items.length === 0) {
       html += '<p class="empty-hint">Önce bir araç ekleyin, muayene/sigorta/bakım tarihleri burada listelenecek.</p>';
     } else if (upcoming.length === 0) {
-      html += '<p class="empty-hint">Tarih girilmiş yaklaşan işlem yok. Araç bilgilerinden tarih ekleyebilirsiniz.</p>';
+      html += '<p class="empty-hint">Tarih veya km girilmiş yaklaşan işlem yok. Araç bilgilerinden ekleyebilirsiniz.</p>';
     } else {
       html += '<ul class="summary-list">';
       upcoming.forEach(function (it) {
@@ -973,9 +1020,9 @@
         var showIcon = (it.status.key === "overdue" || it.status.key === "today" || it.status.key === "soon") ? "⚠️ " : (it.status.key === "ok" ? "✅ " : "");
         html += '<li class="summary-row">' + avatar +
           '<span class="sum-main"><span class="sum-type">' + esc(it.type) + ' · ' + esc(it.carName) + '</span>' +
-          '<span class="sum-date">' + fmtDateTR(it.date) + '</span></span>' +
+          '<span class="sum-date">' + esc(it.dateLabel) + '</span></span>' +
           '<span class="sum-badge" style="color:' + it.status.color + ';border-color:' + it.status.color + '55;background:' + it.status.color + '18">' + showIcon + esc(it.status.label) + '</span>' +
-          '<button class="exp-del" data-action="open-edit-car" data-car="' + it.carId + '" title="Tarihi düzenle">✏️</button>' +
+          '<button class="exp-del" data-action="open-edit-car" data-car="' + it.carId + '" title="Düzenle">✏️</button>' +
           '</li>';
       });
       html += '</ul>';
@@ -1040,9 +1087,9 @@
         var showIcon = (it.status.key === "overdue" || it.status.key === "today" || it.status.key === "soon") ? "⚠️ " : (it.status.key === "ok" ? "✅ " : "");
         html += '<li class="summary-row">' + avatar +
           '<span class="sum-main"><span class="sum-type">' + esc(it.type) + ' · ' + esc(it.carName) + '</span>' +
-          '<span class="sum-date">' + (it.date ? fmtDateTR(it.date) : "Tarih girilmedi") + '</span></span>' +
+          '<span class="sum-date">' + esc(it.dateLabel) + '</span></span>' +
           '<span class="sum-badge" style="color:' + it.status.color + ';border-color:' + it.status.color + '55;background:' + it.status.color + '18">' + showIcon + esc(it.status.label) + '</span>' +
-          '<button class="exp-del" data-action="open-edit-car" data-car="' + it.carId + '" title="Tarihi düzenle">✏️</button>' +
+          '<button class="exp-del" data-action="open-edit-car" data-car="' + it.carId + '" title="Düzenle">✏️</button>' +
           '</li>';
       });
       html += '</ul>';
@@ -1063,10 +1110,18 @@
       visible.forEach(function (e) {
         var cat = catById(e.category);
         var car = (state.cars || []).find(function (c) { return c.id === e.carId; });
+        var noteBits = [];
+        if (e.note) noteBits.push(esc(e.note));
+        if (e.km != null) noteBits.push(groupThousands(String(e.km)) + " km");
+        if (e.liter != null) noteBits.push(String(e.liter).replace(".", ",") + " L");
+        var payer = e.payerId ? (state.familyMembers || []).find(function (f) { return f.id === e.payerId; }) : null;
+        if (payer) noteBits.push("Ödeyen: " + esc(payer.name));
+        var noteText = noteBits.length ? noteBits.join(" · ") : "—";
+        var receiptBtn = e.receipt ? ' <button type="button" class="exp-del" style="min-width:auto;min-height:auto;padding:1px 3px;font-size:11px;vertical-align:middle;" data-action="open-lightbox" data-src="' + e.receipt + '" data-caption="Fiş / Fatura" title="Fişi gör">📎</button>' : "";
         html += '<li class="expense-row">' +
           '<span class="exp-icon" style="background:' + cat.color + '22;color:' + cat.color + '">' + cat.emoji + '</span>' +
           '<span class="exp-main"><span class="exp-cat">' + esc(cat.label) + (car ? " · " + esc(car.name) : "") + '</span>' +
-          '<span class="exp-note">' + esc(e.note || "—") + '</span></span>' +
+          '<span class="exp-note">' + noteText + receiptBtn + '</span></span>' +
           '<span class="exp-date">' + fmtDateTR(e.date) + '</span>' +
           '<span class="exp-amount">' + fmtTL(e.amount) + '</span>' +
           '<button class="exp-del" data-action="delete-expense" data-id="' + e.id + '" title="Sil">🗑️</button>' +
@@ -1249,6 +1304,18 @@
       '<label class="field"><span>Araç adı</span><input id="f-name" value="' + (car ? esc(car.name) : "") + '" placeholder="Örn. Egea, İş Arabası" /></label>' +
       '<label class="field"><span>Plaka (opsiyonel)</span><input id="f-plate" value="' + (car ? esc(car.plate || "") : "") + '" placeholder="34 XX 000" /></label>' +
       '<div class="field-row">' +
+        '<label class="field"><span>Marka / Model (opsiyonel)</span><input id="f-brand" value="' + (car ? esc(car.brand || "") : "") + '" placeholder="Örn. Fiat Egea 1.4" /></label>' +
+        '<label class="field"><span>Model yılı (opsiyonel)</span><input id="f-year" value="' + (car ? esc(car.year || "") : "") + '" placeholder="Örn. 2021" inputmode="numeric" maxlength="4" /></label>' +
+      '</div>' +
+      '<div class="field-row">' +
+        '<label class="field"><span>Yakıt tipi</span><select id="f-fuel">' +
+          ["", "Benzin", "Dizel", "LPG", "Hibrit", "Elektrik"].map(function (o) { return '<option value="' + o + '"' + (car && car.fuelType === o ? " selected" : "") + '>' + (o || "Seçilmedi") + '</option>'; }).join("") +
+        '</select></label>' +
+        '<label class="field"><span>Vites</span><select id="f-trans">' +
+          ["", "Manuel", "Otomatik", "Yarı Otomatik"].map(function (o) { return '<option value="' + o + '"' + (car && car.transmission === o ? " selected" : "") + '>' + (o || "Seçilmedi") + '</option>'; }).join("") +
+        '</select></label>' +
+      '</div>' +
+      '<div class="field-row">' +
         '<label class="field"><span>Muayene tarihi</span><input id="f-inspection" type="date" value="' + (car && car.inspectionDate ? car.inspectionDate : "") + '" /></label>' +
         '<label class="field"><span>Sonraki bakım tarihi</span><input id="f-maintenance" type="date" value="' + (car && car.maintenanceDate ? car.maintenanceDate : "") + '" /></label>' +
       '</div>' +
@@ -1257,14 +1324,24 @@
         '<label class="field"><span>Kasko bitiş (opsiyonel)</span><input id="f-kasko" type="date" value="' + (car && car.kaskoDate ? car.kaskoDate : "") + '" /></label>' +
       '</div>' +
       '<div class="field-row">' +
+        '<label class="field"><span>Sigorta şirketi (opsiyonel)</span><input id="f-insco" value="' + (car ? esc(car.insuranceCompany || "") : "") + '" placeholder="Örn. Anadolu Sigorta" /></label>' +
+        '<label class="field"><span>Poliçe no (opsiyonel)</span><input id="f-policyno" value="' + (car ? esc(car.policyNo || "") : "") + '" placeholder="Poliçe numarası" /></label>' +
+      '</div>' +
+      '<div class="field-row">' +
         '<label class="field"><span>Vergi (MTV) ödeme tarihi</span><input id="f-tax" type="date" value="' + (car && car.taxDate ? car.taxDate : "") + '" /></label>' +
         '<label class="field"><span>Lastik değişimi (opsiyonel)</span><input id="f-tire" type="date" value="' + (car && car.tireDate ? car.tireDate : "") + '" /></label>' +
       '</div>' +
-      '<label class="field"><span>Güncel kilometre (opsiyonel)</span><input id="f-km" type="text" inputmode="numeric" value="' + (car && car.currentKm != null ? groupThousands(String(car.currentKm)) : "") + '" placeholder="Örn. 84.500" /></label>' +
+      '<label class="field"><span>Şasi no / VIN (opsiyonel)</span><input id="f-vin" value="' + (car ? esc(car.vin || "") : "") + '" placeholder="17 haneli şasi numarası" /></label>' +
+      '<div class="field-row">' +
+        '<label class="field"><span>Güncel kilometre (opsiyonel)</span><input id="f-km" type="text" inputmode="numeric" value="' + (car && car.currentKm != null ? groupThousands(String(car.currentKm)) : "") + '" placeholder="Örn. 84.500" /></label>' +
+        '<label class="field"><span>Sonraki bakım km (opsiyonel)</span><input id="f-maintkm" type="text" inputmode="numeric" value="' + (car && car.maintenanceKm != null ? groupThousands(String(car.maintenanceKm)) : "") + '" placeholder="Örn. 95.000" /></label>' +
+      '</div>' +
+      '<p class="field-hint">Sonraki bakım km alanı, güncel kilometre ile karşılaştırılıp Yaklaşan İşlemler\'de otomatik hatırlatma olarak gösterilir.</p>' +
       '<p class="field-hint">Fotoğrafların (Araç/Ruhsat) üzerine tıklayarak büyük hallerini görebilirsiniz. Çevrimdışı kullanım için sıkıştırılır.</p>' +
       '<button class="btn-primary full" id="f-save">Kaydet</button>';
 
     attachThousandsInput(modal.querySelector("#f-km"), false);
+    attachThousandsInput(modal.querySelector("#f-maintkm"), false);
 
     modal.__photos = { carPhoto: car ? car.photo : null, ruhsatPhoto: car ? car.ruhsat : null };
 
@@ -1287,6 +1364,13 @@
         refreshPhotoBox(modal, key);
       });
     });
+    modal.querySelectorAll(".photo-edit").forEach(function (btn) {
+      btn.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        var key = btn.getAttribute("data-key");
+        modal.querySelector('.photo-upload[data-key="' + key + '"] input[type=file]').click();
+      });
+    });
 
     modal.querySelector("#f-save").addEventListener("click", function () {
       var name = modal.querySelector("#f-name").value.trim();
@@ -1294,13 +1378,21 @@
       var patch = {
         name: name,
         plate: modal.querySelector("#f-plate").value.trim(),
+        brand: modal.querySelector("#f-brand").value.trim(),
+        year: modal.querySelector("#f-year").value.trim(),
+        fuelType: modal.querySelector("#f-fuel").value,
+        transmission: modal.querySelector("#f-trans").value,
         inspectionDate: modal.querySelector("#f-inspection").value || null,
         maintenanceDate: modal.querySelector("#f-maintenance").value || null,
         insuranceDate: modal.querySelector("#f-insurance").value || null,
         kaskoDate: modal.querySelector("#f-kasko").value || null,
+        insuranceCompany: modal.querySelector("#f-insco").value.trim(),
+        policyNo: modal.querySelector("#f-policyno").value.trim(),
         taxDate: modal.querySelector("#f-tax").value || null,
         tireDate: modal.querySelector("#f-tire").value || null,
+        vin: modal.querySelector("#f-vin").value.trim(),
         currentKm: parseFormattedNumber(modal.querySelector("#f-km").value),
+        maintenanceKm: parseFormattedNumber(modal.querySelector("#f-maintkm").value),
         photo: modal.__photos.carPhoto || null,
         ruhsat: modal.__photos.ruhsatPhoto || null
       };
@@ -1319,21 +1411,27 @@
 
   function photoUploadHTML(key, label, existing) {
     var content = existing
-      ? '<img src="' + existing + '" alt="" data-key="' + key + '" data-action="open-lightbox" data-src="' + existing + '" data-caption="' + label + '" /><button class="photo-remove" data-key="' + key + '" type="button">✕</button>'
+      ? '<img src="' + existing + '" alt="" data-action="open-lightbox" data-src="' + existing + '" data-caption="' + label + '" />' +
+        '<button class="photo-remove" data-key="' + key + '" type="button" title="Kaldır">✕</button>' +
+        '<button class="photo-edit" data-key="' + key + '" type="button" title="Fotoğrafı değiştir">✏️</button>'
       : '<span class="pu-label">📷<br/>' + label + ' ekle</span>';
-    return '<div class="photo-upload" data-key="' + key + '" id="pu-' + key + '">' + content +
+    return '<div class="photo-upload' + (existing ? ' has-photo' : '') + '" data-key="' + key + '" id="pu-' + key + '">' + content +
       '<input type="file" accept="image/*" data-key="' + key + '" /></div>';
   }
 
   function refreshPhotoBox(modal, key) {
     var box = modal.querySelector("#pu-" + key);
-    var label = key === "carPhoto" ? "Araç fotoğrafı" : "Ruhsat görüntüsü";
+    var label = key === "carPhoto" ? "Araç fotoğrafı" : (key === "ruhsatPhoto" ? "Ruhsat görüntüsü" : "Fiş / Fatura");
     var val = modal.__photos[key];
+    box.className = "photo-upload" + (val ? " has-photo" : "");
     box.innerHTML = (val
-      ? '<img src="' + val + '" alt="" data-key="' + key + '" data-action="open-lightbox" data-src="' + val + '" data-caption="' + label + '" /><button class="photo-remove" data-key="' + key + '" type="button">✕</button>'
+      ? '<img src="' + val + '" alt="" data-action="open-lightbox" data-src="' + val + '" data-caption="' + label + '" />' +
+        '<button class="photo-remove" data-key="' + key + '" type="button" title="Kaldır">✕</button>' +
+        '<button class="photo-edit" data-key="' + key + '" type="button" title="Fotoğrafı değiştir">✏️</button>'
       : '<span class="pu-label">📷<br/>' + label + ' ekle</span>') +
       '<input type="file" accept="image/*" data-key="' + key + '" />';
-    box.querySelector("input[type=file]").addEventListener("change", function (ev) {
+    var fileInput = box.querySelector("input[type=file]");
+    fileInput.addEventListener("change", function (ev) {
       var file = ev.target.files && ev.target.files[0];
       if (!file) return;
       compressImage(file, 900, 0.72).then(function (dataUrl) {
@@ -1346,6 +1444,11 @@
       ev.stopPropagation();
       modal.__photos[key] = null;
       refreshPhotoBox(modal, key);
+    });
+    var editBtn = box.querySelector(".photo-edit");
+    if (editBtn) editBtn.addEventListener("click", function (ev) {
+      ev.stopPropagation();
+      fileInput.click();
     });
   }
 
@@ -1360,6 +1463,12 @@
     var catChips = CATEGORIES.map(function (c) {
       return '<button type="button" class="cat-chip" style="--chip-color:' + c.color + '" data-cat="' + c.id + '">' + c.emoji + ' ' + esc(c.label) + '</button>';
     }).join("");
+    var familyMembers = state.familyMembers || [];
+    var payerOptions = familyMembers.length
+      ? '<label class="field"><span>Ödeyen (opsiyonel)</span><select id="e-payer"><option value="">Ben</option>' +
+        familyMembers.map(function (f) { return '<option value="' + f.id + '">' + esc(f.name) + '</option>'; }).join("") +
+        '</select></label>'
+      : "";
 
     modal.innerHTML =
       '<div class="modal-head"><h3>Masraf Ekle</h3><button class="icon-btn" data-action="close-modal">✕</button></div>' +
@@ -1369,15 +1478,56 @@
         '<label class="field"><span>Tutar (₺)</span><input id="e-amount" type="text" inputmode="decimal" placeholder="Örn. 1.250,50" /></label>' +
         '<label class="field"><span>Tarih</span><input id="e-date" type="date" value="' + todayStr() + '" /></label>' +
       '</div>' +
+      '<div class="field-row">' +
+        '<label class="field"><span>Kilometre (opsiyonel)</span><input id="e-km" type="text" inputmode="numeric" placeholder="Örn. 84.500" /></label>' +
+        '<label class="field" id="e-liter-field"><span>Litre (opsiyonel)</span><input id="e-liter" type="text" inputmode="decimal" placeholder="Örn. 45,5" /></label>' +
+      '</div>' +
+      '<p class="field-hint" style="margin-top:-6px">Kilometreyi girersen aracın güncel kilometresi otomatik güncellenir.</p>' +
       '<label class="field"><span>Not (opsiyonel)</span><input id="e-note" placeholder="Örn. Lastik değişimi" /></label>' +
-      '<button class="btn-primary full" id="e-save">Kaydet</button>';
+      payerOptions +
+      '<label class="field"><span>Fiş / Fatura (opsiyonel)</span></label>' +
+      photoUploadHTML("receiptPhoto", "Fiş / Fatura", null) +
+      '<button class="btn-primary full" id="e-save" style="margin-top:12px">Kaydet</button>';
 
     if (defaultCarId) modal.querySelector("#e-car").value = defaultCarId;
     attachThousandsInput(modal.querySelector("#e-amount"), true);
+    attachThousandsInput(modal.querySelector("#e-km"), false);
+    attachThousandsInput(modal.querySelector("#e-liter"), true);
+
+    modal.__photos = { receiptPhoto: null };
+    modal.querySelectorAll(".photo-upload input[type=file]").forEach(function (input) {
+      input.addEventListener("change", function (ev) {
+        var file = ev.target.files && ev.target.files[0];
+        if (!file) return;
+        var key = input.getAttribute("data-key");
+        compressImage(file, 900, 0.72).then(function (dataUrl) {
+          modal.__photos[key] = dataUrl;
+          refreshPhotoBox(modal, key);
+        }).catch(function () { toast("Fotoğraf yüklenemedi."); });
+      });
+    });
+    modal.querySelectorAll(".photo-remove").forEach(function (btn) {
+      btn.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        var key = btn.getAttribute("data-key");
+        modal.__photos[key] = null;
+        refreshPhotoBox(modal, key);
+      });
+    });
+    modal.querySelectorAll(".photo-edit").forEach(function (btn) {
+      btn.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        var key = btn.getAttribute("data-key");
+        modal.querySelector('.photo-upload[data-key="' + key + '"] input[type=file]').click();
+      });
+    });
+
     var selectedCat = CATEGORIES[0].id;
     var chips = modal.querySelectorAll(".cat-chip");
+    var literField = modal.querySelector("#e-liter-field");
     function paintChips() {
       chips.forEach(function (ch) { ch.classList.toggle("active", ch.getAttribute("data-cat") === selectedCat); });
+      literField.style.display = selectedCat === "yakit" ? "" : "none";
     }
     chips.forEach(function (ch) {
       ch.addEventListener("click", function () { selectedCat = ch.getAttribute("data-cat"); paintChips(); });
@@ -1389,9 +1539,23 @@
       var amount = parseFormattedNumber(modal.querySelector("#e-amount").value);
       var date = modal.querySelector("#e-date").value;
       var note = modal.querySelector("#e-note").value.trim();
+      var km = parseFormattedNumber(modal.querySelector("#e-km").value);
+      var liter = selectedCat === "yakit" ? parseFormattedNumber(modal.querySelector("#e-liter").value) : null;
+      var payerEl = modal.querySelector("#e-payer");
+      var payerId = payerEl && payerEl.value ? payerEl.value : null;
       if (!carId || !amount || amount <= 0 || !date) { toast("Tutar ve tarih gerekli."); return; }
-      state.expenses = [{ id: uid(), carId: carId, category: selectedCat, amount: amount, date: date, note: note }].concat(state.expenses || []);
+      state.expenses = [{
+        id: uid(), carId: carId, category: selectedCat, amount: amount, date: date, note: note,
+        km: km, liter: liter, payerId: payerId, receipt: modal.__photos.receiptPhoto || null
+      }].concat(state.expenses || []);
       persistExpenses();
+      if (km != null) {
+        var car = (state.cars || []).find(function (c) { return c.id === carId; });
+        if (car && (car.currentKm == null || km > car.currentKm)) {
+          state.cars = state.cars.map(function (c) { return c.id === carId ? Object.assign({}, c, { currentKm: km }) : c; });
+          persistCars();
+        }
+      }
       closeModal();
       render();
     });
@@ -1493,11 +1657,6 @@
 
   init();
 })();
-
-
-
-
-
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
