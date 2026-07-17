@@ -32,3 +32,4 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           TRIGGER_SOURCE: ${{ github.event.schedule || github.event_name }}
         run: node send-reminders.js
+ 
