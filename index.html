@@ -361,22 +361,26 @@
   var messagingReady = Promise.resolve(null);
   if (typeof firebase.messaging === "function") {
     try {
-      messagingReady = firebase.messaging.isSupported().then(function (supported) {
-        if (!supported) { console.warn("FCM: bu tarayıcı/ortam desteklenmiyor (isSupported=false)."); return null; }
+      // NOT: firebase-messaging-compat.js'te isSupported() SENKRON çalışır (Promise DEĞİL),
+      // modüler (v9+) SDK'daki async versiyondan farklıdır — bu yüzden .then() kullanılmaz.
+      var fcmSupported = firebase.messaging.isSupported();
+      if (!fcmSupported) {
+        console.warn("FCM: bu tarayıcı/ortam desteklenmiyor (isSupported=false).");
+      } else {
         messaging = firebase.messaging();
         messaging.onMessage(function (payload) {
           var body = (payload.notification && payload.notification.body) || "Yeni bir hatırlatman var.";
           toast(body);
         });
-        return messaging;
-      }).catch(function (err) { console.error("FCM isSupported hata:", err); messaging = null; return null; });
+      }
+      messagingReady = Promise.resolve(messaging);
     } catch (e) { console.error("FCM init hata:", e); messagingReady = Promise.resolve(null); }
   } else {
     console.warn("FCM: firebase.messaging fonksiyonu bulunamadı (SDK yüklenmemiş olabilir).");
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.1.1"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.1.2"; // Dynamic Version Tracking
   var APP_UPDATED = "17 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
