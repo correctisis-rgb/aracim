@@ -2,9 +2,8 @@ name: Günlük Hatırlatma Bildirimi
 
 on:
   schedule:
-    # GEÇİCİ TEST: 18:55 UTC = 21:55 Türkiye saati (Türkiye yaz/kış saati uygulamıyor, sabit UTC+3)
-    # NOT: Test bitince bunu tekrar "0 6 * * *" (09:00 TR) olarak değiştirmeyi unutma!
-    - cron: "55 18 * * *"
+    # 06:00 UTC = 09:00 Türkiye saati (Türkiye yaz/kış saati uygulamıyor, sabit UTC+3)
+    - cron: "0 6 * * *"
   workflow_dispatch: {} # Elle tetiklemek için (test amaçlı) "Run workflow" butonu
 
 jobs:
