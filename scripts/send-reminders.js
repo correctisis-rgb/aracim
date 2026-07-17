@@ -1,0 +1,135 @@
+/**
+ * Garaj Defteri — Günlük Hatırlatma Bildirimi (GitHub Actions ile çalışır)
+ *
+ * Bu script Firebase Cloud Function DEĞİLDİR — GitHub Actions'ın ücretsiz
+ * zamanlanmış çalıştırıcısı (cron) tarafından her gün tetiklenir ve
+ * Firebase Admin SDK ile Firestore'u okuyup FCM push bildirimi gönderir.
+ * Blaze planı / kredi kartı gerektirmez.
+ */
+
+const admin = require("firebase-admin");
+
+// Servis hesabı anahtarı GitHub Actions secret'ından JSON metni olarak gelir
+const serviceAccount = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
+
+const db = admin.firestore();
+
+const DATE_FIELDS = [
+  { key: "inspectionDate", label: "Muayene", emoji: "🗓️" },
+  { key: "maintenanceDate", label: "Bakım / Servis", emoji: "🔧" },
+  { key: "insuranceDate", label: "Trafik Sigortası", emoji: "🛡️" },
+  { key: "kaskoDate", label: "Kasko", emoji: "🚙" },
+  { key: "taxDate", label: "Vergi (MTV)", emoji: "💰" },
+  { key: "tireDate", label: "Lastik Değişimi", emoji: "🛞" }
+];
+
+const DAY_THRESHOLDS = [7, 3, 1, 0];
+const KM_THRESHOLDS = [3000, 1000, 0];
+
+function daysUntil(dateStr) {
+  if (!dateStr) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(dateStr);
+  target.setHours(0, 0, 0, 0);
+  return Math.round((target - today) / 86400000);
+}
+
+function kmTier(remaining) {
+  if (remaining == null) return null;
+  const sorted = [...KM_THRESHOLDS].sort((a, b) => a - b); // [0, 1000, 3000]
+  for (const t of sorted) {
+    if (remaining <= t) return t;
+  }
+  return null;
+}
+
+async function main() {
+  const usersSnap = await db.collection("users").get();
+  console.log(`Toplam ${usersSnap.size} kullanıcı taranıyor...`);
+
+  for (const userDoc of usersSnap.docs) {
+    const user = userDoc.data();
+    const tokens = user.fcmTokens || [];
+    if (!tokens.length) continue;
+
+    const cars = user.cars || [];
+    const notifState = user.notifState || {};
+    const newNotifState = Object.assign({}, notifState);
+    const triggered = [];
+
+    cars.forEach((car) => {
+      DATE_FIELDS.forEach((f) => {
+        const dateVal = car[f.key];
+        if (!dateVal) return;
+        const days = daysUntil(dateVal);
+        if (days == null) return;
+        if (!DAY_THRESHOLDS.includes(days)) return;
+
+        const stateKey = car.id + "_" + f.key;
+        if (newNotifState[stateKey] === days) return;
+
+        newNotifState[stateKey] = days;
+        const carName = car.name || "Aracın";
+        const dayText = days === 0 ? "bugün" : days + " gün içinde";
+        triggered.push(`${f.emoji} ${carName}: ${f.label} ${dayText}`);
+      });
+
+      if (car.maintenanceKm != null && car.currentKm != null) {
+        const remaining = car.maintenanceKm - car.currentKm;
+        const tier = kmTier(remaining);
+        if (tier != null) {
+          const stateKey = car.id + "_maintenanceKm";
+          if (newNotifState[stateKey] !== tier) {
+            newNotifState[stateKey] = tier;
+            const carName = car.name || "Aracın";
+            const kmText = remaining <= 0
+              ? `bakım kilometresi ${Math.abs(Math.round(remaining)).toLocaleString("tr-TR")} km geçti`
+              : `bakıma ${Math.round(remaining).toLocaleString("tr-TR")} km kaldı`;
+            triggered.push(`🔧 ${carName}: ${kmText}`);
+          }
+        }
+      }
+    });
+
+    if (!triggered.length) continue;
+
+    const title = triggered.length === 1 ? "Garaj Defteri — Hatırlatma" : `Garaj Defteri — ${triggered.length} hatırlatma`;
+    const body = triggered.slice(0, 3).join("  •  ") + (triggered.length > 3 ? ` (+${triggered.length - 3} diğer)` : "");
+
+    console.log(`→ ${userDoc.id}: ${body}`);
+
+    const response = await admin.messaging().sendEachForMulticast({
+      tokens,
+      notification: { title, body },
+      data: { url: "/aracim/" }
+    });
+
+    const invalidTokens = [];
+    response.responses.forEach((r, i) => {
+      if (!r.success) {
+        const code = r.error && r.error.code;
+        if (code === "messaging/invalid-registration-token" || code === "messaging/registration-token-not-registered") {
+          invalidTokens.push(tokens[i]);
+        }
+      }
+    });
+
+    const update = { notifState: newNotifState };
+    if (invalidTokens.length) {
+      update.fcmTokens = admin.firestore.FieldValue.arrayRemove(...invalidTokens);
+    }
+    await db.collection("users").doc(userDoc.id).set(update, { merge: true });
+  }
+
+  console.log("Bitti.");
+}
+
+main().catch((err) => {
+  console.error("Hata:", err);
+  process.exit(1);
+});
