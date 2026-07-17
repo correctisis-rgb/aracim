@@ -245,6 +245,23 @@
   @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
   .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--surface-2); border: 1px solid var(--border); color: var(--text); padding: 10px 16px; border-radius: 8px; font-size: 13px; z-index: 70; box-shadow: 0 6px 20px #00000060; max-width: calc(100vw - 32px); text-align: center; }
+  .toast-undo { display: flex; align-items: center; gap: 12px; text-align: left; }
+  .toast-undo-btn { background: none; border: 1px solid var(--amber); color: var(--amber); border-radius: 6px; padding: 5px 11px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; white-space: nowrap; flex-shrink: 0; }
+  .toast-undo-btn:hover { background: color-mix(in srgb, var(--amber) 16%, transparent); }
+
+  /* ---------- Log filters ---------- */
+  .log-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; align-items: center; }
+  .log-filters input, .log-filters select {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+    padding: 7px 9px; font-size: 12.5px; font-family: inherit;
+  }
+  .log-filters input:focus, .log-filters select:focus { outline: 2px solid var(--amber); outline-offset: 1px; }
+  .log-filter-search { flex: 1 1 160px; min-width: 140px; }
+  .log-filters input[type="date"] { width: 132px; }
+  .log-filters select { min-width: 118px; }
+  .log-filter-clear { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 8px; padding: 7px 10px; font-size: 12px; cursor: pointer; font-family: inherit; white-space: nowrap; }
+  .log-filter-clear:hover { border-color: var(--red); color: var(--red); }
+  .log-result-count { font-size: 11.5px; color: var(--muted); margin: -2px 0 10px; }
 
   /* ---------- Family Section ---------- */
   .family-list { list-style: none; padding: 0; margin: 10px 0 16px 0; display: flex; flex-direction: column; gap: 8px; }
@@ -449,7 +466,7 @@
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.1.7"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.1.8"; // Dynamic Version Tracking
   var APP_UPDATED = "17 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -608,7 +625,8 @@
     lightbox: null,
     lightboxCaption: "",
     notifStatus: (typeof Notification !== "undefined" ? Notification.permission : "unsupported"),
-    onboardingDismissed: getLocalData("onboarding_dismissed", false)
+    onboardingDismissed: getLocalData("onboarding_dismissed", false),
+    logFilters: { search: "", category: "all", carId: "all", dateFrom: "", dateTo: "" }
   };
 
   function defaultCar() {
@@ -831,6 +849,27 @@
     setTimeout(function () { el.remove(); }, 3200);
   }
 
+  function toastWithUndo(msg, onUndo) {
+    document.querySelectorAll(".toast").forEach(function (el) { el.remove(); });
+    var el = document.createElement("div");
+    el.className = "toast toast-undo";
+    var msgSpan = document.createElement("span");
+    msgSpan.textContent = msg;
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "toast-undo-btn";
+    btn.textContent = "↩ Geri Al";
+    el.appendChild(msgSpan);
+    el.appendChild(btn);
+    document.body.appendChild(el);
+    var timer = setTimeout(function () { el.remove(); }, 6500);
+    btn.addEventListener("click", function () {
+      clearTimeout(timer);
+      el.remove();
+      onUndo();
+    });
+  }
+
   function showConfirm(opts) {
     var backdrop = document.createElement("div");
     backdrop.className = "modal-backdrop confirm-backdrop";
@@ -853,6 +892,131 @@
     box.querySelector("#confirm-ok").addEventListener("click", function () { cleanup(); if (opts.onConfirm) opts.onConfirm(); });
     document.body.appendChild(backdrop);
     box.querySelector("#confirm-ok").focus();
+  }
+
+  // ---------- Paylaşılabilir masraf raporu (görsel) ----------
+  function buildReportCanvas(list, carLabel) {
+    var W = 820;
+    var pad = 36;
+    var rowH = 46;
+    var headerH = 168;
+    var footerH = 40;
+    var H = headerH + Math.max(list.length, 1) * rowH + footerH;
+
+    var canvas = document.createElement("canvas");
+    var scale = 2; // keskin görsel için
+    canvas.width = W * scale;
+    canvas.height = H * scale;
+    var ctx = canvas.getContext("2d");
+    ctx.scale(scale, scale);
+
+    // arkaplan
+    ctx.fillStyle = "#1B1F24";
+    ctx.fillRect(0, 0, W, H);
+
+    // başlık bandı
+    ctx.fillStyle = "#242930";
+    ctx.fillRect(0, 0, W, headerH);
+
+    ctx.fillStyle = "#F2A93B";
+    ctx.font = "700 21px Arial, sans-serif";
+    ctx.fillText("🚘 GARAJ DEFTERİ — MASRAF RAPORU", pad, 42);
+
+    ctx.fillStyle = "#EDEEF0";
+    ctx.font = "600 16px Arial, sans-serif";
+    ctx.fillText(carLabel, pad, 70);
+
+    var total = list.reduce(function (s, e) { return s + (e.amount || 0); }, 0);
+    var dates = list.map(function (e) { return e.date; }).filter(Boolean).sort();
+    var rangeLabel = dates.length ? (fmtDateTR(dates[0]) + " – " + fmtDateTR(dates[dates.length - 1])) : "";
+
+    ctx.fillStyle = "#8B939D";
+    ctx.font = "12.5px Arial, sans-serif";
+    ctx.fillText(rangeLabel + " · " + list.length + " kayıt", pad, 92);
+
+    ctx.fillStyle = "#F2A93B";
+    ctx.font = "700 24px 'JetBrains Mono', monospace";
+    ctx.fillText("Toplam: " + fmtTL(total), pad, 128);
+
+    ctx.fillStyle = "#8B939D";
+    ctx.font = "10.5px Arial, sans-serif";
+    ctx.fillText("Oluşturulma: " + new Date().toLocaleString("tr-TR"), pad, 150);
+
+    // satırlar
+    list.forEach(function (e, i) {
+      var rowY = headerH + i * rowH;
+      if (i % 2 === 1) {
+        ctx.fillStyle = "#20242A";
+        ctx.fillRect(0, rowY, W, rowH);
+      }
+      var cat = catById(e.category);
+      var car = (state.cars || []).find(function (c) { return c.id === e.carId; });
+
+      ctx.fillStyle = cat.color;
+      ctx.font = "18px Arial, sans-serif";
+      ctx.fillText(cat.emoji, pad, rowY + 29);
+
+      ctx.fillStyle = "#EDEEF0";
+      ctx.font = "600 14px Arial, sans-serif";
+      ctx.fillText(cat.label + (car ? " · " + car.name : ""), pad + 34, rowY + 20);
+
+      ctx.fillStyle = "#8B939D";
+      ctx.font = "11.5px Arial, sans-serif";
+      var noteText = e.note ? e.note : "—";
+      if (noteText.length > 46) noteText = noteText.slice(0, 45) + "…";
+      ctx.fillText(noteText, pad + 34, rowY + 36);
+
+      ctx.fillStyle = "#8B939D";
+      ctx.font = "11.5px 'JetBrains Mono', monospace";
+      ctx.fillText(fmtDateTR(e.date), W - 250, rowY + 27);
+
+      ctx.fillStyle = "#EDEEF0";
+      ctx.font = "700 14px 'JetBrains Mono', monospace";
+      ctx.textAlign = "right";
+      ctx.fillText(fmtTL(e.amount), W - pad, rowY + 27);
+      ctx.textAlign = "left";
+    });
+
+    // alt bilgi
+    ctx.fillStyle = "#8B939D";
+    ctx.font = "10.5px Arial, sans-serif";
+    ctx.fillText("Garaj Defteri ile oluşturuldu", pad, H - 16);
+
+    return canvas;
+  }
+
+  function shareExpenseReport() {
+    var list = getFilteredLogExpenses().slice().sort(function (a, b) { return new Date(a.date) - new Date(b.date); });
+    if (!list.length) { toast("Paylaşılacak masraf kaydı yok."); return; }
+
+    var car = (state.cars || []).find(function (c) { return c.id === state.selectedCarId; });
+    var carLabel = car ? car.name : (logFiltersActive() && state.logFilters.carId !== "all"
+      ? ((state.cars || []).find(function (c) { return c.id === state.logFilters.carId; }) || {}).name || "Seçili Araç"
+      : "Tüm Araçlar");
+
+    var canvas = buildReportCanvas(list, carLabel);
+    canvas.toBlob(function (blob) {
+      if (!blob) { toast("Rapor oluşturulamadı."); return; }
+      var fileName = "masraf-raporu-" + todayStr() + ".png";
+
+      var file;
+      try { file = new File([blob], fileName, { type: "image/png" }); } catch (e) { file = null; }
+
+      if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+        navigator.share({ files: [file], title: "Masraf Raporu", text: carLabel + " masraf raporu" })
+          .catch(function (err) { if (err && err.name !== "AbortError") toast("Paylaşım yapılamadı, görsel indiriliyor."); });
+      } else {
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        toast("Rapor görsel olarak indirildi.");
+      }
+    }, "image/png");
   }
 
   function exportData() {
@@ -990,6 +1154,38 @@
     return (state.expenses || []).filter(function (e) { return e.carId === state.selectedCarId; });
   }
 
+  function logFiltersActive() {
+    var f = state.logFilters || {};
+    return !!(f.search || (f.category && f.category !== "all") || (f.carId && f.carId !== "all") || f.dateFrom || f.dateTo);
+  }
+
+  function getFilteredLogExpenses() {
+    var list = getVisibleExpenses();
+    var f = state.logFilters || {};
+    if (state.selectedCarId === "all" && f.carId && f.carId !== "all") {
+      list = list.filter(function (e) { return e.carId === f.carId; });
+    }
+    if (f.category && f.category !== "all") {
+      list = list.filter(function (e) { return e.category === f.category; });
+    }
+    if (f.dateFrom) {
+      list = list.filter(function (e) { return e.date && e.date >= f.dateFrom; });
+    }
+    if (f.dateTo) {
+      list = list.filter(function (e) { return e.date && e.date <= f.dateTo; });
+    }
+    if (f.search) {
+      var q = f.search.toLocaleLowerCase("tr-TR");
+      list = list.filter(function (e) {
+        var cat = catById(e.category);
+        var car = (state.cars || []).find(function (c) { return c.id === e.carId; });
+        var hay = [cat.label, e.note || "", car ? car.name : "", fmtDateTR(e.date)].join(" ").toLocaleLowerCase("tr-TR");
+        return hay.indexOf(q) !== -1;
+      });
+    }
+    return list;
+  }
+
   function monthKey(d) { return d.getFullYear() + "-" + d.getMonth(); }
 
   function recalcCarCurrentKm(carId) {
@@ -1115,7 +1311,6 @@
         '<span class="gd-title-eyebrow">GARAJ DEFTERİ</span>' +
         '<span class="version-badge" title="Son güncelleme: ' + APP_UPDATED + '">' + APP_VERSION + '</span>' +
       '</div>' +
-      '<p style="text-align:center;color:var(--muted);font-size:10.5px;margin:0 0 10px;font-family:\'JetBrains Mono\', monospace;">Son güncelleme: ' + APP_UPDATED + '</p>' +
       '<h1 class="auth-title">' + (mode === "login" ? "Giriş Yap" : "Hesap Oluştur") + '</h1>' +
       '<p class="auth-sub">' + (mode === "login" ? "Araçlarını ve masraflarını görmek için hesabına giriş yap." : "Birkaç saniyede ücretsiz hesap oluştur, araçlarını eklemeye başla.") + '</p>' +
       '<div class="auth-tabs">' +
@@ -1225,6 +1420,16 @@
     var carsList = state.cars || [];
     var expensesList = state.expenses || [];
 
+    // Filtre girdileri gibi input alanlarında her tuşta tüm sayfa yeniden çizildiği için
+    // odağı (ve imleç konumunu) render sonrasında geri yüklüyoruz.
+    var activeEl = document.activeElement;
+    var activeId = (activeEl && activeEl.id) ? activeEl.id : null;
+    var activeSelStart = null, activeSelEnd = null;
+    if (activeId && typeof activeEl.selectionStart === "number") {
+      activeSelStart = activeEl.selectionStart;
+      activeSelEnd = activeEl.selectionEnd;
+    }
+
     var user = state.currentUser;
     var html = "";
     html += '<header class="gd-header">' +
@@ -1307,6 +1512,17 @@
     if (state.lightbox) renderLightbox();
 
     bindGlobalActions();
+    bindLogFilters();
+
+    if (activeId) {
+      var restoredEl = document.getElementById(activeId);
+      if (restoredEl) {
+        restoredEl.focus();
+        if (activeSelStart !== null && typeof restoredEl.setSelectionRange === "function") {
+          try { restoredEl.setSelectionRange(activeSelStart, activeSelEnd); } catch (e) {}
+        }
+      }
+    }
   }
 
   function getOnboardingSteps() {
@@ -1515,11 +1731,41 @@
   }
 
   function renderLogPanel() {
-    var visible = getVisibleExpenses().slice().sort(function (a, b) { return new Date(b.date) - new Date(a.date); });
-    var html = '<section class="panel log-panel"><div class="log-header"><h2>Masraf Kaydı</h2>' +
-      '<button class="btn-primary" data-action="open-add-expense" ' + ((state.cars || []).length === 0 ? "disabled" : "") + '>+ Masraf Ekle</button></div>';
+    var carsList = state.cars || [];
+    var totalCount = getVisibleExpenses().length;
+    var visible = getFilteredLogExpenses().slice().sort(function (a, b) { return new Date(b.date) - new Date(a.date); });
+    var f = state.logFilters || {};
+    var filtersActive = logFiltersActive();
+
+    var html = '<section class="panel log-panel"><div class="log-header"><h2>Masraf Kaydı</h2><div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+      '<button class="btn-secondary" data-action="share-report" ' + (totalCount === 0 ? "disabled" : "") + '>📤 Rapor Paylaş</button>' +
+      '<button class="btn-primary" data-action="open-add-expense" ' + (carsList.length === 0 ? "disabled" : "") + '>+ Masraf Ekle</button></div></div>';
+
+    if (totalCount > 0) {
+      html += '<div class="log-filters">' +
+        '<input type="search" id="log-filter-search" class="log-filter-search" placeholder="🔎 Kategori, not veya araç ara..." value="' + esc(f.search || "") + '" aria-label="Masraflarda ara" />' +
+        '<select id="log-filter-cat" aria-label="Kategoriye göre filtrele">' +
+          '<option value="all">Tüm Kategoriler</option>' +
+          CATEGORIES.map(function (c) { return '<option value="' + c.id + '"' + (f.category === c.id ? " selected" : "") + '>' + c.emoji + ' ' + esc(c.label) + '</option>'; }).join("") +
+        '</select>' +
+        (state.selectedCarId === "all" && carsList.length > 1 ?
+          '<select id="log-filter-car" aria-label="Araca göre filtrele">' +
+            '<option value="all">Tüm Araçlar</option>' +
+            carsList.map(function (c) { return '<option value="' + c.id + '"' + (f.carId === c.id ? " selected" : "") + '>' + esc(c.name) + '</option>'; }).join("") +
+          '</select>' : '') +
+        '<input type="date" id="log-filter-from" value="' + esc(f.dateFrom || "") + '" title="Başlangıç tarihi" aria-label="Başlangıç tarihi" />' +
+        '<input type="date" id="log-filter-to" value="' + esc(f.dateTo || "") + '" title="Bitiş tarihi" aria-label="Bitiş tarihi" />' +
+        (filtersActive ? '<button type="button" class="log-filter-clear" data-action="clear-log-filters">✕ Temizle</button>' : '') +
+        '</div>';
+      if (filtersActive) {
+        html += '<p class="log-result-count">' + visible.length + ' / ' + totalCount + ' kayıt gösteriliyor</p>';
+      }
+    }
+
     if (visible.length === 0) {
-      html += '<p class="empty-hint">Kayıt yok. İlk masrafını eklediğinde defter burada dolmaya başlar.</p>';
+      html += filtersActive
+        ? '<p class="empty-hint">Filtrelere uyan kayıt yok. "Temizle" ile tüm kayıtları tekrar görebilirsin.</p>'
+        : '<p class="empty-hint">Kayıt yok. İlk masrafını eklediğinde defter burada dolmaya başlar.</p>';
     } else {
       html += '<ul class="expense-list">';
       visible.forEach(function (e) {
@@ -1547,6 +1793,34 @@
     }
     html += '</section>';
     return html;
+  }
+
+  function bindLogFilters() {
+    var searchEl = document.getElementById("log-filter-search");
+    if (searchEl) searchEl.addEventListener("input", function () {
+      state.logFilters.search = searchEl.value;
+      render();
+    });
+    var catEl = document.getElementById("log-filter-cat");
+    if (catEl) catEl.addEventListener("change", function () {
+      state.logFilters.category = catEl.value;
+      render();
+    });
+    var carEl = document.getElementById("log-filter-car");
+    if (carEl) carEl.addEventListener("change", function () {
+      state.logFilters.carId = carEl.value;
+      render();
+    });
+    var fromEl = document.getElementById("log-filter-from");
+    if (fromEl) fromEl.addEventListener("change", function () {
+      state.logFilters.dateFrom = fromEl.value;
+      render();
+    });
+    var toEl = document.getElementById("log-filter-to");
+    if (toEl) toEl.addEventListener("change", function () {
+      state.logFilters.dateTo = toEl.value;
+      render();
+    });
   }
 
   // ---------- modals ----------
@@ -2173,15 +2447,25 @@
           var id = el.getAttribute("data-id");
           showConfirm({
             title: "Masrafı Sil",
-            message: "Bu masraf kaydını silmek istediğine emin misin? Bu işlem geri alınamaz.",
+            message: "Bu masraf kaydını silmek istediğine emin misin? Silme sonrası kısa bir süre geri alabilirsin.",
             confirmLabel: "Sil",
             danger: true,
             onConfirm: function () {
               var deleted = (state.expenses || []).find(function (e) { return e.id === id; });
+              if (!deleted) return;
+              var deletedIndex = (state.expenses || []).indexOf(deleted);
               state.expenses = (state.expenses || []).filter(function (e) { return e.id !== id; });
               persistExpenses();
-              if (deleted && deleted.carId) recalcCarCurrentKm(deleted.carId);
+              if (deleted.carId) recalcCarCurrentKm(deleted.carId);
               render();
+              toastWithUndo("Masraf silindi.", function () {
+                state.expenses = state.expenses || [];
+                state.expenses.splice(Math.min(deletedIndex, state.expenses.length), 0, deleted);
+                persistExpenses();
+                if (deleted.carId) recalcCarCurrentKm(deleted.carId);
+                render();
+                toast("Masraf geri alındı.");
+              });
             }
           });
         }
@@ -2195,19 +2479,39 @@
           var carId = el.getAttribute("data-car");
           showConfirm({
             title: "Aracı Sil",
-            message: "Bu aracı ve tüm masraf kayıtlarını silmek istediğinize emin misiniz? Bu işlem geri alınamaz.",
+            message: "Bu aracı ve tüm masraf kayıtlarını silmek istediğinize emin misiniz? Silme sonrası kısa bir süre geri alabilirsiniz.",
             confirmLabel: "Sil",
             danger: true,
             onConfirm: function () {
+              var deletedCar = (state.cars || []).find(function (c) { return c.id === carId; });
+              var deletedCarIndex = (state.cars || []).indexOf(deletedCar);
+              var deletedExpenses = (state.expenses || []).filter(function (e) { return e.carId === carId; });
+              var prevSelectedCarId = state.selectedCarId;
               state.cars = (state.cars || []).filter(function (c) { return c.id !== carId; });
               state.expenses = (state.expenses || []).filter(function (e) { return e.carId !== carId; });
               if (state.selectedCarId === carId) state.selectedCarId = "all";
               persistCars(); persistExpenses(); render();
+              toastWithUndo("Araç ve " + deletedExpenses.length + " masraf kaydı silindi.", function () {
+                if (deletedCar) {
+                  state.cars = state.cars || [];
+                  state.cars.splice(Math.min(deletedCarIndex, state.cars.length), 0, deletedCar);
+                  state.selectedCarId = prevSelectedCarId;
+                }
+                state.expenses = (state.expenses || []).concat(deletedExpenses);
+                persistCars(); persistExpenses();
+                render();
+                toast("Araç geri alındı.");
+              });
             }
           });
         }
         else if (action === "close-modal") { closeModal(); }
         else if (action === "close-modal-backdrop" && ev.target === el) { closeModal(); }
+        else if (action === "clear-log-filters") {
+          state.logFilters = { search: "", category: "all", carId: "all", dateFrom: "", dateTo: "" };
+          render();
+        }
+        else if (action === "share-report") { shareExpenseReport(); }
         else if (action === "export-data") { exportData(); }
         else if (action === "enable-notifications") { enableNotifications(); }
         else if (action === "disable-notifications") { disableNotifications(); }
