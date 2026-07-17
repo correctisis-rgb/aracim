@@ -41,6 +41,15 @@
   }
   .wrap { max-width: 980px; margin: 0 auto; padding: 20px; }
 
+  /* ---------- Accessibility: focus states ---------- */
+  a:focus-visible, button:focus-visible, input:focus-visible,
+  [data-action]:focus-visible, [tabindex]:focus-visible {
+    outline: 2px solid var(--amber); outline-offset: 2px; border-radius: 4px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+  }
+
   .gd-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; min-height: 60vh; color: var(--muted); }
   .loading-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--amber); animation: pulse 1s ease-in-out infinite; }
   @keyframes pulse { 0%,100% { opacity: .3; transform: scale(1);} 50% { opacity: 1; transform: scale(1.4);} }
@@ -61,7 +70,7 @@
   .car-tab {
     display: flex; align-items: center; gap: 6px;
     background: var(--surface); border: 1px solid var(--border); color: var(--muted);
-    padding: 6px 14px 6px 6px; border-radius: 999px; font-size: 13px; font-weight: 500; cursor: pointer;
+    padding: 9px 14px 9px 6px; min-height: 40px; border-radius: 999px; font-size: 13px; font-weight: 500; cursor: pointer;
     transition: all .15s ease;
   }
   .car-tab:hover { border-color: var(--tab-color, var(--amber)); color: var(--text); }
@@ -73,7 +82,7 @@
 
   .view-tab {
     position: relative; display: flex; align-items: center; gap: 6px;
-    background: none; border: none; color: var(--muted); padding: 7px 14px;
+    background: none; border: none; color: var(--muted); padding: 10px 14px; min-height: 40px;
     border-radius: 7px; font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit;
   }
   .view-tab.active { background: var(--surface-2); color: var(--text); }
@@ -130,7 +139,7 @@
   .btn-secondary.full { width: 100%; justify-content: center; }
 
   .expense-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 360px; overflow-y: auto; }
-  .expense-row { display: grid; grid-template-columns: 36px 1fr auto auto 28px 28px; align-items: center; gap: 12px; padding: 9px 4px; border-bottom: 1px solid var(--border); }
+  .expense-row { display: grid; grid-template-columns: 36px 1fr auto auto 34px 34px; align-items: center; gap: 10px; padding: 9px 4px; border-bottom: 1px solid var(--border); }
   .expense-row:last-child { border-bottom: none; }
   .exp-icon { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0; }
   .exp-icon-wrap { position: relative; flex-shrink: 0; }
@@ -145,7 +154,7 @@
   .exp-note { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .exp-date { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--muted); }
   .exp-amount { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 13.5px; }
-  .exp-del { background: none; border: none; color: var(--muted); cursor: pointer; padding: 8px; border-radius: 6px; font-size: 14px; min-width: 32px; min-height: 32px; }
+  .exp-del { background: none; border: none; color: var(--muted); cursor: pointer; padding: 8px; border-radius: 6px; font-size: 14px; min-width: 34px; min-height: 34px; }
   .exp-del:hover { color: var(--red); background: #E2574C1A; }
 
   .car-actions { display: flex; gap: 16px; margin-top: 4px; flex-wrap: wrap; }
@@ -186,7 +195,8 @@
   .modal.wide { max-width: 460px; }
   .modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
   .modal-head h3 { margin: 0; font-family: 'Oswald', sans-serif; font-weight: 600; font-size: 18px; }
-  .icon-btn { background: none; border: none; color: var(--muted); cursor: pointer; padding: 8px; font-size: 18px; line-height: 1; min-width: 36px; min-height: 36px; display: inline-flex; align-items: center; justify-content: center; }
+  .icon-btn { background: none; border: none; color: var(--muted); cursor: pointer; padding: 8px; font-size: 18px; line-height: 1; min-width: 40px; min-height: 40px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; }
+  .icon-btn:focus-visible { background: var(--surface-2); }
   .icon-btn:hover { color: var(--text); }
 
   .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; font-size: 12.5px; color: var(--muted); }
@@ -284,9 +294,12 @@
   .profile-section-title { font-family: 'Oswald', sans-serif; font-size: 12.5px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin: 18px 0 10px; padding-top: 14px; border-top: 1px solid var(--border); }
   .profile-section-title:first-of-type { margin-top: 0; padding-top: 0; border-top: none; }
   /* ---------- health / error monitoring modals ---------- */
-  .mon-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
-  .mon-row .mon-label { font-size: 12.5px; color: var(--muted); }
-  .mon-row .mon-value { font-size: 12.5px; font-weight: 600; font-family: 'JetBrains Mono', monospace; text-align: right; }
+  .mon-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; flex-wrap: wrap; }
+  .mon-row .mon-label { font-size: 12.5px; color: var(--muted); flex-shrink: 0; }
+  .mon-row .mon-value { font-size: 12.5px; font-weight: 600; font-family: 'JetBrains Mono', monospace; text-align: right; word-break: break-word; min-width: 0; }
+  .mon-recipients { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+  .mon-recipient-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; font-size: 11.5px; }
+  .mon-recipient-email { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .mon-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 999px; font-family: 'JetBrains Mono', monospace; }
   .mon-badge.ok { color: #7BC67E; background: #7BC67E1A; }
   .mon-badge.warn { color: var(--amber); background: rgba(242,169,59,0.12); }
@@ -319,6 +332,28 @@
   .confirm-actions button { min-width: 96px; }
   @media (max-width: 480px) { .confirm-actions { flex-direction: column-reverse; } .confirm-actions button { width: 100%; } }
 
+  /* ---------- Onboarding tour ---------- */
+  .onboard-card { background: linear-gradient(135deg, color-mix(in srgb, var(--amber) 10%, var(--surface)), var(--surface)); border: 1px solid color-mix(in srgb, var(--amber) 35%, var(--border)); border-radius: 14px; padding: 16px 18px; margin-bottom: 14px; }
+  .onboard-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+  .onboard-title { font-family: 'Oswald', sans-serif; font-size: 15px; font-weight: 600; margin: 0 0 3px; }
+  .onboard-sub { font-size: 12.5px; color: var(--muted); margin: 0; line-height: 1.5; }
+  .onboard-close { flex-shrink: 0; }
+  .onboard-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .onboard-step { display: flex; align-items: center; gap: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; min-height: 44px; }
+  .onboard-step-badge { width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); }
+  .onboard-step.done .onboard-step-badge { background: #7BC67E; border-color: #7BC67E; color: #14251A; }
+  .onboard-step-label { flex: 1; font-size: 13px; color: var(--text); min-width: 0; }
+  .onboard-step.done .onboard-step-label { color: var(--muted); text-decoration: line-through; }
+  .onboard-step-action { flex-shrink: 0; }
+  @media (max-width: 480px) { .onboard-card { padding: 13px 14px; } .onboard-step-label { font-size: 12.5px; } }
+
+  /* ---------- Empty states ---------- */
+  .empty-state { text-align: center; padding: 46px 20px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .empty-state-icon { font-size: 44px; margin-bottom: 6px; filter: drop-shadow(0 4px 10px #00000040); }
+  .empty-state-title { font-family: 'Oswald', sans-serif; font-size: 18px; font-weight: 600; margin: 0; }
+  .empty-state-text { font-size: 13px; color: var(--muted); max-width: 380px; line-height: 1.6; margin: 0 0 12px; }
+  @media (max-width: 480px) { .empty-state { padding: 32px 14px; } .empty-state-icon { font-size: 36px; } .empty-state-title { font-size: 16px; } }
+
   @media (max-width: 480px) {
     .wrap { padding: 12px; }
     .gd-title h1 { font-size: 21px; }
@@ -326,12 +361,13 @@
     .storage-note { font-size: 11px; }
     .header-actions { gap: 6px; }
     .btn-secondary, .btn-primary { font-size: 12px; padding: 8px 10px; }
-    .car-tab { padding: 6px 10px 6px 6px; font-size: 12px; }
+    .car-tab { padding: 8px 10px 8px 6px; min-height: 36px; font-size: 12px; }
     .panel { padding: 12px; border-radius: 12px; }
     .odometer { font-size: 20px; padding: 5px 10px; }
     .donut-wrap { justify-content: center; }
     .donut-canvas-box { width: 120px; height: 120px; }
-    .expense-row { grid-template-columns: 30px 1fr auto 24px 24px; gap: 8px; }
+    .expense-row { grid-template-columns: 30px 1fr auto 30px 30px; gap: 6px; }
+    .exp-del { min-width: 30px; min-height: 30px; padding: 6px; }
     .exp-date { display: none; }
     .summary-row { grid-template-columns: 32px 1fr auto 24px; gap: 8px; }
     .field-row { grid-template-columns: 1fr; gap: 0; }
@@ -413,7 +449,7 @@
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.1.6"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.1.7"; // Dynamic Version Tracking
   var APP_UPDATED = "17 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -571,7 +607,8 @@
     modal: null,
     lightbox: null,
     lightboxCaption: "",
-    notifStatus: (typeof Notification !== "undefined" ? Notification.permission : "unsupported")
+    notifStatus: (typeof Notification !== "undefined" ? Notification.permission : "unsupported"),
+    onboardingDismissed: getLocalData("onboarding_dismissed", false)
   };
 
   function defaultCar() {
@@ -1092,14 +1129,14 @@
       html +=
         '<label class="field"><span>Ad Soyad</span><input id="r-name" placeholder="Örn. Ahmet Yılmaz" autocomplete="name" /></label>' +
         '<label class="field"><span>E-posta</span><input id="r-email" type="email" placeholder="ornek@eposta.com" autocomplete="email" /></label>' +
-        '<label class="field"><span>Şifre</span><div class="pw-field"><input id="r-pass" type="password" placeholder="Örn. Araba1!" autocomplete="new-password" /><button type="button" class="pw-toggle" data-target="r-pass">👁️</button></div></label>' +
+        '<label class="field"><span>Şifre</span><div class="pw-field"><input id="r-pass" type="password" placeholder="Örn. Araba1!" autocomplete="new-password" /><button type="button" class="pw-toggle" data-target="r-pass" aria-label="Şifreyi göster/gizle">👁️</button></div></label>' +
         '<p class="field-hint" style="margin-top:-6px">' + PASSWORD_HINT + '</p>' +
-        '<label class="field"><span>Şifre (Tekrar)</span><div class="pw-field"><input id="r-pass2" type="password" placeholder="Şifreni tekrar gir" autocomplete="new-password" /><button type="button" class="pw-toggle" data-target="r-pass2">👁️</button></div></label>' +
+        '<label class="field"><span>Şifre (Tekrar)</span><div class="pw-field"><input id="r-pass2" type="password" placeholder="Şifreni tekrar gir" autocomplete="new-password" /><button type="button" class="pw-toggle" data-target="r-pass2" aria-label="Şifreyi göster/gizle">👁️</button></div></label>' +
         '<button type="button" class="btn-primary full" id="auth-submit" ' + (state.authBusy ? "disabled" : "") + '>' + (state.authBusy ? "Hesap oluşturuluyor…" : "Hesap Oluştur") + '</button>';
     } else {
       html +=
         '<label class="field"><span>E-posta</span><input id="l-email" type="email" placeholder="ornek@eposta.com" autocomplete="email" /></label>' +
-        '<label class="field"><span>Şifre</span><div class="pw-field"><input id="l-pass" type="password" placeholder="Şifren" autocomplete="current-password" /><button type="button" class="pw-toggle" data-target="l-pass">👁️</button></div></label>' +
+        '<label class="field"><span>Şifre</span><div class="pw-field"><input id="l-pass" type="password" placeholder="Şifren" autocomplete="current-password" /><button type="button" class="pw-toggle" data-target="l-pass" aria-label="Şifreyi göster/gizle">👁️</button></div></label>' +
         '<button type="button" class="btn-primary full" id="auth-submit" ' + (state.authBusy ? "disabled" : "") + '>' + (state.authBusy ? "Giriş yapılıyor…" : "Giriş Yap") + '</button>';
     }
     html += '</div></div>';
@@ -1200,7 +1237,7 @@
           '</div>' +
           '<div class="gd-title"><h1>Araç Masraf Takibi</h1></div>' +
         '</div>' +
-        (user ? '<div class="account-chip" data-action="toggle-account-menu">' + userAvatarHTML(user, 28) +
+        (user ? '<div class="account-chip" data-action="toggle-account-menu" role="button" tabindex="0" aria-haspopup="true" aria-expanded="' + (state.accountMenuOpen ? "true" : "false") + '" aria-label="Hesap menüsü">' + userAvatarHTML(user, 28) +
           '<span class="account-name">' + esc(user.name) + '</span><span class="account-chevron">▾</span>' +
           (state.accountMenuOpen ? '<div class="account-menu">' +
             '<button type="button" class="account-menu-item" data-action="open-profile">👤 Hesabım</button>' +
@@ -1228,6 +1265,8 @@
       '</div>' +
       '</header>';
 
+    if (user) html += renderOnboardingCard();
+
     // car tabs
     html += '<nav class="car-tabs" aria-label="Araç seçimi">';
     html += '<button class="car-tab ' + (state.selectedCarId === "all" ? "active" : "") + '" style="--tab-color:#EDEEF0" data-action="select-car" data-car="all">🚘 Tüm Araçlar</button>';
@@ -1241,21 +1280,25 @@
     var selectedCar = carsList.find(function (c) { return c.id === state.selectedCarId; });
     if (selectedCar) html += renderCarInfoCard(selectedCar);
 
-    // view tabs
-    var summaryItems = computeSummaryItems();
-    var hasUrgent = summaryItems.some(function (it) { return it.status.key === "overdue" || it.status.key === "today" || it.status.key === "soon"; });
-    html += '<nav class="view-tabs" aria-label="Görünüm seçimi">' +
-      '<button class="view-tab ' + (state.view === "panel" ? "active" : "") + '" data-action="set-view" data-view="panel">📊 Panel</button>' +
-      '<button class="view-tab ' + (state.view === "ozet" ? "active" : "") + '" data-action="set-view" data-view="ozet">✅ Özet' + (hasUrgent ? '<span class="view-tab-flag"></span>' : '') + '</button>' +
-      '</nav>';
-
-    if (state.view === "ozet") {
-      html += renderSummaryPanel(summaryItems);
+    if (carsList.length === 0) {
+      html += renderEmptyCarsState();
     } else {
-      html += renderDashboard(summaryItems);
-    }
+      // view tabs
+      var summaryItems = computeSummaryItems();
+      var hasUrgent = summaryItems.some(function (it) { return it.status.key === "overdue" || it.status.key === "today" || it.status.key === "soon"; });
+      html += '<nav class="view-tabs" aria-label="Görünüm seçimi">' +
+        '<button class="view-tab ' + (state.view === "panel" ? "active" : "") + '" data-action="set-view" data-view="panel">📊 Panel</button>' +
+        '<button class="view-tab ' + (state.view === "ozet" ? "active" : "") + '" data-action="set-view" data-view="ozet">✅ Özet' + (hasUrgent ? '<span class="view-tab-flag"></span>' : '') + '</button>' +
+        '</nav>';
 
-    html += renderLogPanel();
+      if (state.view === "ozet") {
+        html += renderSummaryPanel(summaryItems);
+      } else {
+        html += renderDashboard(summaryItems);
+      }
+
+      html += renderLogPanel();
+    }
 
     app.innerHTML = html;
 
@@ -1264,6 +1307,52 @@
     if (state.lightbox) renderLightbox();
 
     bindGlobalActions();
+  }
+
+  function getOnboardingSteps() {
+    var carsList = state.cars || [];
+    var expensesList = state.expenses || [];
+    return [
+      { key: "car", label: "Aracını ekle", done: carsList.length > 0, actionLabel: "Araç Ekle", action: "open-add-car" },
+      { key: "expense", label: "İlk masrafını gir", done: expensesList.length > 0, actionLabel: "Masraf Ekle", action: (carsList.length > 0 ? "open-add-expense" : null) },
+      { key: "notif", label: "Bildirimleri aç (bakım hatırlatıcıları için)", done: state.notifStatus === "granted", actionLabel: "Bildirimleri Aç", action: (state.notifStatus !== "unsupported" && state.notifStatus !== "granted" ? "enable-notifications" : null) }
+    ];
+  }
+
+  function renderOnboardingCard() {
+    var steps = getOnboardingSteps();
+    var allDone = steps.every(function (s) { return s.done; });
+    if (allDone && !state.onboardingDismissed) {
+      state.onboardingDismissed = true;
+      setLocalData("onboarding_dismissed", true);
+    }
+    if (state.onboardingDismissed || allDone) return "";
+
+    var html = '<section class="onboard-card" aria-label="Başlangıç rehberi">' +
+      '<div class="onboard-head">' +
+        '<div><p class="onboard-title">👋 Garaj Defteri\'ne hoş geldin!</p>' +
+        '<p class="onboard-sub">Başlamak için şu birkaç adımı tamamla:</p></div>' +
+        '<button type="button" class="icon-btn onboard-close" data-action="dismiss-onboarding" aria-label="Rehberi kapat" title="Kapat">✕</button>' +
+      '</div>' +
+      '<ul class="onboard-steps">';
+    steps.forEach(function (s, i) {
+      html += '<li class="onboard-step ' + (s.done ? "done" : "") + '">' +
+        '<span class="onboard-step-badge">' + (s.done ? "✓" : (i + 1)) + '</span>' +
+        '<span class="onboard-step-label">' + esc(s.label) + '</span>' +
+        (!s.done && s.action ? '<button type="button" class="btn-secondary onboard-step-action" data-action="' + s.action + '">' + esc(s.actionLabel) + '</button>' : '') +
+        '</li>';
+    });
+    html += '</ul></section>';
+    return html;
+  }
+
+  function renderEmptyCarsState() {
+    return '<section class="panel empty-state">' +
+      '<span class="empty-state-icon" aria-hidden="true">🚗</span>' +
+      '<h2 class="empty-state-title">Henüz araç eklemedin</h2>' +
+      '<p class="empty-state-text">Aracını ekleyerek masraflarını takip etmeye, muayene &amp; bakım hatırlatıcıları almaya başlayabilirsin.</p>' +
+      '<button type="button" class="btn-primary" data-action="open-add-car">+ İlk Aracını Ekle</button>' +
+      '</section>';
   }
 
   function renderDashboard(summaryItems) {
@@ -1348,7 +1437,7 @@
           '<span class="sum-main"><span class="sum-type">' + esc(it.type) + ' · ' + esc(it.carName) + '</span>' +
           '<span class="sum-date">' + esc(it.dateLabel) + '</span></span>' +
           '<span class="sum-badge" style="color:' + it.status.color + ';border-color:' + it.status.color + '55;background:' + it.status.color + '18">' + showIcon + esc(it.status.label) + '</span>' +
-          '<button class="exp-del" data-action="open-edit-car" data-car="' + it.carId + '" title="Düzenle">✏️</button>' +
+          '<button class="exp-del" data-action="open-edit-car" data-car="' + it.carId + '" title="Düzenle" aria-label="Düzenle">✏️</button>' +
           '</li>';
       });
       html += '</ul>';
@@ -1415,7 +1504,7 @@
           '<span class="sum-main"><span class="sum-type">' + esc(it.type) + ' · ' + esc(it.carName) + '</span>' +
           '<span class="sum-date">' + esc(it.dateLabel) + '</span></span>' +
           '<span class="sum-badge" style="color:' + it.status.color + ';border-color:' + it.status.color + '55;background:' + it.status.color + '18">' + showIcon + esc(it.status.label) + '</span>' +
-          '<button class="exp-del" data-action="open-edit-car" data-car="' + it.carId + '" title="Düzenle">✏️</button>' +
+          '<button class="exp-del" data-action="open-edit-car" data-car="' + it.carId + '" title="Düzenle" aria-label="Düzenle">✏️</button>' +
           '</li>';
       });
       html += '</ul>';
@@ -1443,15 +1532,15 @@
         var payer = e.payerId ? (state.familyMembers || []).find(function (f) { return f.id === e.payerId; }) : null;
         if (payer) noteBits.push("Ödeyen: " + esc(payer.name));
         var noteText = noteBits.length ? noteBits.join(" · ") : "—";
-        var receiptBadge = e.receipt ? '<button type="button" class="receipt-badge" data-action="open-lightbox" data-src="' + e.receipt + '" data-caption="Fiş / Fatura" title="Fişi gör">📎</button>' : "";
+        var receiptBadge = e.receipt ? '<button type="button" class="receipt-badge" data-action="open-lightbox" data-src="' + e.receipt + '" data-caption="Fiş / Fatura" title="Fişi gör" aria-label="Fişi gör">📎</button>' : "";
         html += '<li class="expense-row">' +
           '<span class="exp-icon-wrap"><span class="exp-icon" style="background:' + cat.color + '22;color:' + cat.color + '">' + cat.emoji + '</span>' + receiptBadge + '</span>' +
           '<span class="exp-main"><span class="exp-cat">' + esc(cat.label) + (car ? " · " + esc(car.name) : "") + '</span>' +
           '<span class="exp-note">' + noteText + '</span></span>' +
           '<span class="exp-date">' + fmtDateTR(e.date) + '</span>' +
           '<span class="exp-amount">' + fmtTL(e.amount) + '</span>' +
-          '<button class="exp-del" data-action="open-edit-expense" data-id="' + e.id + '" title="Düzenle">✏️</button>' +
-          '<button class="exp-del" data-action="delete-expense" data-id="' + e.id + '" title="Sil">🗑️</button>' +
+          '<button class="exp-del" data-action="open-edit-expense" data-id="' + e.id + '" title="Düzenle" aria-label="Düzenle">✏️</button>' +
+          '<button class="exp-del" data-action="delete-expense" data-id="' + e.id + '" title="Sil" aria-label="Sil">🗑️</button>' +
           '</li>';
       });
       html += '</ul>';
@@ -1496,11 +1585,11 @@
 
     var familyHtml = "";
     (state.familyMembers || []).forEach(function (f) {
-      familyHtml += '<li class="family-item"><span class="family-name">👤 ' + esc(f.name) + '</span><span class="family-role">' + esc(f.role) + '</span><button class="exp-del" data-family-id="' + f.id + '">🗑️</button></li>';
+      familyHtml += '<li class="family-item"><span class="family-name">👤 ' + esc(f.name) + '</span><span class="family-role">' + esc(f.role) + '</span><button class="exp-del" data-family-id="' + f.id + '" title="Sil" aria-label="Aile üyesini sil">🗑️</button></li>';
     });
 
     modal.innerHTML =
-      '<div class="modal-head"><h3>Hesabım</h3><button class="icon-btn" data-action="close-modal">✕</button></div>' +
+      '<div class="modal-head"><h3>Hesabım</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>' +
       '<p class="profile-section-title">Profil Bilgileri</p>' +
       '<div class="avatar-upload-row">' +
         '<div class="avatar-upload" id="pu-avatar">' +
@@ -1641,12 +1730,28 @@
     } catch (e) { return "—"; }
   }
 
+  function renderRunLogRecipients(r) {
+    // Supports a few possible backend field shapes for per-user notification results.
+    var list = r.recipients || r.results || r.details || r.users || null;
+    if (!list || !list.length) return "";
+    var html = '<ul class="mon-recipients">';
+    list.forEach(function (u) {
+      var email = u.email || u.userEmail || u.name || u.id || "Bilinmeyen kullanıcı";
+      var ok = u.success !== false && !u.error;
+      html += '<li class="mon-recipient-row"><span class="mon-recipient-email">' + esc(email) + '</span>' +
+        (ok ? '<span class="mon-badge ok">✓</span>' : '<span class="mon-badge bad">✗' + (u.error ? (' ' + esc(String(u.error))) : '') + '</span>') +
+        '</li>';
+    });
+    html += '</ul>';
+    return html;
+  }
+
   function buildHealthModal() {
     var modal = document.createElement("div");
     modal.className = "modal wide";
     modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
 
-    var html = '<div class="modal-head"><h3>🩺 Sağlık</h3><button class="icon-btn" data-action="close-modal">✕</button></div>';
+    var html = '<div class="modal-head"><h3>🩺 Sağlık</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>';
     html += '<div class="mon-refresh-row"><button type="button" data-action="refresh-health">↻ Yenile</button></div>';
 
     html += '<div class="mon-row"><span class="mon-label">Bağlantı Durumu</span><span class="mon-value">' +
@@ -1691,6 +1796,7 @@
             '</div>' +
             '<div class="err-item-msg">' + esc(r.summary || (typeof r.sentCount === "number" ? (r.sentCount + " bildirim gönderildi") : "Detay yok")) + '</div>' +
             (r.error ? '<div class="err-item-meta">' + esc(String(r.error)) + '</div>' : '') +
+            renderRunLogRecipients(r) +
           '</li>';
         });
         html += '</ul>';
@@ -1706,7 +1812,7 @@
     modal.className = "modal wide";
     modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
 
-    var html = '<div class="modal-head"><h3>🐞 Hata İzleme</h3><button class="icon-btn" data-action="close-modal">✕</button></div>';
+    var html = '<div class="modal-head"><h3>🐞 Hata İzleme</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>';
     html += '<div class="mon-refresh-row"><button type="button" data-action="refresh-errors">↻ Yenile</button></div>';
 
     if (monitoring.errorsLoading && !monitoring.errors) {
@@ -1747,7 +1853,7 @@
     modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
 
     modal.innerHTML =
-      '<div class="modal-head"><h3>' + (isEdit ? "Araç Bilgilerini Düzenle" : "Araç Ekle") + '</h3><button class="icon-btn" data-action="close-modal">✕</button></div>' +
+      '<div class="modal-head"><h3>' + (isEdit ? "Araç Bilgilerini Düzenle" : "Araç Ekle") + '</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>' +
       '<div class="photo-row">' +
         photoUploadHTML("carPhoto", "Araç fotoğrafı", car ? car.photo : null) +
         photoUploadHTML("ruhsatPhoto", "Ruhsat görüntüsü", car ? car.ruhsat : null) +
@@ -1935,7 +2041,7 @@
       : "";
 
     modal.innerHTML =
-      '<div class="modal-head"><h3>' + (isEdit ? "Masraf Düzenle" : "Masraf Ekle") + '</h3><button class="icon-btn" data-action="close-modal">✕</button></div>' +
+      '<div class="modal-head"><h3>' + (isEdit ? "Masraf Düzenle" : "Masraf Ekle") + '</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>' +
       '<label class="field"><span>Araç</span><select id="e-car">' + carOptions + '</select></label>' +
       '<label class="field"><span>Kategori</span><div class="cat-grid" id="e-cats">' + catChips + '</div></label>' +
       '<div class="field-row">' +
@@ -2049,10 +2155,16 @@
   // ---------- events ----------
   function bindGlobalActions() {
     document.querySelectorAll("[data-action]").forEach(function (el) {
+      if (el.getAttribute("role") === "button" && el.tagName !== "BUTTON") {
+        el.addEventListener("keydown", function (ev) {
+          if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); el.click(); }
+        });
+      }
       el.addEventListener("click", function (ev) {
         var action = el.getAttribute("data-action");
         if (action === "select-car") { state.selectedCarId = el.getAttribute("data-car"); render(); }
         else if (action === "set-view") { state.view = el.getAttribute("data-view"); render(); }
+        else if (action === "dismiss-onboarding") { state.onboardingDismissed = true; setLocalData("onboarding_dismissed", true); render(); }
         else if (action === "open-add-car") { state.modal = { type: "addCar" }; render(); }
         else if (action === "open-edit-car") { state.modal = { type: "editCar", carId: el.getAttribute("data-car") }; render(); }
         else if (action === "open-add-expense") { state.modal = { type: "addExpense" }; render(); }
