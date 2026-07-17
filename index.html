@@ -283,6 +283,27 @@
   .avatar-upload-hint { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
   .profile-section-title { font-family: 'Oswald', sans-serif; font-size: 12.5px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin: 18px 0 10px; padding-top: 14px; border-top: 1px solid var(--border); }
   .profile-section-title:first-of-type { margin-top: 0; padding-top: 0; border-top: none; }
+  /* ---------- health / error monitoring modals ---------- */
+  .mon-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
+  .mon-row .mon-label { font-size: 12.5px; color: var(--muted); }
+  .mon-row .mon-value { font-size: 12.5px; font-weight: 600; font-family: 'JetBrains Mono', monospace; text-align: right; }
+  .mon-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 999px; font-family: 'JetBrains Mono', monospace; }
+  .mon-badge.ok { color: #7BC67E; background: #7BC67E1A; }
+  .mon-badge.warn { color: var(--amber); background: rgba(242,169,59,0.12); }
+  .mon-badge.bad { color: var(--red); background: #E2574C1A; }
+  .mon-empty { text-align: center; color: var(--muted); font-size: 12.5px; padding: 22px 10px; }
+  .mon-loading { text-align: center; color: var(--muted); font-size: 12.5px; padding: 22px 10px; }
+  .err-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; max-height: 340px; overflow-y: auto; }
+  .err-item { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .err-item-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+  .err-item-time { font-size: 10.5px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+  .err-item-user { font-size: 10.5px; color: var(--amber); font-family: 'JetBrains Mono', monospace; }
+  .err-item-msg { font-size: 12.5px; color: var(--text); line-height: 1.45; word-break: break-word; }
+  .err-item-meta { font-size: 10.5px; color: var(--muted); margin-top: 4px; word-break: break-word; }
+  .mon-refresh-row { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+  .mon-refresh-row button { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 7px; padding: 5px 10px; font-size: 11.5px; cursor: pointer; font-family: inherit; }
+  .mon-refresh-row button:hover { color: var(--text); border-color: var(--amber); }
+
   .danger-zone { background: #E2574C0D; border: 1px solid #E2574C33; border-radius: 10px; padding: 12px; margin-top: 6px; }
   .danger-zone p { font-size: 12px; color: var(--muted); margin: 0 0 10px; line-height: 1.5; }
   .btn-danger { display: inline-flex; align-items: center; gap: 6px; background: none; color: var(--red); border: 1px solid #E2574C55; border-radius: 8px; padding: 8px 13px; font-weight: 600; font-size: 12.5px; cursor: pointer; font-family: inherit; }
@@ -392,7 +413,7 @@
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.1.4"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.1.5"; // Dynamic Version Tracking
   var APP_UPDATED = "17 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -654,6 +675,104 @@
       toast("Tetikleme isteği gönderilemedi: " + (err && err.message ? err.message : err));
     });
   }
+
+  // --- Admin: Sağlık & Hata İzleme ---
+  var monitoring = {
+    health: null, healthLoading: false, healthError: null,
+    errors: null, errorsLoading: false, errorsError: null
+  };
+
+  function loadHealthData(force) {
+    if (!state.currentUser || !isAdminUser(state.currentUser)) return;
+    if (monitoring.healthLoading) return;
+    if (monitoring.health && !force) return;
+    monitoring.healthLoading = true;
+    monitoring.healthError = null;
+    if (state.modal && state.modal.type === "health") render();
+
+    var triggerDocP = db.collection("admin").doc("reminderTrigger").get()
+      .then(function (doc) { return doc.exists ? doc.data() : null; })
+      .catch(function () { return null; });
+
+    var runLogsP = db.collection("runLogs").orderBy("createdAt", "desc").limit(10).get()
+      .then(function (snap) {
+        var rows = [];
+        snap.forEach(function (d) { rows.push(Object.assign({ id: d.id }, d.data())); });
+        return rows;
+      })
+      .catch(function () { return []; });
+
+    Promise.all([triggerDocP, runLogsP]).then(function (results) {
+      monitoring.health = { trigger: results[0], runLogs: results[1], fetchedAt: Date.now() };
+      monitoring.healthLoading = false;
+      if (state.modal && state.modal.type === "health") render();
+    }).catch(function (err) {
+      monitoring.healthLoading = false;
+      monitoring.healthError = err && err.message ? err.message : String(err);
+      if (state.modal && state.modal.type === "health") render();
+    });
+  }
+
+  function loadErrorLogs(force) {
+    if (!state.currentUser || !isAdminUser(state.currentUser)) return;
+    if (monitoring.errorsLoading) return;
+    if (monitoring.errors && !force) return;
+    monitoring.errorsLoading = true;
+    monitoring.errorsError = null;
+    if (state.modal && state.modal.type === "errors") render();
+
+    db.collection("errorLogs").orderBy("createdAt", "desc").limit(50).get()
+      .then(function (snap) {
+        var rows = [];
+        snap.forEach(function (d) { rows.push(Object.assign({ id: d.id }, d.data())); });
+        monitoring.errors = rows;
+        monitoring.errorsLoading = false;
+        if (state.modal && state.modal.type === "errors") render();
+      })
+      .catch(function (err) {
+        monitoring.errorsLoading = false;
+        monitoring.errorsError = err && err.message ? err.message : String(err);
+        if (state.modal && state.modal.type === "errors") render();
+      });
+  }
+
+  // --- İstemci taraflı hata yakalama ---
+  var CLIENT_ERROR_LOG_LIMIT = 15;
+  var clientErrorLogCount = 0;
+  var clientErrorSeen = {};
+  function logClientError(info) {
+    try {
+      if (!db || !navigator.onLine) return;
+      if (clientErrorLogCount >= CLIENT_ERROR_LOG_LIMIT) return;
+      var key = (info.message || "") + "|" + (info.source || "");
+      if (clientErrorSeen[key]) return;
+      clientErrorSeen[key] = true;
+      clientErrorLogCount++;
+      db.collection("errorLogs").add({
+        message: (info.message || "Bilinmeyen hata").slice(0, 800),
+        stack: (info.stack || "").slice(0, 2000),
+        source: info.source || "",
+        line: info.line || null,
+        col: info.col || null,
+        url: window.location.href,
+        userAgent: navigator.userAgent,
+        userId: state.currentUser ? state.currentUser.id : null,
+        userEmail: state.currentUser ? state.currentUser.email : null,
+        appVersion: APP_VERSION,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      }).catch(function () { /* sessizce yok say */ });
+    } catch (e) { /* hata izleme kendisi hata üretmesin */ }
+  }
+  window.addEventListener("error", function (ev) {
+    logClientError({ message: ev.message, source: ev.filename, line: ev.lineno, col: ev.colno, stack: ev.error && ev.error.stack });
+  });
+  window.addEventListener("unhandledrejection", function (ev) {
+    var reason = ev.reason;
+    logClientError({
+      message: "Unhandled promise rejection: " + (reason && reason.message ? reason.message : String(reason)),
+      stack: reason && reason.stack
+    });
+  });
 
   function syncOfflineData() {
     if (state.currentUser && state.online) {
@@ -1087,7 +1206,9 @@
             '<button type="button" class="account-menu-item" data-action="open-profile">👤 Hesabım</button>' +
             (isAdminUser(user) ?
               '<div class="account-menu-divider"></div>' +
-              '<button type="button" class="account-menu-item" data-action="trigger-reminders">🛠️ Bildirimleri Tetikle</button>'
+              '<button type="button" class="account-menu-item" data-action="trigger-reminders">🛠️ Bildirimleri Tetikle</button>' +
+              '<button type="button" class="account-menu-item" data-action="open-health">🩺 Sağlık</button>' +
+              '<button type="button" class="account-menu-item" data-action="open-errors">🐞 Hata İzleme</button>'
               : '') +
             '<div class="account-menu-divider"></div>' +
             '<button type="button" class="account-menu-item danger" data-action="logout">🚪 Çıkış Yap</button>' +
@@ -1351,6 +1472,10 @@
       backdrop.appendChild(buildExpenseModal());
     } else if (state.modal.type === "profile") {
       backdrop.appendChild(buildProfileModal());
+    } else if (state.modal.type === "health") {
+      backdrop.appendChild(buildHealthModal());
+    } else if (state.modal.type === "errors") {
+      backdrop.appendChild(buildErrorsModal());
     }
     document.body.appendChild(backdrop);
   }
@@ -1498,6 +1623,110 @@
       });
     });
 
+    return modal;
+  }
+
+  function fmtDateTime(ts) {
+    try {
+      var d = ts && typeof ts.toDate === "function" ? ts.toDate() : (ts ? new Date(ts) : null);
+      if (!d || isNaN(d.getTime())) return "—";
+      return d.toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    } catch (e) { return "—"; }
+  }
+
+  function buildHealthModal() {
+    var modal = document.createElement("div");
+    modal.className = "modal wide";
+    modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
+
+    var html = '<div class="modal-head"><h3>🩺 Sağlık</h3><button class="icon-btn" data-action="close-modal">✕</button></div>';
+    html += '<div class="mon-refresh-row"><button type="button" data-action="refresh-health">↻ Yenile</button></div>';
+
+    html += '<div class="mon-row"><span class="mon-label">Bağlantı Durumu</span><span class="mon-value">' +
+      (state.online ? '<span class="mon-badge ok">🟢 Çevrimiçi</span>' : '<span class="mon-badge bad">🔴 Çevrimdışı</span>') + '</span></div>';
+    html += '<div class="mon-row"><span class="mon-label">Uygulama Sürümü</span><span class="mon-value">' + esc(APP_VERSION) + '</span></div>';
+    html += '<div class="mon-row"><span class="mon-label">Bildirim İzni</span><span class="mon-value">' + esc(state.notifStatus || "—") + '</span></div>';
+
+    if (monitoring.healthLoading && !monitoring.health) {
+      html += '<p class="mon-loading">Yükleniyor…</p>';
+    } else if (monitoring.healthError) {
+      html += '<p class="mon-empty">Veriler alınamadı: ' + esc(monitoring.healthError) + '</p>';
+    } else if (monitoring.health) {
+      var trig = monitoring.health.trigger;
+      html += '<p class="profile-section-title">Hatırlatma Tetikleyici</p>';
+      if (trig) {
+        var pending = !!trig.requested;
+        html += '<div class="mon-row"><span class="mon-label">Durum</span><span class="mon-value">' +
+          (pending ? '<span class="mon-badge warn">⏳ Bekliyor</span>' : '<span class="mon-badge ok">✓ İşlendi</span>') + '</span></div>';
+        html += '<div class="mon-row"><span class="mon-label">Son İstek</span><span class="mon-value">' + fmtDateTime(trig.requestedAt) + '</span></div>';
+        if (trig.requestedBy) {
+          html += '<div class="mon-row"><span class="mon-label">İsteyen</span><span class="mon-value">' + esc(trig.requestedBy) + '</span></div>';
+        }
+        if (trig.processedAt) {
+          html += '<div class="mon-row"><span class="mon-label">İşlenme Zamanı</span><span class="mon-value">' + fmtDateTime(trig.processedAt) + '</span></div>';
+        }
+      } else {
+        html += '<p class="mon-empty">Henüz tetikleme kaydı yok.</p>';
+      }
+
+      html += '<p class="profile-section-title">Son Çalışmalar</p>';
+      var runLogs = monitoring.health.runLogs || [];
+      if (!runLogs.length) {
+        html += '<p class="mon-empty">Kayıtlı çalışma bulunamadı (runLogs koleksiyonu boş).</p>';
+      } else {
+        html += '<ul class="err-list">';
+        runLogs.forEach(function (r) {
+          var ok = r.success !== false && !r.error;
+          html += '<li class="err-item">' +
+            '<div class="err-item-head">' +
+              '<span class="err-item-time">' + fmtDateTime(r.createdAt) + '</span>' +
+              (ok ? '<span class="mon-badge ok">✓ Başarılı</span>' : '<span class="mon-badge bad">✗ Hata</span>') +
+            '</div>' +
+            '<div class="err-item-msg">' + esc(r.summary || (typeof r.sentCount === "number" ? (r.sentCount + " bildirim gönderildi") : "Detay yok")) + '</div>' +
+            (r.error ? '<div class="err-item-meta">' + esc(String(r.error)) + '</div>' : '') +
+          '</li>';
+        });
+        html += '</ul>';
+      }
+    }
+
+    modal.innerHTML = html;
+    return modal;
+  }
+
+  function buildErrorsModal() {
+    var modal = document.createElement("div");
+    modal.className = "modal wide";
+    modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
+
+    var html = '<div class="modal-head"><h3>🐞 Hata İzleme</h3><button class="icon-btn" data-action="close-modal">✕</button></div>';
+    html += '<div class="mon-refresh-row"><button type="button" data-action="refresh-errors">↻ Yenile</button></div>';
+
+    if (monitoring.errorsLoading && !monitoring.errors) {
+      html += '<p class="mon-loading">Yükleniyor…</p>';
+    } else if (monitoring.errorsError) {
+      html += '<p class="mon-empty">Veriler alınamadı: ' + esc(monitoring.errorsError) + '</p>';
+    } else {
+      var errs = monitoring.errors || [];
+      if (!errs.length) {
+        html += '<p class="mon-empty">Kayıtlı hata bulunamadı. 🎉</p>';
+      } else {
+        html += '<ul class="err-list">';
+        errs.forEach(function (e) {
+          html += '<li class="err-item">' +
+            '<div class="err-item-head">' +
+              '<span class="err-item-time">' + fmtDateTime(e.createdAt) + '</span>' +
+              '<span class="err-item-user">' + esc(e.userEmail || "anonim") + '</span>' +
+            '</div>' +
+            '<div class="err-item-msg">' + esc(e.message || "Bilinmeyen hata") + '</div>' +
+            '<div class="err-item-meta">' + esc((e.source || "") + (e.line ? (":" + e.line) : "")) + (e.appVersion ? (" · " + esc(e.appVersion)) : "") + '</div>' +
+          '</li>';
+        });
+        html += '</ul>';
+      }
+    }
+
+    modal.innerHTML = html;
     return modal;
   }
 
@@ -1867,6 +2096,24 @@
         else if (action === "toggle-account-menu") { ev.stopPropagation(); state.accountMenuOpen = !state.accountMenuOpen; render(); }
         else if (action === "trigger-reminders") { ev.stopPropagation(); state.accountMenuOpen = false; triggerReminders(); render(); }
         else if (action === "open-profile") { ev.stopPropagation(); state.modal = { type: "profile" }; state.accountMenuOpen = false; render(); }
+        else if (action === "open-health") {
+          ev.stopPropagation();
+          if (!isAdminUser(state.currentUser)) return;
+          state.modal = { type: "health" };
+          state.accountMenuOpen = false;
+          render();
+          loadHealthData();
+        }
+        else if (action === "open-errors") {
+          ev.stopPropagation();
+          if (!isAdminUser(state.currentUser)) return;
+          state.modal = { type: "errors" };
+          state.accountMenuOpen = false;
+          render();
+          loadErrorLogs();
+        }
+        else if (action === "refresh-health") { loadHealthData(true); }
+        else if (action === "refresh-errors") { loadErrorLogs(true); }
         else if (action === "logout") {
           ev.stopPropagation();
           state.accountMenuOpen = false;
