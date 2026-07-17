@@ -18,6 +18,31 @@ admin.initializeApp({
 
 const db = admin.firestore();
 
+// ---------- Manuel tetikleme desteği ----------
+// Bu script iki farklı zamanlamayla çalıştırılabilir (bkz. daily-reminder.yml):
+//  1) Günlük normal çalıştırma (her sabah 09:00 TR / 06:00 UTC) veya elle
+//     "Run workflow" ile tetiklenme → HER ZAMAN tam taramayı yapar.
+//  2) Sık aralıklı kontrol çalıştırması (her ~10 dakikada bir) → sadece
+//     uygulama içinden admin "Bildirimleri Tetikle" butonuna basıldıysa
+//     (Firestore'daki admin/reminderTrigger bayrağı true ise) tam taramayı
+//     yapar, aksi halde hiçbir şey yapmadan hemen çıkar. Bu sayede sık
+//     çalıştırma, gereksiz yere her 10 dakikada bir tüm kullanıcıları
+//     taramaz.
+const TRIGGER_SOURCE = process.env.TRIGGER_SOURCE || "";
+const IS_DAILY_RUN = TRIGGER_SOURCE === "0 6 * * *" || TRIGGER_SOURCE === "workflow_dispatch" || !TRIGGER_SOURCE;
+
+async function checkManualTriggerFlag() {
+  const ref = db.collection("admin").doc("reminderTrigger");
+  const snap = await ref.get();
+  const data = snap.exists ? snap.data() : null;
+  if (data && data.requested === true) {
+    console.log("Manuel tetikleme bayrağı bulundu (" + (data.requestedBy || "bilinmiyor") + "), tarama başlatılıyor...");
+    await ref.set({ requested: false }, { merge: true });
+    return true;
+  }
+  return false;
+}
+
 const DATE_FIELDS = [
   { key: "inspectionDate", label: "Muayene", emoji: "🗓️" },
   { key: "maintenanceDate", label: "Bakım / Servis", emoji: "🔧" },
@@ -49,6 +74,14 @@ function kmTier(remaining) {
 }
 
 async function main() {
+  if (!IS_DAILY_RUN) {
+    const shouldRun = await checkManualTriggerFlag();
+    if (!shouldRun) {
+      console.log("Sık kontrol çalıştırması: manuel tetikleme isteği yok, çıkılıyor.");
+      return;
+    }
+  }
+
   const usersSnap = await db.collection("users").get();
   console.log(`Toplam ${usersSnap.size} kullanıcı taranıyor...`);
 
