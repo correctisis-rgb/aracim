@@ -133,6 +133,13 @@
   .expense-row { display: grid; grid-template-columns: 36px 1fr auto auto 28px 28px; align-items: center; gap: 12px; padding: 9px 4px; border-bottom: 1px solid var(--border); }
   .expense-row:last-child { border-bottom: none; }
   .exp-icon { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0; }
+  .exp-icon-wrap { position: relative; flex-shrink: 0; }
+  .receipt-badge {
+    position: absolute; bottom: -3px; right: -3px; width: 15px; height: 15px; border-radius: 50%;
+    background: var(--surface-2); border: 1px solid var(--border); color: var(--amber);
+    display: flex; align-items: center; justify-content: center; font-size: 8px; cursor: pointer; padding: 0;
+  }
+  .receipt-badge:hover { border-color: var(--amber); }
   .exp-main { display: flex; flex-direction: column; min-width: 0; }
   .exp-cat { font-size: 13.5px; font-weight: 500; }
   .exp-note { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -325,6 +332,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-messaging-compat.js"></script>
 <script>
   var firebaseConfig = {
     apiKey: "AIzaSyCcfODFLDPVA4zr7L6xKPjEA6-Vle3XPio",
@@ -344,8 +352,27 @@
   var db = firebase.firestore();
   var unsubscribeUserDoc = null;
 
+  // ---------- push notification setup ----------
+  // ÖNEMLİ: Aşağıdaki VAPID_KEY'i kendi Firebase projenizden almanız gerekiyor:
+  // Firebase Console → Proje Ayarları → Cloud Messaging sekmesi → "Web Push sertifikaları"
+  // bölümünden "Anahtar çifti oluştur" deyin, çıkan uzun anahtarı buraya yapıştırın.
+  var VAPID_KEY = "BHIIHlP05E6J3R09picg9J8yMjdkxVWlv-bEB26C_NnYo4eytAKSXz7FUvEta1d8AEWr5p_rRURhYQyLo2zmFHw";
+  var messaging = null;
+  if (typeof firebase.messaging === "function") {
+    try {
+      firebase.messaging.isSupported().then(function (supported) {
+        if (!supported) return;
+        messaging = firebase.messaging();
+        messaging.onMessage(function (payload) {
+          var body = (payload.notification && payload.notification.body) || "Yeni bir hatırlatman var.";
+          toast(body);
+        });
+      }).catch(function () { messaging = null; });
+    } catch (e) { messaging = null; }
+  }
+
   // ---------- constants ----------
-  var APP_VERSION = "v1.0.9"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.1.0"; // Dynamic Version Tracking
   var APP_UPDATED = "17 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -502,7 +529,8 @@
     view: "panel",
     modal: null,
     lightbox: null,
-    lightboxCaption: ""
+    lightboxCaption: "",
+    notifStatus: (typeof Notification !== "undefined" ? Notification.permission : "unsupported")
   };
 
   function defaultCar() {
@@ -527,6 +555,49 @@
     if (!state.currentUser || !state.online) return;
     db.collection("users").doc(state.currentUser.id).set({ familyMembers: state.familyMembers }, { merge: true })
       .catch(function (err) { console.error(err); });
+  }
+
+  // --- Push Notifications ---
+  function enableNotifications() {
+    if (!messaging) { toast("Bu tarayıcı bildirimleri desteklemiyor."); return; }
+    if (!state.currentUser) { toast("Bildirimleri açmak için giriş yapmalısın."); return; }
+    Notification.requestPermission().then(function (perm) {
+      if (perm !== "granted") {
+        toast("Bildirim izni verilmedi. Tarayıcı ayarlarından değiştirebilirsin.");
+        state.notifStatus = "denied";
+        render();
+        return;
+      }
+      navigator.serviceWorker.getRegistration("/aracim/").then(function (reg) {
+        return messaging.getToken({ vapidKey: VAPID_KEY, serviceWorkerRegistration: reg });
+      }).then(function (token) {
+        if (!token) { toast("Bildirim anahtarı alınamadı."); return; }
+        return db.collection("users").doc(state.currentUser.id).set({
+          fcmTokens: firebase.firestore.FieldValue.arrayUnion(token)
+        }, { merge: true });
+      }).then(function () {
+        state.notifStatus = "granted";
+        toast("Bildirimler açıldı. Yaklaşan işlemler için hatırlatma alacaksın.");
+        render();
+      }).catch(function (err) {
+        console.error(err);
+        toast("Bildirim kaydı başarısız oldu. VAPID anahtarını kontrol et.");
+      });
+    });
+  }
+
+  function disableNotifications() {
+    if (!messaging || !state.currentUser) return;
+    messaging.getToken({ vapidKey: VAPID_KEY }).then(function (token) {
+      if (!token) return;
+      return db.collection("users").doc(state.currentUser.id).set({
+        fcmTokens: firebase.firestore.FieldValue.arrayRemove(token)
+      }, { merge: true });
+    }).then(function () {
+      state.notifStatus = "default";
+      toast("Bildirimler kapatıldı.");
+      render();
+    }).catch(function (err) { console.error(err); });
   }
 
   function syncOfflineData() {
@@ -967,6 +1038,11 @@
       '<p class="storage-note">Veriler Firebase üzerinden buluta kaydedilir ve çevrimdışı olsanız dahi tarayıcıda yedeklenerek internet gelince senkronize edilir.</p>' +
       '<div class="header-actions">' +
         (user ? '<span class="sync-badge" style="color:' + (state.online ? "#7BC67E" : "#E2574C") + ';border-color:' + (state.online ? "#7BC67E" : "#E2574C") + '55;background:' + (state.online ? "#7BC67E" : "#E2574C") + '18">' + (state.online ? "🟢 Çevrimiçi" : "🔴 Çevrimdışı (Kaydediliyor)") + '</span>' : '') +
+        (user && state.notifStatus !== "unsupported" ?
+          (state.notifStatus === "granted"
+            ? '<button class="btn-secondary" data-action="disable-notifications">🔔 Bildirimler Açık</button>'
+            : '<button class="btn-secondary" data-action="enable-notifications">🔕 Bildirimleri Aç</button>')
+          : '') +
         '<button class="btn-secondary" data-action="export-data">⬇️ Yedekle</button>' +
         '<label class="btn-secondary" style="cursor:pointer;position:relative;overflow:hidden;">⬆️ Geri Yükle<input type="file" accept="application/json" id="import-input" style="position:absolute;inset:0;opacity:0;cursor:pointer;" /></label>' +
       '</div>' +
@@ -1187,11 +1263,11 @@
         var payer = e.payerId ? (state.familyMembers || []).find(function (f) { return f.id === e.payerId; }) : null;
         if (payer) noteBits.push("Ödeyen: " + esc(payer.name));
         var noteText = noteBits.length ? noteBits.join(" · ") : "—";
-        var receiptBtn = e.receipt ? ' <button type="button" class="exp-del" style="min-width:auto;min-height:auto;padding:1px 3px;font-size:11px;vertical-align:middle;" data-action="open-lightbox" data-src="' + e.receipt + '" data-caption="Fiş / Fatura" title="Fişi gör">📎</button>' : "";
+        var receiptBadge = e.receipt ? '<button type="button" class="receipt-badge" data-action="open-lightbox" data-src="' + e.receipt + '" data-caption="Fiş / Fatura" title="Fişi gör">📎</button>' : "";
         html += '<li class="expense-row">' +
-          '<span class="exp-icon" style="background:' + cat.color + '22;color:' + cat.color + '">' + cat.emoji + '</span>' +
+          '<span class="exp-icon-wrap"><span class="exp-icon" style="background:' + cat.color + '22;color:' + cat.color + '">' + cat.emoji + '</span>' + receiptBadge + '</span>' +
           '<span class="exp-main"><span class="exp-cat">' + esc(cat.label) + (car ? " · " + esc(car.name) : "") + '</span>' +
-          '<span class="exp-note">' + noteText + receiptBtn + '</span></span>' +
+          '<span class="exp-note">' + noteText + '</span></span>' +
           '<span class="exp-date">' + fmtDateTR(e.date) + '</span>' +
           '<span class="exp-amount">' + fmtTL(e.amount) + '</span>' +
           '<button class="exp-del" data-action="open-edit-expense" data-id="' + e.id + '" title="Düzenle">✏️</button>' +
@@ -1727,6 +1803,8 @@
         else if (action === "close-modal") { closeModal(); }
         else if (action === "close-modal-backdrop" && ev.target === el) { closeModal(); }
         else if (action === "export-data") { exportData(); }
+        else if (action === "enable-notifications") { enableNotifications(); }
+        else if (action === "disable-notifications") { disableNotifications(); }
         else if (action === "toggle-account-menu") { ev.stopPropagation(); state.accountMenuOpen = !state.accountMenuOpen; render(); }
         else if (action === "open-profile") { ev.stopPropagation(); state.modal = { type: "profile" }; state.accountMenuOpen = false; render(); }
         else if (action === "logout") {
