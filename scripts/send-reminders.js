@@ -55,7 +55,10 @@ async function checkManualTriggerFlag() {
   const data = snap.exists ? snap.data() : null;
   if (data && data.requested === true) {
     console.log("Manuel tetikleme bayrağı bulundu (" + (data.requestedBy || "bilinmiyor") + "), tarama başlatılıyor...");
-    await ref.set({ requested: false }, { merge: true });
+    await ref.set({
+      requested: false,
+      processedAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
     return true;
   }
   return false;
