@@ -1,6 +1,10 @@
 // ---------- Firebase Cloud Messaging (Push Bildirimleri) ----------
-importScripts("https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js");
-importScripts("https://www.gstatic.com/firebasejs/10.12.5/firebase-messaging-compat.js");
+// Not: URL sonundaki ?v=1 kısmı kasıtlı — Chrome'da service worker içinde
+// importScripts() bazen 304 (Not Modified) cevabını doğru işleyemeyip
+// "failed to load" hatası veriyor. Sabit bir sorgu parametresi ekleyerek
+// tarayıcının bu isteği her zaman taze (200) çekmesini sağlıyoruz.
+importScripts("https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js?v=1");
+importScripts("https://www.gstatic.com/firebasejs/10.12.5/firebase-messaging-compat.js?v=1");
 
 firebase.initializeApp({
   apiKey: "AIzaSyCcfODFLDPVA4zr7L6xKPjEA6-Vle3XPio",
