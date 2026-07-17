@@ -352,6 +352,18 @@
   var db = firebase.firestore();
   var unsubscribeUserDoc = null;
 
+  // ---------- service worker kaydı ----------
+  // NOT: Bu kayıt artık burada, en başta yapılıyor (sayfa 'load' olayını beklemiyor).
+  // enableNotifications() ve disableNotifications() bu promise'i bekleyip
+  // getToken() çağrısına DAİMA doğru registration'ı geçiyor. Bu yapılmazsa
+  // Firebase SDK'sı kendi varsayılan '/firebase-messaging-sw.js' dosyasını
+  // aramaya çalışır ve sitede o dosya olmadığı için 404 hatası verir.
+  var swRegPromise = ('serviceWorker' in navigator)
+    ? navigator.serviceWorker.register('/aracim/sw.js', { scope: '/aracim/' })
+        .then(function (reg) { console.log('Service Worker kayıt başarılı!', reg); return reg; })
+        .catch(function (err) { console.warn('Service Worker kaydı başarısız:', err); return null; })
+    : Promise.resolve(null);
+
   // ---------- push notification setup ----------
   // ÖNEMLİ: Aşağıdaki VAPID_KEY'i kendi Firebase projenizden almanız gerekiyor:
   // Firebase Console → Proje Ayarları → Cloud Messaging sekmesi → "Web Push sertifikaları"
@@ -380,7 +392,7 @@
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.1.2"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.1.3"; // Dynamic Version Tracking
   var APP_UPDATED = "17 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -577,7 +589,8 @@
           render();
           return;
         }
-        navigator.serviceWorker.getRegistration("/aracim/").then(function (reg) {
+        swRegPromise.then(function (reg) {
+          if (!reg) { throw new Error("Service worker kaydı bulunamadı. Sayfayı yenileyip tekrar deneyin."); }
           return m.getToken({ vapidKey: VAPID_KEY, serviceWorkerRegistration: reg });
         }).then(function (token) {
           if (!token) { toast("Bildirim anahtarı alınamadı."); return; }
@@ -600,7 +613,9 @@
     if (!state.currentUser) return;
     messagingReady.then(function (m) {
       if (!m) return;
-      m.getToken({ vapidKey: VAPID_KEY }).then(function (token) {
+      swRegPromise.then(function (reg) {
+        return m.getToken({ vapidKey: VAPID_KEY, serviceWorkerRegistration: reg || undefined });
+      }).then(function (token) {
         if (!token) return;
         return db.collection("users").doc(state.currentUser.id).set({
           fcmTokens: firebase.firestore.FieldValue.arrayRemove(token)
@@ -1858,13 +1873,8 @@
 
 
 
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/aracim/sw.js')
-        .then(reg => console.log('Service Worker kayıt başarılı!', reg))
-        .catch(err => console.warn('Service Worker kaydı başarısız:', err));
-    });
-  }
+  // NOT: Service worker kaydı artık dosyanın başında (swRegPromise) yapılıyor,
+  // burada tekrar kaydetmeye gerek yok.
 
 </script>
 </body>
