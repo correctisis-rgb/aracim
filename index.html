@@ -358,21 +358,25 @@
   // bölümünden "Anahtar çifti oluştur" deyin, çıkan uzun anahtarı buraya yapıştırın.
   var VAPID_KEY = "BHIIHlP05E6J3R09picg9J8yMjdkxVWlv-bEB26C_NnYo4eytAKSXz7FUvEta1d8AEWr5p_rRURhYQyLo2zmFHw";
   var messaging = null;
+  var messagingReady = Promise.resolve(null);
   if (typeof firebase.messaging === "function") {
     try {
-      firebase.messaging.isSupported().then(function (supported) {
-        if (!supported) return;
+      messagingReady = firebase.messaging.isSupported().then(function (supported) {
+        if (!supported) { console.warn("FCM: bu tarayıcı/ortam desteklenmiyor (isSupported=false)."); return null; }
         messaging = firebase.messaging();
         messaging.onMessage(function (payload) {
           var body = (payload.notification && payload.notification.body) || "Yeni bir hatırlatman var.";
           toast(body);
         });
-      }).catch(function () { messaging = null; });
-    } catch (e) { messaging = null; }
+        return messaging;
+      }).catch(function (err) { console.error("FCM isSupported hata:", err); messaging = null; return null; });
+    } catch (e) { console.error("FCM init hata:", e); messagingReady = Promise.resolve(null); }
+  } else {
+    console.warn("FCM: firebase.messaging fonksiyonu bulunamadı (SDK yüklenmemiş olabilir).");
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.1.0"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.1.1"; // Dynamic Version Tracking
   var APP_UPDATED = "17 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -559,45 +563,50 @@
 
   // --- Push Notifications ---
   function enableNotifications() {
-    if (!messaging) { toast("Bu tarayıcı bildirimleri desteklemiyor."); return; }
     if (!state.currentUser) { toast("Bildirimleri açmak için giriş yapmalısın."); return; }
-    Notification.requestPermission().then(function (perm) {
-      if (perm !== "granted") {
-        toast("Bildirim izni verilmedi. Tarayıcı ayarlarından değiştirebilirsin.");
-        state.notifStatus = "denied";
-        render();
-        return;
-      }
-      navigator.serviceWorker.getRegistration("/aracim/").then(function (reg) {
-        return messaging.getToken({ vapidKey: VAPID_KEY, serviceWorkerRegistration: reg });
-      }).then(function (token) {
-        if (!token) { toast("Bildirim anahtarı alınamadı."); return; }
-        return db.collection("users").doc(state.currentUser.id).set({
-          fcmTokens: firebase.firestore.FieldValue.arrayUnion(token)
-        }, { merge: true });
-      }).then(function () {
-        state.notifStatus = "granted";
-        toast("Bildirimler açıldı. Yaklaşan işlemler için hatırlatma alacaksın.");
-        render();
-      }).catch(function (err) {
-        console.error(err);
-        toast("Bildirim kaydı başarısız oldu. VAPID anahtarını kontrol et.");
+    messagingReady.then(function (m) {
+      if (!m) { toast("Bu tarayıcı bildirimleri desteklemiyor."); return; }
+      Notification.requestPermission().then(function (perm) {
+        if (perm !== "granted") {
+          toast("Bildirim izni verilmedi. Tarayıcı ayarlarından değiştirebilirsin.");
+          state.notifStatus = "denied";
+          render();
+          return;
+        }
+        navigator.serviceWorker.getRegistration("/aracim/").then(function (reg) {
+          return m.getToken({ vapidKey: VAPID_KEY, serviceWorkerRegistration: reg });
+        }).then(function (token) {
+          if (!token) { toast("Bildirim anahtarı alınamadı."); return; }
+          return db.collection("users").doc(state.currentUser.id).set({
+            fcmTokens: firebase.firestore.FieldValue.arrayUnion(token)
+          }, { merge: true });
+        }).then(function () {
+          state.notifStatus = "granted";
+          toast("Bildirimler açıldı. Yaklaşan işlemler için hatırlatma alacaksın.");
+          render();
+        }).catch(function (err) {
+          console.error(err);
+          toast("Bildirim kaydı başarısız oldu: " + (err && err.message ? err.message : err));
+        });
       });
     });
   }
 
   function disableNotifications() {
-    if (!messaging || !state.currentUser) return;
-    messaging.getToken({ vapidKey: VAPID_KEY }).then(function (token) {
-      if (!token) return;
-      return db.collection("users").doc(state.currentUser.id).set({
-        fcmTokens: firebase.firestore.FieldValue.arrayRemove(token)
-      }, { merge: true });
-    }).then(function () {
-      state.notifStatus = "default";
-      toast("Bildirimler kapatıldı.");
-      render();
-    }).catch(function (err) { console.error(err); });
+    if (!state.currentUser) return;
+    messagingReady.then(function (m) {
+      if (!m) return;
+      m.getToken({ vapidKey: VAPID_KEY }).then(function (token) {
+        if (!token) return;
+        return db.collection("users").doc(state.currentUser.id).set({
+          fcmTokens: firebase.firestore.FieldValue.arrayRemove(token)
+        }, { merge: true });
+      }).then(function () {
+        state.notifStatus = "default";
+        toast("Bildirimler kapatıldı.");
+        render();
+      }).catch(function (err) { console.error(err); });
+    });
   }
 
   function syncOfflineData() {
