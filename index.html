@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Garaj Defteri</title>
 <link rel="manifest" href="/aracim/manifest.json">
-<link rel="icon" href="/aracim/favicon.ico" type="image/png">
+<link rel="icon" href="/aracim/icon-192.png" type="image/png">
 
 <!-- iOS (Safari) Uyumluluk Detayları -->
 <meta name="mobile-web-app-capable" content="yes">
@@ -345,7 +345,7 @@
   var unsubscribeUserDoc = null;
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.0.5"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.0.6"; // Dynamic Version Tracking
   var APP_UPDATED = "17 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1027,13 +1027,15 @@
     var meta = detailBits.length ? detailBits.join(" · ") : "Detayları eklemek için düzenle'ye dokun";
 
     var costPerKm = null;
-    var dd = computeDashboard();
-    if (car.currentKm && dd.totalAllTime > 0) costPerKm = dd.totalAllTime / car.currentKm;
+    var fuelTotal = (state.expenses || [])
+      .filter(function (e) { return e.carId === car.id && e.category === "yakit"; })
+      .reduce(function (s, e) { return s + Number(e.amount || 0); }, 0);
+    if (car.currentKm && fuelTotal > 0) costPerKm = fuelTotal / car.currentKm;
     var fuelStats = computeFuelStats(car.id);
 
     var stats = "";
     if (car.currentKm != null) stats += '<span class="car-stat-chip"><span class="csc-label">Km</span>🛣️ ' + new Intl.NumberFormat("tr-TR").format(car.currentKm) + '</span>';
-    if (costPerKm != null) stats += '<span class="car-stat-chip"><span class="csc-label">Km başı</span>📊 ' + new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY", maximumFractionDigits: 2 }).format(costPerKm) + '</span>';
+    if (costPerKm != null) stats += '<span class="car-stat-chip"><span class="csc-label">Km başı yakıt</span>⛽ ' + new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY", maximumFractionDigits: 2 }).format(costPerKm) + '</span>';
     if (fuelStats) stats += '<span class="car-stat-chip"><span class="csc-label">Ort. tüketim</span>⛽ ' + fuelStats.avgConsumption.toFixed(1).replace(".", ",") + ' L/100km</span>';
     if (!stats) stats = '<span class="empty-hint" style="font-size:12px">Km ve masraf ekledikçe istatistikler burada görünecek.</span>';
 
@@ -1735,6 +1737,11 @@
 
   init();
 })();
+
+
+
+
+
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
