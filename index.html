@@ -413,7 +413,7 @@
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.1.5"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.1.6"; // Dynamic Version Tracking
   var APP_UPDATED = "17 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1462,6 +1462,13 @@
 
   // ---------- modals ----------
   function renderModal() {
+    // Önceki modal-backdrop'ları temizle — aksi halde render() modal açıkken
+    // birden fazla kez çağrıldığında (örn. Yenile butonuna basınca: önce
+    // "yükleniyor" durumu, sonra veri gelince tekrar) üst üste yeni backdrop'lar
+    // eklenir; bu da arka planın gittikçe kararmasına ve aynı pencerenin
+    // birden fazla kez görünmesine yol açar.
+    document.querySelectorAll(".modal-backdrop").forEach(function (el) { el.remove(); });
+
     var backdrop = document.createElement("div");
     backdrop.className = "modal-backdrop";
     backdrop.setAttribute("data-action", "close-modal-backdrop");
@@ -2021,8 +2028,7 @@
 
   function closeModal() {
     state.modal = null;
-    var el = document.querySelector(".modal-backdrop");
-    if (el) el.remove();
+    document.querySelectorAll(".modal-backdrop").forEach(function (el) { el.remove(); });
   }
 
   function renderLightbox() {
