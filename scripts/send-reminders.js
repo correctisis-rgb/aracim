@@ -64,6 +64,40 @@ async function checkManualTriggerFlag() {
   return false;
 }
 
+// ---------- Günlük tarama yedek (catch-up) mekanizması ----------
+// Aynı dakikaya birden fazla cron ifadesi denk geldiğinde GitHub Actions
+// bazen sadece TEK bir run tetikliyor ve bu run'ın github.event.schedule
+// değeri her zaman "0 6 * * *" olmuyor — "*/10 * * * *" olarak da
+// gelebiliyor. Bu durumda IS_DAILY_RUN yanlışlıkla false olur, script
+// kendini "sık kontrol" sanır ve manuel bayrak da yoksa hiçbir şey
+// yapmadan çıkar — günlük tarama o gün hiç gerçekleşmez. Bunu tamamen
+// cron string'ine güvenmek yerine, Firestore'da "bugün tarama yapıldı
+// mı" bilgisini tutarak garanti altına alıyoruz: saat 06:00 UTC'yi
+// (09:00 TR) geçtikten sonraki ilk çalıştırma — hangi cron tetiklerse
+// tetiklesin — günlük taramayı yedek olarak yapar.
+function todayDateStrTR() {
+  // Türkiye sabit UTC+3 kullanıyor (yaz/kış saati uygulamıyor).
+  const trNow = new Date(Date.now() + 3 * 60 * 60 * 1000);
+  return trNow.toISOString().slice(0, 10); // YYYY-MM-DD
+}
+
+async function claimDailyScanIfDue() {
+  if (new Date().getUTCHours() < 6) return false; // henüz 09:00 TR olmadı
+  const ref = db.collection("admin").doc("reminderTrigger");
+  const snap = await ref.get();
+  const data = snap.exists ? snap.data() : null;
+  const today = todayDateStrTR();
+  if (data && data.lastDailyScanDate === today) return false; // bugün zaten yapıldı
+  await ref.set({ lastDailyScanDate: today }, { merge: true });
+  return true;
+}
+
+async function markDailyScanDoneIfApplicable() {
+  if (new Date().getUTCHours() < 6) return;
+  const ref = db.collection("admin").doc("reminderTrigger");
+  await ref.set({ lastDailyScanDate: todayDateStrTR() }, { merge: true }).catch(function () {});
+}
+
 const DATE_FIELDS = [
   { key: "inspectionDate", label: "Muayene", emoji: "🗓️" },
   { key: "maintenanceDate", label: "Bakım / Servis", emoji: "🔧" },
@@ -96,15 +130,26 @@ function kmTier(remaining) {
 
 async function main() {
   let bypassDedup = false;
-  if (!IS_DAILY_RUN) {
-    const shouldRun = await checkManualTriggerFlag();
-    if (!shouldRun) {
-      console.log("Sık kontrol çalıştırması: manuel tetikleme isteği yok, çıkılıyor.");
-      return;
+
+  if (IS_DAILY_RUN) {
+    // Gerçek günlük cron ("0 6 * * *") ya da elle "Run workflow" testi:
+    // tam taramayı yap ve bugünü "yapıldı" olarak işaretle (aşağıdaki
+    // yedek mekanizmanın gereksiz yere tekrar taramaması için).
+    await markDailyScanDoneIfApplicable();
+  } else {
+    const manualTriggered = await checkManualTriggerFlag();
+    if (manualTriggered) {
+      // Admin panelinden bilerek tekrar tetiklendi: aynı gün/aynı km eşiği
+      // daha önce bildirildiyse bile bu taramada tekrar gönder.
+      bypassDedup = true;
+    } else {
+      const dailyCatchUp = await claimDailyScanIfDue();
+      if (!dailyCatchUp) {
+        console.log("Sık kontrol çalıştırması: manuel istek yok ve günlük tarama zaten yapılmış, çıkılıyor.");
+        return;
+      }
+      console.log("Günlük cron tetiklemesi bu run'da doğru tanınmamış olabilir; 09:00 sonrası ilk kontrol olarak günlük tarama yedek şekilde çalıştırılıyor.");
     }
-    // Admin panelinden bilerek tekrar tetiklendi: aynı gün/aynı km eşiği
-    // daha önce bildirildiyse bile bu taramada tekrar gönder.
-    bypassDedup = true;
   }
 
   const usersSnap = await db.collection("users").get();
