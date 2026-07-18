@@ -95,12 +95,16 @@ function kmTier(remaining) {
 }
 
 async function main() {
+  let bypassDedup = false;
   if (!IS_DAILY_RUN) {
     const shouldRun = await checkManualTriggerFlag();
     if (!shouldRun) {
       console.log("Sık kontrol çalıştırması: manuel tetikleme isteği yok, çıkılıyor.");
       return;
     }
+    // Admin panelinden bilerek tekrar tetiklendi: aynı gün/aynı km eşiği
+    // daha önce bildirildiyse bile bu taramada tekrar gönder.
+    bypassDedup = true;
   }
 
   const usersSnap = await db.collection("users").get();
@@ -129,7 +133,7 @@ async function main() {
         if (!DAY_THRESHOLDS.includes(days)) return;
 
         const stateKey = car.id + "_" + f.key;
-        if (newNotifState[stateKey] === days) return;
+        if (!bypassDedup && newNotifState[stateKey] === days) return;
 
         newNotifState[stateKey] = days;
         const carName = car.name || "Aracın";
@@ -142,7 +146,7 @@ async function main() {
         const tier = kmTier(remaining);
         if (tier != null) {
           const stateKey = car.id + "_maintenanceKm";
-          if (newNotifState[stateKey] !== tier) {
+          if (bypassDedup || newNotifState[stateKey] !== tier) {
             newNotifState[stateKey] = tier;
             const carName = car.name || "Aracın";
             const kmText = remaining <= 0
