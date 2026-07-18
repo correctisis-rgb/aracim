@@ -482,7 +482,7 @@
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.2.1"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.2.2"; // Dynamic Version Tracking
   var APP_UPDATED = "18 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1756,6 +1756,7 @@
             '<button type="button" class="account-menu-item" data-action="open-profile">👤 Hesabım</button>' +
             (isAdminUser(user) ?
               '<div class="account-menu-divider"></div>' +
+              '<button type="button" class="account-menu-item" data-action="open-announcement">📢 Duyuru / Bakım Mesajı Gönder</button>' +
               '<button type="button" class="account-menu-item" data-action="trigger-reminders">🛠️ Bildirimleri Tetikle</button>' +
               '<button type="button" class="account-menu-item" data-action="open-health">🩺 Sağlık</button>' +
               '<button type="button" class="account-menu-item" data-action="open-errors">🐞 Hata İzleme</button>'
@@ -2323,6 +2324,8 @@
       backdrop.appendChild(buildHealthModal());
     } else if (state.modal.type === "errors") {
       backdrop.appendChild(buildErrorsModal());
+    } else if (state.modal.type === "announcement") {
+      backdrop.appendChild(buildAnnouncementModal());
     }
     document.body.appendChild(backdrop);
   }
@@ -2573,6 +2576,58 @@
     }
 
     modal.innerHTML = html;
+    return modal;
+  }
+
+  function buildAnnouncementModal() {
+    var modal = document.createElement("div");
+    modal.className = "modal wide";
+    modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
+
+    modal.innerHTML =
+      '<div class="modal-head"><h3>📢 Duyuru / Bakım Mesajı</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>' +
+      '<p class="field-hint" style="margin-top:-4px">Bu mesaj, bildirimleri açık olan <strong>tüm kullanıcılara</strong> push bildirimi olarak gönderilir (örn. planlı bakım, kesinti, yeni özellik duyurusu). Admin bildirim tetikleyicisiyle aynı mekanizmayı kullanır, en fazla ~10 dakika içinde iletilir.</p>' +
+      '<label class="field"><span>Başlık</span><input id="ann-title" maxlength="80" placeholder="Örn. Planlı Bakım Duyurusu" /></label>' +
+      '<label class="field"><span>Mesaj</span><textarea id="ann-body" maxlength="300" rows="4" placeholder="Örn. Bu gece 02:00–03:00 arası sistem bakımda olacak, bu süre boyunca uygulamaya erişim kesintili olabilir." style="width:100%; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:10px; font-size:14px; font-family:inherit; resize:vertical;"></textarea></label>' +
+      '<p class="km-ocr-status" id="ann-charcount">0 / 300</p>' +
+      '<button type="button" class="btn-primary full" id="ann-send" style="margin-top:6px">📢 Tüm Kullanıcılara Gönder</button>';
+
+    var bodyEl = modal.querySelector("#ann-body");
+    var countEl = modal.querySelector("#ann-charcount");
+    bodyEl.addEventListener("input", function () {
+      countEl.textContent = bodyEl.value.length + " / 300";
+    });
+
+    modal.querySelector("#ann-send").addEventListener("click", function () {
+      var title = modal.querySelector("#ann-title").value.trim();
+      var body = bodyEl.value.trim();
+      if (!title) { toast("Lütfen bir başlık yaz."); return; }
+      if (!body) { toast("Lütfen bir mesaj yaz."); return; }
+
+      showConfirm({
+        title: "Duyuruyu Gönder",
+        message: '"' + title + '" başlıklı bu mesaj tüm kullanıcılara push bildirimi olarak gönderilecek. Emin misin?',
+        confirmLabel: "Gönder",
+        onConfirm: function () {
+          var btn = modal.querySelector("#ann-send");
+          btn.disabled = true; btn.textContent = "Gönderiliyor…";
+          db.collection("admin").doc("announcementTrigger").set({
+            requested: true,
+            title: title,
+            body: body,
+            requestedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            requestedBy: state.currentUser.email
+          }, { merge: true }).then(function () {
+            toast("Duyuru isteği gönderildi. En fazla ~10 dakika içinde tüm kullanıcılara iletilecek.");
+            closeModal();
+          }).catch(function (err) {
+            btn.disabled = false; btn.textContent = "📢 Tüm Kullanıcılara Gönder";
+            toast("Duyuru gönderilemedi: " + (err && err.message ? err.message : err));
+          });
+        }
+      });
+    });
+
     return modal;
   }
 
@@ -3012,6 +3067,13 @@
         else if (action === "disable-notifications") { disableNotifications(); }
         else if (action === "toggle-account-menu") { ev.stopPropagation(); state.accountMenuOpen = !state.accountMenuOpen; render(); }
         else if (action === "trigger-reminders") { ev.stopPropagation(); state.accountMenuOpen = false; triggerReminders(); render(); }
+        else if (action === "open-announcement") {
+          ev.stopPropagation();
+          if (!isAdminUser(state.currentUser)) return;
+          state.modal = { type: "announcement" };
+          state.accountMenuOpen = false;
+          render();
+        }
         else if (action === "open-profile") { ev.stopPropagation(); state.modal = { type: "profile" }; state.accountMenuOpen = false; render(); }
         else if (action === "open-health") {
           ev.stopPropagation();
