@@ -490,8 +490,8 @@
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.2.8"; // Dynamic Version Tracking
-  var APP_UPDATED = "18 Temmuz 2026";
+  var APP_VERSION = "v1.2.0"; // Dynamic Version Tracking
+  var APP_UPDATED = "17 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -886,6 +886,7 @@
 
   var REMINDER_TRIGGER_URL = "https://aracim-mu.vercel.app/api/trigger-reminder";
   var ANNOUNCEMENT_TRIGGER_URL = "https://aracim-mu.vercel.app/api/trigger-announcement";
+  var APP_SHARE_URL = "https://aracim-mu.vercel.app";
 
   function triggerReminders() {
     if (!state.currentUser || !isAdminUser(state.currentUser)) return;
@@ -1380,6 +1381,65 @@
         });
       }
     });
+  }
+
+  // ---------- Ortak hane davet kodu paylaşımı ----------
+  function buildHouseholdInviteMessage(code) {
+    var myName = (state.currentUser && state.currentUser.name) ? state.currentUser.name : "Ben";
+    return myName + " seni Aracım (Garaj Defteri) uygulamasında ortak hesabına davet ediyor 🚗\n" +
+      "Birlikte araç masraflarını takip edelim.\n\n" +
+      "Davet Kodu: " + code + "\n\n" +
+      "Uygulama yüklü değilse önce şu linkten aç ve kayıt ol:\n" + APP_SHARE_URL + "\n\n" +
+      "Sonra: Hesabım > Ortak Hesap bölümüne bu kodu yapıştırıp 'Koda Katıl' de yeter 👍";
+  }
+
+  function isIOSDevice() {
+    return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  }
+
+  function shareHouseholdInvite() {
+    var code = state.householdId;
+    if (!code) { toast("Paylaşılacak davet kodu bulunamadı."); return; }
+    var message = buildHouseholdInviteMessage(code);
+
+    if (navigator.share) {
+      navigator.share({ title: "Aracım - Ortak Hesap Daveti", text: message }).catch(function (err) {
+        if (err && err.name !== "AbortError") showHouseholdShareChoices(message);
+      });
+    } else {
+      showHouseholdShareChoices(message);
+    }
+  }
+
+  function showHouseholdShareChoices(message) {
+    var encoded = encodeURIComponent(message);
+    var backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop confirm-backdrop";
+    var box = document.createElement("div");
+    box.className = "modal confirm-modal";
+    box.innerHTML =
+      '<div class="modal-head"><h3>Davet Kodunu Gönder</h3></div>' +
+      '<p class="confirm-message">Aşağıdaki mesaj hazır — göndermek istediğin uygulamayı seç:</p>' +
+      '<p class="field-hint" style="white-space:pre-wrap; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:10px; max-height:160px; overflow-y:auto;">' + esc(message) + '</p>' +
+      '<div class="confirm-actions" style="justify-content:stretch;">' +
+        '<a class="btn-primary full" style="background:#25D366; text-decoration:none;" target="_blank" rel="noopener noreferrer" href="https://wa.me/?text=' + encoded + '">📱 WhatsApp\'tan Gönder</a>' +
+        '<a class="btn-secondary full" style="text-decoration:none;" href="sms:' + (isIOSDevice() ? '&' : '?') + 'body=' + encoded + '">💬 SMS ile Gönder</a>' +
+        '<button type="button" class="btn-secondary full" id="invite-share-copy">📋 Metni Kopyala</button>' +
+        '<button type="button" class="btn-secondary full" id="invite-share-close">Kapat</button>' +
+      '</div>';
+    backdrop.appendChild(box);
+    function cleanup() { backdrop.remove(); }
+    box.addEventListener("click", function (ev) { ev.stopPropagation(); });
+    backdrop.addEventListener("click", function (ev) { if (ev.target === backdrop) cleanup(); });
+    box.querySelector("#invite-share-close").addEventListener("click", cleanup);
+    box.querySelector("#invite-share-copy").addEventListener("click", function () {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(message).then(function () { toast("Mesaj kopyalandı."); }).catch(function () { toast("Kopyalanamadı, elle seçip kopyalayabilirsin."); });
+      } else {
+        toast("Kopyalanamadı, elle seçip kopyalayabilirsin.");
+      }
+    });
+    document.body.appendChild(backdrop);
   }
 
   function logout() {
@@ -2423,6 +2483,7 @@
       '<div class="budget-row">' +
         '<input id="household-code-display" readonly value="' + esc(state.householdId || "") + '" style="flex:1" />' +
         '<button type="button" class="btn-secondary" id="household-copy">📋 Kopyala</button>' +
+        '<button type="button" class="btn-primary" id="household-share">📤 Paylaş</button>' +
       '</div>' +
       '<ul class="family-list">' + memberListHtml + '</ul>' +
       (!isOwnHousehold ? '<button type="button" class="btn-secondary full" id="household-leave" style="margin-bottom:10px;">Bu Ortak Haneden Ayrıl</button>' : '') +
@@ -2447,6 +2508,8 @@
         toast("Kopyalanamadı, elle seçip kopyalayabilirsin.");
       }
     });
+    var householdShareBtn = modal.querySelector("#household-share");
+    if (householdShareBtn) householdShareBtn.addEventListener("click", function () { shareHouseholdInvite(); });
     var householdLeaveBtn = modal.querySelector("#household-leave");
     if (householdLeaveBtn) householdLeaveBtn.addEventListener("click", function () { leaveHousehold(); });
     var householdJoinBtn = modal.querySelector("#household-join");
