@@ -11,6 +11,17 @@
  * Firebase Auth ID token'ını gönderir; biz bunu firebase-admin ile
  * doğrulayıp e-posta adresinin ADMIN_EMAIL ile eştiğini kontrol ederiz.
  * Servis hesabı anahtarı hiçbir zaman istemciye gönderilmez.
+ *
+ * ORTAK HANE DÜZELTMESİ:
+ * Araç/masraf verileri her zaman hane sahibinin dokümanında
+ * (users/{householdId}.cars) tutulur, ama her üyenin bildirim token'ı
+ * (fcmTokens) kendi kişisel dokümanında saklanır. Eskiden tarama sadece
+ * "aynı doküman içindeki cars + aynı dokümandaki fcmTokens" eşleşmesine
+ * bakıyordu; bu yüzden hane sahibi bildirim alırken sonradan katılan
+ * üyeler hiç bildirim almıyordu. Şimdi hane dokümanındaki `members`
+ * listesi kullanılarak her üyenin kendi dokümanından token'ları da
+ * toplanıp ayrıca bildirim gönderiliyor (üyelere hangi ortak hesaptan
+ * geldiği belli olsun diye mesaj metni farklılaştırılıyor).
  */
 
 const admin = require("firebase-admin");
@@ -70,6 +81,36 @@ function kmTier(remaining) {
   return null;
 }
 
+// Bir kullanıcı dokümanındaki token listesine bildirim gönderir,
+// geçersiz token'ları o dokümandan temizler ve gönderim sayaçlarını döner.
+async function sendToTokens(db, docId, tokens, title, body) {
+  if (!tokens || !tokens.length) return { sent: 0, failed: 0 };
+
+  const response = await admin.messaging().sendEachForMulticast({
+    tokens,
+    notification: { title, body },
+    data: { url: "/aracim/" }
+  });
+
+  const invalidTokens = [];
+  response.responses.forEach((r, i) => {
+    if (!r.success) {
+      const code = r.error && r.error.code;
+      if (code === "messaging/invalid-registration-token" || code === "messaging/registration-token-not-registered") {
+        invalidTokens.push(tokens[i]);
+      }
+    }
+  });
+
+  if (invalidTokens.length) {
+    await db.collection("users").doc(docId).set({
+      fcmTokens: admin.firestore.FieldValue.arrayRemove(...invalidTokens)
+    }, { merge: true }).catch((e) => console.error("Geçersiz token temizlenemedi:", docId, e && e.message ? e.message : e));
+  }
+
+  return { sent: response.successCount, failed: response.failureCount };
+}
+
 async function runFullScan(db, bypassDedup, triggerSource) {
   const usersSnap = await db.collection("users").get();
 
@@ -79,10 +120,18 @@ async function runFullScan(db, bypassDedup, triggerSource) {
 
   for (const userDoc of usersSnap.docs) {
     const user = userDoc.data();
-    const tokens = user.fcmTokens || [];
-    if (!tokens.length) continue;
+    const ownerId = userDoc.id;
+
+    // Araç verisi her zaman hane sahibinin dokümanında durur. Eğer bu
+    // kullanıcı başka bir hanenin üyesiyse (householdId kendi id'sinden
+    // farklıysa), kendi dokümanındaki `cars` alanı eskiden kalma/aktif
+    // olmayan veridir — bu dokümanı atla, gerçek veri o hanenin
+    // sahibinin dokümanı taranırken zaten işlenecek.
+    if (user.householdId && user.householdId !== ownerId) continue;
 
     const cars = user.cars || [];
+    if (!cars.length) continue;
+
     const notifState = user.notifState || {};
     const newNotifState = Object.assign({}, notifState);
     const triggered = [];
@@ -124,33 +173,45 @@ async function runFullScan(db, bypassDedup, triggerSource) {
     if (!triggered.length) continue;
 
     const title = triggered.length === 1 ? "Garaj Defteri — Hatırlatma" : `Garaj Defteri — ${triggered.length} Hatırlatma`;
-    const body = triggered.slice(0, 3).join("  •  ") + (triggered.length > 3 ? ` (+${triggered.length - 3} diğer)` : "");
+    const bodyBase = triggered.slice(0, 3).join("  •  ") + (triggered.length > 3 ? ` (+${triggered.length - 3} diğer)` : "");
 
-    const response = await admin.messaging().sendEachForMulticast({
-      tokens,
-      notification: { title, body },
-      data: { url: "/aracim/" }
-    });
+    // --- Hane sahibine gönder ---
+    const ownerTokens = user.fcmTokens || [];
+    const ownerResult = await sendToTokens(db, ownerId, ownerTokens, title, bodyBase);
+    totalSent += ownerResult.sent;
+    totalFailed += ownerResult.failed;
+    if (ownerResult.sent > 0) usersNotified++;
 
-    usersNotified++;
-    totalSent += response.successCount;
-    totalFailed += response.failureCount;
+    // --- Ortak haneye katılmış diğer üyelere gönder ---
+    const ownerProfile = (user.memberProfiles && user.memberProfiles[ownerId]) || {};
+    const ownerName = ownerProfile.name || user.name || "Hane sahibi";
+    const memberBody = `Ortak hesabınız (${ownerName}) — ` + bodyBase;
 
-    const invalidTokens = [];
-    response.responses.forEach((r, i) => {
-      if (!r.success) {
-        const code = r.error && r.error.code;
-        if (code === "messaging/invalid-registration-token" || code === "messaging/registration-token-not-registered") {
-          invalidTokens.push(tokens[i]);
-        }
+    const memberUids = Array.isArray(user.members)
+      ? user.members.filter((uid) => uid && uid !== ownerId)
+      : [];
+
+    for (const memberUid of memberUids) {
+      try {
+        const memberSnap = await db.collection("users").doc(memberUid).get();
+        if (!memberSnap.exists) continue;
+        const memberData = memberSnap.data() || {};
+        const memberTokens = memberData.fcmTokens || [];
+        if (!memberTokens.length) continue;
+
+        const memberResult = await sendToTokens(db, memberUid, memberTokens, title, memberBody);
+        totalSent += memberResult.sent;
+        totalFailed += memberResult.failed;
+        if (memberResult.sent > 0) usersNotified++;
+      } catch (e) {
+        console.error("Üyeye bildirim gönderilemedi:", memberUid, e && e.message ? e.message : e);
       }
-    });
-
-    const update = { notifState: newNotifState };
-    if (invalidTokens.length) {
-      update.fcmTokens = admin.firestore.FieldValue.arrayRemove(...invalidTokens);
     }
-    await db.collection("users").doc(userDoc.id).set(update, { merge: true });
+
+    // notifState tüm hane için ortak/tek bir yerde (hane sahibinin
+    // dokümanında) tutulur, böylece aynı eşik tekrar tekrar herkese
+    // gönderilmez.
+    await db.collection("users").doc(ownerId).set({ notifState: newNotifState }, { merge: true });
   }
 
   await writeRunLog(db, {
