@@ -98,6 +98,94 @@ async function markDailyScanDoneIfApplicable() {
   await ref.set({ lastDailyScanDate: todayDateStrTR() }, { merge: true }).catch(function () {});
 }
 
+// ---------- Admin: tüm kullanıcılara duyuru / bakım mesajı ----------
+// Uygulama içindeki admin "📢 Duyuru / Bakım Mesajı Gönder" ekranı
+// Firestore'daki admin/announcementTrigger dokümanına { requested: true,
+// title, body, requestedBy } yazar. Bu fonksiyon her çalıştırmada (hem
+// günlük hem 10 dakikalık kontrolde) bu bayrağı kontrol eder, varsa
+// kayıtlı TÜM kullanıcıların FCM token'larına serbest metinli bir push
+// bildirimi gönderir ve bayrağı sıfırlar. Hatırlatma mantığından
+// tamamen bağımsızdır (belirli bir araç/tarih/km eşiğine bağlı değildir).
+async function checkAndSendAnnouncement() {
+  const ref = db.collection("admin").doc("announcementTrigger");
+  const snap = await ref.get();
+  const data = snap.exists ? snap.data() : null;
+  if (!data || data.requested !== true) return;
+
+  const title = (data.title || "Garaj Defteri").toString().slice(0, 120);
+  const body = (data.body || "").toString().slice(0, 400);
+
+  if (!body) {
+    await ref.set({ requested: false, processedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+    return;
+  }
+
+  console.log(`Duyuru bayrağı bulundu (${data.requestedBy || "bilinmiyor"}): "${title}" gönderiliyor...`);
+
+  const usersSnap = await db.collection("users").get();
+  const tokenEntries = []; // { token, ownerId }
+  usersSnap.forEach((doc) => {
+    const u = doc.data();
+    (u.fcmTokens || []).forEach((t) => tokenEntries.push({ token: t, ownerId: doc.id }));
+  });
+
+  if (!tokenEntries.length) {
+    await ref.set({ requested: false, processedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+    await writeRunLog({
+      kind: "announcement",
+      success: true,
+      summary: `Duyuru "${title}" — gönderilecek kayıtlı cihaz bulunamadı.`,
+      sentCount: 0,
+      failedCount: 0
+    });
+    return;
+  }
+
+  const CHUNK = 500; // FCM sendEachForMulticast tek çağrıda en fazla 500 token kabul eder
+  let totalSuccess = 0;
+  let totalFailed = 0;
+  const invalidByOwner = {};
+
+  for (let i = 0; i < tokenEntries.length; i += CHUNK) {
+    const chunk = tokenEntries.slice(i, i + CHUNK);
+    const response = await admin.messaging().sendEachForMulticast({
+      tokens: chunk.map((e) => e.token),
+      notification: { title, body },
+      data: { url: "/aracim/" }
+    });
+    totalSuccess += response.successCount;
+    totalFailed += response.failureCount;
+    response.responses.forEach((r, idx) => {
+      if (!r.success) {
+        const code = r.error && r.error.code;
+        if (code === "messaging/invalid-registration-token" || code === "messaging/registration-token-not-registered") {
+          const owner = chunk[idx].ownerId;
+          if (!invalidByOwner[owner]) invalidByOwner[owner] = [];
+          invalidByOwner[owner].push(chunk[idx].token);
+        }
+      }
+    });
+  }
+
+  console.log(`Duyuru sonucu: ${totalSuccess} başarılı, ${totalFailed} başarısız (${tokenEntries.length} cihaz).`);
+
+  for (const ownerId of Object.keys(invalidByOwner)) {
+    await db.collection("users").doc(ownerId).set({
+      fcmTokens: admin.firestore.FieldValue.arrayRemove(...invalidByOwner[ownerId])
+    }, { merge: true }).catch(() => {});
+  }
+
+  await ref.set({ requested: false, processedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+
+  await writeRunLog({
+    kind: "announcement",
+    success: true,
+    summary: `Duyuru gönderildi: "${title}" — ${tokenEntries.length} cihaza (${totalSuccess} başarılı, ${totalFailed} başarısız)`,
+    sentCount: totalSuccess,
+    failedCount: totalFailed
+  });
+}
+
 const DATE_FIELDS = [
   { key: "inspectionDate", label: "Muayene", emoji: "🗓️" },
   { key: "maintenanceDate", label: "Bakım / Servis", emoji: "🔧" },
@@ -129,6 +217,11 @@ function kmTier(remaining) {
 }
 
 async function main() {
+  // Duyuru kontrolü, hatırlatma taramasından tamamen bağımsız olarak her
+  // çalıştırmada (hem günlük hem 10 dakikalık kontrolde) yapılır — böylece
+  // admin bir duyuru gönderdiğinde en fazla ~10 dakika içinde iletilir.
+  await checkAndSendAnnouncement();
+
   let bypassDedup = false;
 
   if (IS_DAILY_RUN) {
