@@ -184,6 +184,13 @@
   .sum-date { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--muted); }
   .sum-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 600; padding: 4px 9px; border-radius: 999px; border: 1px solid; white-space: nowrap; }
   .sum-actions { display: flex; align-items: center; gap: 2px; }
+  .appt-cta {
+    grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    margin-top: 4px; padding: 8px 10px; border-radius: 8px; font-size: 12.5px; font-weight: 500;
+    color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--red) 35%, transparent);
+  }
+  .appt-cta a.btn-primary { padding: 6px 12px; font-size: 12px; white-space: nowrap; text-decoration: none; }
   .summary-hint { color: var(--muted); font-size: 11.5px; margin: 12px 0 0; line-height: 1.6; }
 
   .doc-thumbs { display: flex; gap: 10px; margin-top: 4px; }
@@ -483,8 +490,8 @@
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.2.6"; // Dynamic Version Tracking
-  var APP_UPDATED = "18 Temmuz 2026";
+  var APP_VERSION = "v1.2.0"; // Dynamic Version Tracking
+  var APP_UPDATED = "17 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -2000,6 +2007,13 @@
     return '<button class="exp-del" data-action="add-to-calendar" data-title="' + esc(title) + '" data-date="' + esc(it.date) + '" data-notes="' + esc(notes) + '" title="Takvime ekle" aria-label="Takvime ekle">📅</button>';
   }
 
+  function appointmentCTAHTML(it) {
+    if (it.type !== "Muayene") return "";
+    if (it.days == null || it.days > 30) return "";
+    return '<div class="appt-cta">⚠️ Randevu almak için tıklayın' +
+      '<a class="btn-primary" href="https://www.tuvturk.com.tr" target="_blank" rel="noopener noreferrer">Randevu Al</a></div>';
+  }
+
   function renderUpcomingPanel(items) {
     var upcoming = items.filter(function (it) { return it.tier < 3; }).slice(0, 5);
     var html = '<section class="panel span-2"><h2>Yaklaşan İşlemler</h2>';
@@ -2020,6 +2034,7 @@
             calendarButtonHTML(it) +
             '<button class="exp-del" data-action="open-edit-car" data-car="' + it.carId + '" title="Düzenle" aria-label="Düzenle">✏️</button>' +
           '</span>' +
+          appointmentCTAHTML(it) +
           '</li>';
       });
       html += '</ul>';
@@ -2157,6 +2172,7 @@
             calendarButtonHTML(it) +
             '<button class="exp-del" data-action="open-edit-car" data-car="' + it.carId + '" title="Düzenle" aria-label="Düzenle">✏️</button>' +
           '</span>' +
+          appointmentCTAHTML(it) +
           '</li>';
       });
       html += '</ul>';
