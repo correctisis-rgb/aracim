@@ -1,0 +1,9 @@
+{
+  "name": "garaj-defteri-reminders",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Garaj Defteri hatırlatma bildirimleri — Vercel Serverless Functions",
+  "dependencies": {
+    "firebase-admin": "^12.1.0"
+  }
+}
