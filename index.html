@@ -482,7 +482,7 @@
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.2.4"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.2.5"; // Dynamic Version Tracking
   var APP_UPDATED = "18 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -877,6 +877,7 @@
   }
 
   var REMINDER_TRIGGER_URL = "https://aracim-mu.vercel.app/api/trigger-reminder";
+  var ANNOUNCEMENT_TRIGGER_URL = "https://aracim-mu.vercel.app/api/trigger-announcement";
 
   function triggerReminders() {
     if (!state.currentUser || !isAdminUser(state.currentUser)) return;
@@ -2597,7 +2598,7 @@
 
     modal.innerHTML =
       '<div class="modal-head"><h3>📢 Duyuru / Bakım Mesajı</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>' +
-      '<p class="field-hint" style="margin-top:-4px">Bu mesaj, bildirimleri açık olan <strong>tüm kullanıcılara</strong> push bildirimi olarak gönderilir (örn. planlı bakım, kesinti, yeni özellik duyurusu). Admin bildirim tetikleyicisiyle aynı mekanizmayı kullanır, en fazla ~10 dakika içinde iletilir.</p>' +
+      '<p class="field-hint" style="margin-top:-4px">Bu mesaj, bildirimleri açık olan <strong>tüm kullanıcılara</strong> anında push bildirimi olarak gönderilir (örn. planlı bakım, kesinti, yeni özellik duyurusu).</p>' +
       '<label class="field"><span>Başlık</span><input id="ann-title" maxlength="80" placeholder="Örn. Planlı Bakım Duyurusu" /></label>' +
       '<label class="field"><span>Mesaj</span><textarea id="ann-body" maxlength="300" rows="4" placeholder="Örn. Bu gece 02:00–03:00 arası sistem bakımda olacak, bu süre boyunca uygulamaya erişim kesintili olabilir." style="width:100%; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:10px; font-size:14px; font-family:inherit; resize:vertical;"></textarea></label>' +
       '<p class="km-ocr-status" id="ann-charcount">0 / 300</p>' +
@@ -2622,16 +2623,33 @@
         onConfirm: function () {
           var btn = modal.querySelector("#ann-send");
           btn.disabled = true; btn.textContent = "Gönderiliyor…";
-          db.collection("admin").doc("announcementTrigger").set({
-            requested: true,
-            title: title,
-            body: body,
-            requestedAt: firebase.firestore.FieldValue.serverTimestamp(),
-            requestedBy: state.currentUser.email
-          }, { merge: true }).then(function () {
-            toast("Duyuru isteği gönderildi. En fazla ~10 dakika içinde tüm kullanıcılara iletilecek.");
-            closeModal();
+          if (!auth.currentUser) {
+            btn.disabled = false; btn.textContent = "📢 Tüm Kullanıcılara Gönder";
+            toast("Oturum bulunamadı, tekrar giriş yapın.");
+            return;
+          }
+          auth.currentUser.getIdToken().then(function (idToken) {
+            return fetch(ANNOUNCEMENT_TRIGGER_URL, {
+              method: "POST",
+              headers: {
+                "Authorization": "Bearer " + idToken,
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({ title: title, body: body })
+            });
+          }).then(function (r) {
+            return r.json().then(function (data) { return { ok: r.ok, data: data }; });
+          }).then(function (result) {
+            if (result.ok && result.data && result.data.ok) {
+              toast(`Duyuru gönderildi: ${result.data.sentCount} cihaza ulaştı.`);
+              closeModal();
+            } else {
+              var msg = (result.data && result.data.error) ? result.data.error : "bilinmeyen hata";
+              btn.disabled = false; btn.textContent = "📢 Tüm Kullanıcılara Gönder";
+              toast("Duyuru gönderilemedi: " + msg);
+            }
           }).catch(function (err) {
+            console.error(err);
             btn.disabled = false; btn.textContent = "📢 Tüm Kullanıcılara Gönder";
             toast("Duyuru gönderilemedi: " + (err && err.message ? err.message : err));
           });
