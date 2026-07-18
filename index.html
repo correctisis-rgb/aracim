@@ -462,6 +462,25 @@
         .catch(function (err) { console.warn('Service Worker kaydı başarısız:', err); return null; })
     : Promise.resolve(null);
 
+  // ---------- "Ana Ekrana Ekle" (PWA install) ----------
+  // Chrome/Edge/Android gibi tarayıcılar yükleme koşulları sağlandığında bu
+  // olayı tetikler. Olayı yakalayıp saklıyoruz ki kullanıcı kendi butonuna
+  // bastığında native yükleme istemini (prompt) biz açalım. Olay hiç
+  // gelmezse (Safari/iOS gibi) kullanıcıya elle ekleme talimatı gösteriyoruz.
+  var deferredInstallPrompt = null;
+  window.addEventListener("beforeinstallprompt", function (e) {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+  });
+  window.addEventListener("appinstalled", function () {
+    deferredInstallPrompt = null;
+    toast("Uygulama ana ekrana eklendi 🎉");
+  });
+
+  function isRunningStandalone() {
+    return (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || window.navigator.standalone === true;
+  }
+
   // ---------- push notification setup ----------
   // ÖNEMLİ: Aşağıdaki VAPID_KEY'i kendi Firebase projenizden almanız gerekiyor:
   // Firebase Console → Proje Ayarları → Cloud Messaging sekmesi → "Web Push sertifikaları"
@@ -490,8 +509,8 @@
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.3.0"; // Dynamic Version Tracking
-  var APP_UPDATED = "18 Temmuz 2026";
+  var APP_VERSION = "v1.2.0"; // Dynamic Version Tracking
+  var APP_UPDATED = "17 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -1404,21 +1423,41 @@
 
     if (navigator.share) {
       navigator.share({ title: "Aracım - Ortak Hesap Daveti", text: message }).catch(function (err) {
-        if (err && err.name !== "AbortError") showHouseholdShareChoices(message);
+        if (err && err.name !== "AbortError") showShareChoices("Davet Kodunu Gönder", message);
       });
     } else {
-      showHouseholdShareChoices(message);
+      showShareChoices("Davet Kodunu Gönder", message);
     }
   }
 
-  function showHouseholdShareChoices(message) {
+  // ---------- Genel uygulama paylaşımı ----------
+  function buildAppShareMessage() {
+    var myName = (state.currentUser && state.currentUser.name) ? state.currentUser.name : "Ben";
+    return myName + " Aracım (Garaj Defteri) uygulamasıyla araç masraflarını takip ediyor 🚗\n" +
+      "Sen de dene, kayıt olması bir dakika sürüyor:\n\n" + APP_SHARE_URL;
+  }
+
+  function shareApp() {
+    var message = buildAppShareMessage();
+    if (navigator.share) {
+      navigator.share({ title: "Aracım - Garaj Defteri", text: message, url: APP_SHARE_URL }).catch(function (err) {
+        if (err && err.name !== "AbortError") showShareChoices("Uygulamayı Gönder", message);
+      });
+    } else {
+      showShareChoices("Uygulamayı Gönder", message);
+    }
+  }
+
+  // Hem davet kodu hem genel uygulama paylaşımı için ortak seçim penceresi:
+  // WhatsApp / SMS / metni kopyala.
+  function showShareChoices(heading, message) {
     var encoded = encodeURIComponent(message);
     var backdrop = document.createElement("div");
     backdrop.className = "modal-backdrop confirm-backdrop";
     var box = document.createElement("div");
     box.className = "modal confirm-modal";
     box.innerHTML =
-      '<div class="modal-head"><h3>Davet Kodunu Gönder</h3></div>' +
+      '<div class="modal-head"><h3>' + esc(heading) + '</h3></div>' +
       '<p class="confirm-message">Aşağıdaki mesaj hazır — göndermek istediğin uygulamayı seç:</p>' +
       '<p class="field-hint" style="white-space:pre-wrap; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:10px; max-height:160px; overflow-y:auto;">' + esc(message) + '</p>' +
       '<div class="confirm-actions" style="justify-content:stretch;">' +
@@ -1439,6 +1478,56 @@
         toast("Kopyalanamadı, elle seçip kopyalayabilirsin.");
       }
     });
+    document.body.appendChild(backdrop);
+  }
+
+  // ---------- Ana ekrana ekle (PWA install) ----------
+  function addAppToHomeScreen() {
+    if (isRunningStandalone()) { toast("Uygulama zaten ana ekranda yüklü. 👍"); return; }
+
+    if (deferredInstallPrompt) {
+      var promptEvent = deferredInstallPrompt;
+      deferredInstallPrompt = null;
+      promptEvent.prompt();
+      promptEvent.userChoice.then(function (choice) {
+        if (choice.outcome === "accepted") {
+          toast("Uygulama ana ekrana ekleniyor…");
+        } else {
+          toast("İstersen istediğin zaman tekrar deneyebilirsin.");
+        }
+      }).catch(function () {});
+    } else if (isIOSDevice()) {
+      showAddToHomeScreenInstructions(
+        "Ana Ekrana Ekle (iPhone/iPad)",
+        "1️⃣ Safari'nin alt menüsünde 'Paylaş' simgesine dokun (kare + yukarı ok).\n\n" +
+        "2️⃣ Açılan listede 'Ana Ekrana Ekle' seçeneğini bul ve dokun.\n\n" +
+        "3️⃣ Sağ üstteki 'Ekle' butonuna dokun — uygulama artık ana ekranında."
+      );
+    } else {
+      showAddToHomeScreenInstructions(
+        "Ana Ekrana Ekle",
+        "Tarayıcının sağ üst köşesindeki menüye (⋮ veya ≡) dokun, ardından 'Ana ekrana ekle' ya da 'Uygulamayı yükle' seçeneğine dokun.\n\n" +
+        "Bu seçeneği görmüyorsan tarayıcı zaten en güncel değildir ya da uygulama daha önce yüklenmiştir."
+      );
+    }
+  }
+
+  function showAddToHomeScreenInstructions(heading, text) {
+    var backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop confirm-backdrop";
+    var box = document.createElement("div");
+    box.className = "modal confirm-modal";
+    box.innerHTML =
+      '<div class="modal-head"><h3>' + esc(heading) + '</h3></div>' +
+      '<p class="field-hint" style="white-space:pre-wrap;">' + esc(text) + '</p>' +
+      '<div class="confirm-actions" style="justify-content:stretch;">' +
+        '<button type="button" class="btn-primary full" id="a2hs-ok">Anladım</button>' +
+      '</div>';
+    backdrop.appendChild(box);
+    function cleanup() { backdrop.remove(); }
+    box.addEventListener("click", function (ev) { ev.stopPropagation(); });
+    backdrop.addEventListener("click", function (ev) { if (ev.target === backdrop) cleanup(); });
+    box.querySelector("#a2hs-ok").addEventListener("click", cleanup);
     document.body.appendChild(backdrop);
   }
 
@@ -2477,6 +2566,12 @@
       '<label class="field"><span>E-posta</span><input id="p-email" type="email" value="' + esc(user.email) + '" /></label>' +
       '<button type="button" class="btn-primary full" id="p-save">Profili Kaydet</button>' +
 
+      '<p class="profile-section-title">📲 Uygulama</p>' +
+      '<div class="budget-row">' +
+        '<button type="button" class="btn-secondary full" id="app-share">📤 Uygulamayı Paylaş</button>' +
+        '<button type="button" class="btn-secondary full" id="app-a2hs">🏠 Ana Ekrana Ekle</button>' +
+      '</div>' +
+
       '<p class="profile-section-title">🏠 Ortak Hesap</p>' +
       '<p class="field-hint" style="margin-top:-4px">Aynı araçları eşin/ailenle ortak yönetmek için davet kodunu paylaş, ya da sana verilen bir kodla katıl. Ortak hanedeki herkes araç ve masrafları birlikte düzenleyebilir.</p>' +
       (isOwnHousehold ? '' : '<p class="field-hint" style="color:var(--amber)">Şu an başka bir kullanıcının ortak hanesindesin.</p>') +
@@ -2498,6 +2593,11 @@
       '<p class="field-hint" style="margin-top:-6px">' + PASSWORD_HINT + '</p>' +
       '<label class="field"><span>Yeni şifre (tekrar)</span><input id="p-new-pass2" type="password" autocomplete="new-password" /></label>' +
       '<button type="button" class="btn-secondary full" id="p-pass-save">Şifreyi Güncelle</button>';
+
+    var appShareBtn = modal.querySelector("#app-share");
+    if (appShareBtn) appShareBtn.addEventListener("click", function () { shareApp(); });
+    var appA2hsBtn = modal.querySelector("#app-a2hs");
+    if (appA2hsBtn) appA2hsBtn.addEventListener("click", function () { addAppToHomeScreen(); });
 
     var householdCopyBtn = modal.querySelector("#household-copy");
     if (householdCopyBtn) householdCopyBtn.addEventListener("click", function () {
