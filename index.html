@@ -482,7 +482,7 @@
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.2.3"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.2.4"; // Dynamic Version Tracking
   var APP_UPDATED = "18 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -881,7 +881,8 @@
   function triggerReminders() {
     if (!state.currentUser || !isAdminUser(state.currentUser)) return;
     toast("Tetikleniyor...");
-    state.currentUser.getIdToken().then(function (idToken) {
+    if (!auth.currentUser) { toast("Oturum bulunamadı, tekrar giriş yapın."); return; }
+    auth.currentUser.getIdToken().then(function (idToken) {
       return fetch(REMINDER_TRIGGER_URL, {
         method: "POST",
         headers: { "Authorization": "Bearer " + idToken }
