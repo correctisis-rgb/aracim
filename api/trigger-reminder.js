@@ -123,7 +123,7 @@ async function runFullScan(db, bypassDedup, triggerSource) {
 
     if (!triggered.length) continue;
 
-    const title = triggered.length === 1 ? "Garaj Defteri — Hatırlatma" : `Garaj Defteri — ${triggered.length} hatırlatma`;
+    const title = triggered.length === 1 ? "Garaj Defteri — Hatırlatma" : `Garaj Defteri — ${triggered.length} Hatırlatma`;
     const body = triggered.slice(0, 3).join("  •  ") + (triggered.length > 3 ? ` (+${triggered.length - 3} diğer)` : "");
 
     const response = await admin.messaging().sendEachForMulticast({
@@ -206,9 +206,26 @@ module.exports = async (req, res) => {
     }
 
     const db = admin.firestore();
+    const triggerDocRef = db.collection("admin").doc("reminderTrigger");
+
+    // Sağlık panelindeki "Hatırlatma Tetikleyici" kutusu bu dokümanı okur.
+    // Önce "isteniyor" durumunu yazıyoruz, tarama bitince "işlendi" olarak
+    // güncelliyoruz — böylece panel her manuel tetiklemede gerçek zamanlı
+    // güncelleniyor.
+    await triggerDocRef.set({
+      requested: true,
+      requestedAt: admin.firestore.FieldValue.serverTimestamp(),
+      requestedBy: decoded.email
+    }, { merge: true });
+
     // Manuel tetikleme: admin bilerek bastığı için, aynı gün/aynı km eşiği
     // daha önce bildirildiyse bile tekrar gönderilir (bypassDedup = true).
     const result = await runFullScan(db, /* bypassDedup */ true, `manual:${decoded.email}`);
+
+    await triggerDocRef.set({
+      requested: false,
+      processedAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
 
     res.status(200).json({ ok: true, ...result });
   } catch (err) {
