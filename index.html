@@ -482,8 +482,8 @@
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.2.5"; // Dynamic Version Tracking
-  var APP_UPDATED = "18 Temmuz 2026";
+  var APP_VERSION = "v1.2.0"; // Dynamic Version Tracking
+  var APP_UPDATED = "17 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -1652,6 +1652,7 @@
       html +=
         '<label class="field"><span>E-posta</span><input id="l-email" type="email" placeholder="ornek@eposta.com" autocomplete="email" /></label>' +
         '<label class="field"><span>Şifre</span><div class="pw-field"><input id="l-pass" type="password" placeholder="Şifren" autocomplete="current-password" /><button type="button" class="pw-toggle" data-target="l-pass" aria-label="Şifreyi göster/gizle">👁️</button></div></label>' +
+        '<button type="button" class="link-btn" id="forgot-pass-link" style="margin:-6px 0 10px;">Şifremi unuttum?</button>' +
         '<button type="button" class="btn-primary full" id="auth-submit" ' + (state.authBusy ? "disabled" : "") + '>' + (state.authBusy ? "Giriş yapılıyor…" : "Giriş Yap") + '</button>';
     }
     html += '</div></div>';
@@ -1679,6 +1680,8 @@
     if (submit) submit.addEventListener("click", function () {
       if (state.authMode === "register") handleRegister(); else handleLogin();
     });
+    var forgotBtn = document.getElementById("forgot-pass-link");
+    if (forgotBtn) forgotBtn.addEventListener("click", handleForgotPassword);
     document.querySelectorAll(".auth-card input").forEach(function (input) {
       input.addEventListener("keydown", function (ev) {
         if (ev.key === "Enter") { ev.preventDefault(); if (submit) submit.click(); }
@@ -1728,6 +1731,33 @@
     }).catch(function (err) {
       state.authBusy = false;
       state.authError = authErrorMessage(err);
+      renderAuth();
+    });
+  }
+
+  function handleForgotPassword() {
+    var emailInput = document.getElementById("l-email");
+    var email = emailInput ? emailInput.value.trim() : "";
+    if (!EMAIL_RE.test(email)) {
+      state.authError = "Şifre sıfırlama bağlantısı göndermek için önce e-posta alanına geçerli bir adres gir.";
+      renderAuth();
+      return;
+    }
+
+    state.authError = null;
+    var btn = document.getElementById("forgot-pass-link");
+    if (btn) { btn.disabled = true; btn.textContent = "Gönderiliyor…"; }
+
+    auth.sendPasswordResetEmail(email).then(function () {
+      if (btn) { btn.disabled = false; btn.textContent = "Şifremi unuttum?"; }
+      toast("Şifre sıfırlama bağlantısı " + email + " adresine gönderildi. Gelen kutunu (ve spam klasörünü) kontrol et.");
+    }).catch(function (err) {
+      if (btn) { btn.disabled = false; btn.textContent = "Şifremi unuttum?"; }
+      if (err && err.code === "auth/user-not-found") {
+        state.authError = "Bu e-posta ile kayıtlı bir hesap bulunamadı.";
+      } else {
+        state.authError = authErrorMessage(err);
+      }
       renderAuth();
     });
   }
