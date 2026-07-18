@@ -262,6 +262,8 @@
   .log-filter-clear { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 8px; padding: 7px 10px; font-size: 12px; cursor: pointer; font-family: inherit; white-space: nowrap; }
   .log-filter-clear:hover { border-color: var(--red); color: var(--red); }
   .log-result-count { font-size: 11.5px; color: var(--muted); margin: -2px 0 10px; }
+  .km-ocr-row { margin: -6px 0 4px; }
+  .km-ocr-status { font-size: 11.5px; color: var(--muted); margin: -2px 0 10px; min-height: 14px; }
 
   /* ---------- Analiz / Bütçe ---------- */
   .budget-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
@@ -437,6 +439,7 @@
   var auth = firebase.auth();
   var db = firebase.firestore();
   var unsubscribeUserDoc = null;
+  var unsubscribeHouseholdDoc = null;
 
   // ---------- service worker kaydı ----------
   // NOT: Bu kayıt artık burada, en başta yapılıyor (sayfa 'load' olayını beklemiyor).
@@ -478,8 +481,8 @@
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.1.9"; // Dynamic Version Tracking
-  var APP_UPDATED = "17 Temmuz 2026";
+  var APP_VERSION = "v1.2.0"; // Dynamic Version Tracking
+  var APP_UPDATED = "18 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -503,6 +506,103 @@
   function todayStr() { return new Date().toISOString().slice(0, 10); }
   function fmtDateTR(s) { return s ? new Date(s).toLocaleDateString("tr-TR") : ""; }
   function esc(s) { var d = document.createElement("div"); d.textContent = s == null ? "" : String(s); return d.innerHTML; }
+
+  // ---------- Takvime ekleme (.ics) ----------
+  function pad2(n) { return (n < 10 ? "0" : "") + n; }
+  function icsEscape(s) { return String(s || "").replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n"); }
+  function downloadICS(title, dateStr, description) {
+    if (!dateStr) { toast("Bu işlem için tarih bilgisi girilmemiş."); return; }
+    var d = new Date(dateStr);
+    if (isNaN(d.getTime())) { toast("Tarih okunamadı."); return; }
+    var dtStart = d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate());
+    var endD = new Date(d); endD.setDate(endD.getDate() + 1);
+    var dtEnd = endD.getFullYear() + pad2(endD.getMonth() + 1) + pad2(endD.getDate());
+    var stamp = new Date().toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+    var lines = [
+      "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Garaj Defteri//TR", "CALSCALE:GREGORIAN",
+      "BEGIN:VEVENT",
+      "UID:" + uid() + "@garajdefteri",
+      "DTSTAMP:" + stamp,
+      "DTSTART;VALUE=DATE:" + dtStart,
+      "DTEND;VALUE=DATE:" + dtEnd,
+      "SUMMARY:" + icsEscape(title),
+      description ? ("DESCRIPTION:" + icsEscape(description)) : null,
+      "BEGIN:VALARM", "ACTION:DISPLAY", "DESCRIPTION:Hatırlatma", "TRIGGER:-P1D", "END:VALARM",
+      "END:VEVENT", "END:VCALENDAR"
+    ].filter(function (x) { return x != null; }).join("\r\n");
+    var blob = new Blob([lines], { type: "text/calendar;charset=utf-8" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = (title || "hatirlatma").toLowerCase().replace(/[^a-z0-9ığüşöç]+/gi, "-").replace(/^-+|-+$/g, "") + ".ics";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast("Takvim dosyası indirildi. Açtığında telefon takvimine eklenecek.");
+  }
+
+  // ---------- Gösterge fotoğrafından km okuma (OCR) ----------
+  var tesseractLoadPromise = null;
+  function loadTesseract() {
+    if (window.Tesseract) return Promise.resolve();
+    if (tesseractLoadPromise) return tesseractLoadPromise;
+    tesseractLoadPromise = new Promise(function (resolve, reject) {
+      var s = document.createElement("script");
+      s.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+      s.onload = function () { resolve(); };
+      s.onerror = function () { tesseractLoadPromise = null; reject(new Error("Tesseract yüklenemedi")); };
+      document.head.appendChild(s);
+    });
+    return tesseractLoadPromise;
+  }
+  function preprocessImageForOCR(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () {
+        var img = new Image();
+        img.onload = function () {
+          var maxDim = 1000;
+          var w = img.width, h = img.height;
+          if (w > h && w > maxDim) { h = Math.round(h * (maxDim / w)); w = maxDim; }
+          else if (h > maxDim) { w = Math.round(w * (maxDim / h)); h = maxDim; }
+          var canvas = document.createElement("canvas");
+          canvas.width = w; canvas.height = h;
+          var ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, w, h);
+          // gri tonlama + kontrast artırımı: gösterge rakamlarının okunabilirliğini artırır
+          var imgData = ctx.getImageData(0, 0, w, h);
+          var px = imgData.data;
+          for (var i = 0; i < px.length; i += 4) {
+            var gray = px[i] * 0.299 + px[i + 1] * 0.587 + px[i + 2] * 0.114;
+            gray = (gray - 128) * 1.5 + 128; // kontrast
+            gray = Math.max(0, Math.min(255, gray));
+            px[i] = px[i + 1] = px[i + 2] = gray;
+          }
+          ctx.putImageData(imgData, 0, 0);
+          resolve(canvas.toDataURL("image/png"));
+        };
+        img.onerror = reject;
+        img.src = reader.result;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+  function extractOdometerGuess(rawText) {
+    if (!rawText) return null;
+    var matches = String(rawText).match(/\d[\d.,\s]{2,}\d|\d{3,}/g);
+    if (!matches) return null;
+    var candidates = matches
+      .map(function (m) { return m.replace(/[^\d]/g, ""); })
+      .filter(function (m) { return m.length >= 3 && m.length <= 7; })
+      .map(function (m) { return parseInt(m, 10); })
+      .filter(function (n) { return !isNaN(n); });
+    if (!candidates.length) return null;
+    // en uzun (en çok basamaklı) sayıyı tercih et: km değeri genelde en büyük değerdir
+    candidates.sort(function (a, b) { return b - a; });
+    return candidates[0];
+  }
 
   // ---------- LocalStorage Sync for Offline Support ----------
   function getLocalData(key, fallback) {
@@ -639,36 +739,76 @@
     notifStatus: (typeof Notification !== "undefined" ? Notification.permission : "unsupported"),
     onboardingDismissed: getLocalData("onboarding_dismissed", false),
     logFilters: { search: "", category: "all", carId: "all", dateFrom: "", dateTo: "" },
-    budgets: getLocalData("budgets", {})
+    budgets: getLocalData("budgets", {}),
+    householdId: null,
+    householdMembers: []
   };
 
   function defaultCar() {
     return { id: uid(), name: "Arabam", plate: "34 XX 000", color: CAR_COLORS[0], inspectionDate: null, maintenanceDate: null, photo: null, ruhsat: null };
   }
 
+  // --- Ortak hane (household) yardımcıları ---
+  function dataDocId() {
+    return state.householdId || (state.currentUser && state.currentUser.id) || null;
+  }
+  function buildMemberProfileEntry(uidVal, name, email) {
+    var patch = {};
+    patch["memberProfiles." + uidVal] = { name: name || "Üye", email: email || "" };
+    return patch;
+  }
+  function applyHouseholdData(data) {
+    state.cars = data.cars || state.cars || [defaultCar()];
+    state.expenses = data.expenses || state.expenses || [];
+    state.familyMembers = data.familyMembers || state.familyMembers || [];
+    state.budgets = data.budgets || state.budgets || {};
+    state.householdMembers = Object.keys(data.memberProfiles || {}).map(function (uidKey) {
+      var p = (data.memberProfiles || {})[uidKey] || {};
+      return { uid: uidKey, name: p.name || "Üye", email: p.email || "" };
+    });
+    setLocalData("cars", state.cars);
+    setLocalData("expenses", state.expenses);
+    setLocalData("family", state.familyMembers);
+    setLocalData("budgets", state.budgets);
+  }
+  function subscribeHousehold(householdId) {
+    if (unsubscribeHouseholdDoc) { unsubscribeHouseholdDoc(); unsubscribeHouseholdDoc = null; }
+    state.householdId = householdId;
+    var ref = db.collection("users").doc(householdId);
+    unsubscribeHouseholdDoc = ref.onSnapshot(function (snap) {
+      if (!snap.exists) return;
+      applyHouseholdData(snap.data() || {});
+      render();
+    }, function (err) { console.error(err); });
+  }
+
   // --- Offline & Cloud Sync ---
   function persistCars() {
     setLocalData("cars", state.cars);
-    if (!state.currentUser || !state.online) return;
-    db.collection("users").doc(state.currentUser.id).set({ cars: state.cars }, { merge: true })
+    var docId = dataDocId();
+    if (!docId || !state.online) return;
+    db.collection("users").doc(docId).set({ cars: state.cars }, { merge: true })
       .catch(function (err) { console.error(err); });
   }
   function persistExpenses() {
     setLocalData("expenses", state.expenses);
-    if (!state.currentUser || !state.online) return;
-    db.collection("users").doc(state.currentUser.id).set({ expenses: state.expenses }, { merge: true })
+    var docId = dataDocId();
+    if (!docId || !state.online) return;
+    db.collection("users").doc(docId).set({ expenses: state.expenses }, { merge: true })
       .catch(function (err) { console.error(err); });
   }
   function persistFamily() {
     setLocalData("family", state.familyMembers);
-    if (!state.currentUser || !state.online) return;
-    db.collection("users").doc(state.currentUser.id).set({ familyMembers: state.familyMembers }, { merge: true })
+    var docId = dataDocId();
+    if (!docId || !state.online) return;
+    db.collection("users").doc(docId).set({ familyMembers: state.familyMembers }, { merge: true })
       .catch(function (err) { console.error(err); });
   }
   function persistBudgets() {
     setLocalData("budgets", state.budgets);
-    if (!state.currentUser || !state.online) return;
-    db.collection("users").doc(state.currentUser.id).set({ budgets: state.budgets }, { merge: true })
+    var docId = dataDocId();
+    if (!docId || !state.online) return;
+    db.collection("users").doc(docId).set({ budgets: state.budgets }, { merge: true })
       .catch(function (err) { console.error(err); });
   }
 
@@ -849,11 +989,13 @@
   });
 
   function syncOfflineData() {
-    if (state.currentUser && state.online) {
-      db.collection("users").doc(state.currentUser.id).set({
+    var docId = dataDocId();
+    if (docId && state.online) {
+      db.collection("users").doc(docId).set({
         cars: state.cars,
         expenses: state.expenses,
-        familyMembers: state.familyMembers
+        familyMembers: state.familyMembers,
+        budgets: state.budgets
       }, { merge: true }).then(function() {
         toast("Çevrimdışı yapılan değişiklikler buluta yüklendi!");
       });
@@ -1083,6 +1225,8 @@
 
   function loginAs(fbUser) {
     state.currentUser = { id: fbUser.uid, name: fbUser.displayName || "Kullanıcı", email: fbUser.email, avatar: null };
+    state.householdId = fbUser.uid;
+    state.householdMembers = [];
     state.selectedCarId = "all";
     state.view = "panel";
     state.modal = null;
@@ -1090,35 +1234,46 @@
     render();
 
     if (unsubscribeUserDoc) unsubscribeUserDoc();
+    if (unsubscribeHouseholdDoc) { unsubscribeHouseholdDoc(); unsubscribeHouseholdDoc = null; }
     var docRef = db.collection("users").doc(fbUser.uid);
     unsubscribeUserDoc = docRef.onSnapshot(function (snap) {
       if (!snap.exists) {
-        docRef.set({
-          name: fbUser.displayName || "Kullanıcı",
-          email: fbUser.email,
-          avatar: null,
-          cars: state.cars || [defaultCar()],
-          expenses: state.expenses || [],
-          familyMembers: state.familyMembers || [],
-          budgets: state.budgets || {},
-          createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        }).catch(function (err) { console.error(err); });
+        var createPatch = buildMemberProfileEntry(fbUser.uid, fbUser.displayName || "Kullanıcı", fbUser.email);
+        createPatch.name = fbUser.displayName || "Kullanıcı";
+        createPatch.email = fbUser.email;
+        createPatch.avatar = null;
+        createPatch.members = [fbUser.uid];
+        createPatch.cars = state.cars || [defaultCar()];
+        createPatch.expenses = state.expenses || [];
+        createPatch.familyMembers = state.familyMembers || [];
+        createPatch.budgets = state.budgets || {};
+        createPatch.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+        docRef.set(createPatch, { merge: true }).catch(function (err) { console.error(err); });
         return;
       }
       var data = snap.data() || {};
       if (!state.currentUser || state.currentUser.id !== fbUser.uid) return;
-      state.currentUser = { id: fbUser.uid, name: data.name || fbUser.displayName || "Kullanıcı", email: data.email || fbUser.email, avatar: data.avatar || null };
-      
-      // Merge with cloud or fallback to local
-      state.cars = data.cars || state.cars || [defaultCar()];
-      state.expenses = data.expenses || state.expenses || [];
-      state.familyMembers = data.familyMembers || state.familyMembers || [];
-      state.budgets = data.budgets || state.budgets || {};
 
-      setLocalData("cars", state.cars);
-      setLocalData("expenses", state.expenses);
-      setLocalData("family", state.familyMembers);
-      setLocalData("budgets", state.budgets);
+      // Kimlik bilgisi (isim/e-posta/avatar) her zaman kişinin kendi belgesinden gelir;
+      // ortak bir haneye katılınca bile kendi adı değişmez.
+      state.currentUser = { id: fbUser.uid, name: data.name || fbUser.displayName || "Kullanıcı", email: data.email || fbUser.email, avatar: data.avatar || null };
+
+      // Eski hesaplarda "members" alanı olmayabilir — ilk fırsatta ekleyelim ki
+      // bu hane ileride bir davet koduyla paylaşılabilsin.
+      if (!data.members) {
+        docRef.set(buildMemberProfileEntryWithMembers(fbUser.uid, state.currentUser.name, state.currentUser.email), { merge: true })
+          .catch(function (err) { console.error(err); });
+      }
+
+      var targetHousehold = data.householdId || fbUser.uid;
+      if (targetHousehold === fbUser.uid) {
+        // Kendi hanesi: aynı belge hem kimlik hem paylaşılan veri kaynağı
+        if (unsubscribeHouseholdDoc) { unsubscribeHouseholdDoc(); unsubscribeHouseholdDoc = null; }
+        state.householdId = fbUser.uid;
+        applyHouseholdData(data);
+      } else if (state.householdId !== targetHousehold) {
+        subscribeHousehold(targetHousehold);
+      }
 
       render();
     }, function (err) {
@@ -1128,19 +1283,95 @@
         state.cars = getLocalData("cars", [defaultCar()]);
         state.expenses = getLocalData("expenses", []);
         state.familyMembers = getLocalData("family", []);
+        state.budgets = getLocalData("budgets", {});
         render();
+      }
+    });
+  }
+
+  function buildMemberProfileEntryWithMembers(uidVal, name, email) {
+    var patch = buildMemberProfileEntry(uidVal, name, email);
+    patch.members = [uidVal];
+    return patch;
+  }
+
+  function joinHousehold(rawCode) {
+    var code = (rawCode || "").trim();
+    if (!code) { toast("Lütfen bir davet kodu gir."); return; }
+    if (!state.currentUser) return;
+    var myUid = state.currentUser.id;
+    if (code === state.householdId) { toast("Zaten bu ortak hanedesin."); return; }
+    showConfirm({
+      title: "Ortak Haneye Katıl",
+      message: "Bu işlemle kendi araç/masraf kayıtların yerine, kodun sahibinin ortak hanesindeki veriler kullanılmaya başlanacak. Devam edilsin mi?",
+      confirmLabel: "Katıl",
+      danger: true,
+      onConfirm: function () {
+        var targetRef = db.collection("users").doc(code);
+        var patch = buildMemberProfileEntry(myUid, state.currentUser.name, state.currentUser.email);
+        patch.members = firebase.firestore.FieldValue.arrayUnion(myUid);
+        targetRef.set(patch, { merge: true }).then(function () {
+          return db.collection("users").doc(myUid).set({ householdId: code }, { merge: true });
+        }).then(function () {
+          subscribeHousehold(code);
+          closeModal();
+          state.modal = { type: "profile" };
+          renderModal();
+          toast("Ortak haneye katıldın.");
+        }).catch(function (err) {
+          console.error(err);
+          toast("Katılma başarısız oldu: kod geçersiz olabilir veya izin reddedildi.");
+        });
+      }
+    });
+  }
+
+  function leaveHousehold() {
+    if (!state.currentUser) return;
+    var myUid = state.currentUser.id;
+    if (state.householdId === myUid) { toast("Zaten kendi hanendesin."); return; }
+    var oldHouseholdId = state.householdId;
+    showConfirm({
+      title: "Ortak Haneden Ayrıl",
+      message: "Bu ortak hesaptan ayrılacak ve kendi tek kullanıcı hanene döneceksin. Emin misin?",
+      confirmLabel: "Ayrıl",
+      danger: true,
+      onConfirm: function () {
+        var householdRef = db.collection("users").doc(oldHouseholdId);
+        var ownRef = db.collection("users").doc(myUid);
+        var removePatch = {};
+        removePatch.members = firebase.firestore.FieldValue.arrayRemove(myUid);
+        removePatch["memberProfiles." + myUid] = firebase.firestore.FieldValue.delete();
+        householdRef.update(removePatch).catch(function (err) { console.error(err); });
+        ownRef.set({ householdId: firebase.firestore.FieldValue.delete() }, { merge: true }).then(function () {
+          if (unsubscribeHouseholdDoc) { unsubscribeHouseholdDoc(); unsubscribeHouseholdDoc = null; }
+          state.householdId = myUid;
+          return ownRef.get();
+        }).then(function (snap) {
+          applyHouseholdData(snap.data() || {});
+          closeModal();
+          state.modal = { type: "profile" };
+          renderModal();
+          toast("Ortak haneden ayrıldın.");
+        }).catch(function (err) {
+          console.error(err);
+          toast("Ayrılma işlemi başarısız oldu.");
+        });
       }
     });
   }
 
   function logout() {
     if (unsubscribeUserDoc) { unsubscribeUserDoc(); unsubscribeUserDoc = null; }
+    if (unsubscribeHouseholdDoc) { unsubscribeHouseholdDoc(); unsubscribeHouseholdDoc = null; }
     auth.signOut().then(function () {
       state.currentUser = null;
       state.cars = null;
       state.expenses = null;
       state.familyMembers = [];
       state.budgets = {};
+      state.householdId = null;
+      state.householdMembers = [];
       state.selectedCarId = "all";
       state.view = "panel";
       state.modal = null;
@@ -1166,6 +1397,7 @@
         loginAs(fbUser);
       } else {
         if (unsubscribeUserDoc) { unsubscribeUserDoc(); unsubscribeUserDoc = null; }
+        if (unsubscribeHouseholdDoc) { unsubscribeHouseholdDoc(); unsubscribeHouseholdDoc = null; }
         state.currentUser = null;
         renderAuth();
       }
@@ -1716,6 +1948,13 @@
       '</section>';
   }
 
+  function calendarButtonHTML(it) {
+    if (!it.date) return "";
+    var title = it.type + " · " + it.carName;
+    var notes = it.carName + " için " + it.type;
+    return '<button class="exp-del" data-action="add-to-calendar" data-title="' + esc(title) + '" data-date="' + esc(it.date) + '" data-notes="' + esc(notes) + '" title="Takvime ekle" aria-label="Takvime ekle">📅</button>';
+  }
+
   function renderUpcomingPanel(items) {
     var upcoming = items.filter(function (it) { return it.tier < 3; }).slice(0, 5);
     var html = '<section class="panel span-2"><h2>Yaklaşan İşlemler</h2>';
@@ -1732,6 +1971,7 @@
           '<span class="sum-main"><span class="sum-type">' + esc(it.type) + ' · ' + esc(it.carName) + '</span>' +
           '<span class="sum-date">' + esc(it.dateLabel) + '</span></span>' +
           '<span class="sum-badge" style="color:' + it.status.color + ';border-color:' + it.status.color + '55;background:' + it.status.color + '18">' + showIcon + esc(it.status.label) + '</span>' +
+          calendarButtonHTML(it) +
           '<button class="exp-del" data-action="open-edit-car" data-car="' + it.carId + '" title="Düzenle" aria-label="Düzenle">✏️</button>' +
           '</li>';
       });
@@ -1866,6 +2106,7 @@
           '<span class="sum-main"><span class="sum-type">' + esc(it.type) + ' · ' + esc(it.carName) + '</span>' +
           '<span class="sum-date">' + esc(it.dateLabel) + '</span></span>' +
           '<span class="sum-badge" style="color:' + it.status.color + ';border-color:' + it.status.color + '55;background:' + it.status.color + '18">' + showIcon + esc(it.status.label) + '</span>' +
+          calendarButtonHTML(it) +
           '<button class="exp-del" data-action="open-edit-car" data-car="' + it.carId + '" title="Düzenle" aria-label="Düzenle">✏️</button>' +
           '</li>';
       });
@@ -2093,6 +2334,13 @@
       familyHtml += '<li class="family-item"><span class="family-name">👤 ' + esc(f.name) + '</span><span class="family-role">' + esc(f.role) + '</span><button class="exp-del" data-family-id="' + f.id + '" title="Sil" aria-label="Aile üyesini sil">🗑️</button></li>';
     });
 
+    var isOwnHousehold = state.householdId === user.id;
+    var memberListHtml = (state.householdMembers && state.householdMembers.length)
+      ? state.householdMembers.map(function (m) {
+          return '<li class="family-item"><span class="family-name">👤 ' + esc(m.name) + (m.uid === user.id ? " (sen)" : "") + '</span><span class="family-role">' + esc(m.email || "") + '</span></li>';
+        }).join("")
+      : '<li class="empty-hint">Üye bilgisi yükleniyor…</li>';
+
     modal.innerHTML =
       '<div class="modal-head"><h3>Hesabım</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>' +
       '<p class="profile-section-title">Profil Bilgileri</p>' +
@@ -2106,6 +2354,20 @@
       '<label class="field"><span>Ad Soyad</span><input id="p-name" value="' + esc(user.name) + '" /></label>' +
       '<label class="field"><span>E-posta</span><input id="p-email" type="email" value="' + esc(user.email) + '" /></label>' +
       '<button type="button" class="btn-primary full" id="p-save">Profili Kaydet</button>' +
+
+      '<p class="profile-section-title">🏠 Ortak Hesap</p>' +
+      '<p class="field-hint" style="margin-top:-4px">Aynı araçları eşin/ailenle ortak yönetmek için davet kodunu paylaş, ya da sana verilen bir kodla katıl. Ortak hanedeki herkes araç ve masrafları birlikte düzenleyebilir.</p>' +
+      (isOwnHousehold ? '' : '<p class="field-hint" style="color:var(--amber)">Şu an başka bir kullanıcının ortak hanesindesin.</p>') +
+      '<div class="budget-row">' +
+        '<input id="household-code-display" readonly value="' + esc(state.householdId || "") + '" style="flex:1" />' +
+        '<button type="button" class="btn-secondary" id="household-copy">📋 Kopyala</button>' +
+      '</div>' +
+      '<ul class="family-list">' + memberListHtml + '</ul>' +
+      (!isOwnHousehold ? '<button type="button" class="btn-secondary full" id="household-leave" style="margin-bottom:10px;">Bu Ortak Haneden Ayrıl</button>' : '') +
+      '<div class="field-row">' +
+        '<input id="household-join-code" placeholder="Katılmak istediğin davet kodu" style="background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:8px 10px; font-size:14px; width:100%;" />' +
+      '</div>' +
+      '<button type="button" class="btn-secondary full" id="household-join" style="margin-top:8px;">Koda Katıl</button>' +
 
       '<p class="profile-section-title">👪 Aile Üyeleri</p>' +
       '<ul class="family-list" id="family-list-container">' + (familyHtml || '<p class="empty-hint">Henüz aile üyesi eklenmedi.</p>') + '</ul>' +
@@ -2126,6 +2388,22 @@
       '<p class="field-hint" style="margin-top:-6px">' + PASSWORD_HINT + '</p>' +
       '<label class="field"><span>Yeni şifre (tekrar)</span><input id="p-new-pass2" type="password" autocomplete="new-password" /></label>' +
       '<button type="button" class="btn-secondary full" id="p-pass-save">Şifreyi Güncelle</button>';
+
+    var householdCopyBtn = modal.querySelector("#household-copy");
+    if (householdCopyBtn) householdCopyBtn.addEventListener("click", function () {
+      var val = modal.querySelector("#household-code-display").value;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(val).then(function () { toast("Kod kopyalandı."); }).catch(function () { toast("Kopyalanamadı, elle seçip kopyalayabilirsin."); });
+      } else {
+        toast("Kopyalanamadı, elle seçip kopyalayabilirsin.");
+      }
+    });
+    var householdLeaveBtn = modal.querySelector("#household-leave");
+    if (householdLeaveBtn) householdLeaveBtn.addEventListener("click", function () { leaveHousehold(); });
+    var householdJoinBtn = modal.querySelector("#household-join");
+    if (householdJoinBtn) householdJoinBtn.addEventListener("click", function () {
+      joinHousehold(modal.querySelector("#household-join-code").value);
+    });
 
     function bindAvatarInput() {
       var input = modal.querySelector("#avatar-file");
@@ -2558,6 +2836,11 @@
         '<label class="field" id="e-liter-field"><span>Litre (opsiyonel)</span><input id="e-liter" type="text" inputmode="decimal" value="' + (editingExpense && editingExpense.liter != null ? numberToDisplay(editingExpense.liter, true) : "") + '" placeholder="Örn. 45,5" /></label>' +
       '</div>' +
       '<p class="field-hint" style="margin-top:-6px">Kilometreyi girersen aracın güncel kilometresi otomatik güncellenir.</p>' +
+      '<div class="km-ocr-row">' +
+        '<button type="button" class="link-btn" id="e-km-ocr-btn">📷 Km\'yi gösterge fotoğrafından oku</button>' +
+        '<input type="file" accept="image/*" capture="environment" id="e-km-ocr-file" style="display:none" />' +
+      '</div>' +
+      '<p class="km-ocr-status" id="e-km-ocr-status"></p>' +
       '<label class="field"><span>Not (opsiyonel)</span><input id="e-note" value="' + (editingExpense ? esc(editingExpense.note || "") : "") + '" placeholder="Örn. Lastik değişimi" /></label>' +
       payerOptions +
       '<label class="field"><span>Fiş / Fatura (opsiyonel)</span></label>' +
@@ -2568,6 +2851,34 @@
     attachThousandsInput(modal.querySelector("#e-amount"), true);
     attachThousandsInput(modal.querySelector("#e-km"), false);
     attachThousandsInput(modal.querySelector("#e-liter"), true);
+
+    var ocrBtn = modal.querySelector("#e-km-ocr-btn");
+    var ocrFile = modal.querySelector("#e-km-ocr-file");
+    var ocrStatus = modal.querySelector("#e-km-ocr-status");
+    ocrBtn.addEventListener("click", function () { ocrFile.click(); });
+    ocrFile.addEventListener("change", function (ev) {
+      var file = ev.target.files && ev.target.files[0];
+      if (!file) return;
+      ocrStatus.textContent = "Okuma kütüphanesi yükleniyor…";
+      loadTesseract().then(function () {
+        ocrStatus.textContent = "Fotoğraf işleniyor…";
+        return preprocessImageForOCR(file);
+      }).then(function (dataUrl) {
+        ocrStatus.textContent = "Okunuyor, birkaç saniye sürebilir…";
+        return Tesseract.recognize(dataUrl, "eng");
+      }).then(function (result) {
+        var guess = extractOdometerGuess(result && result.data && result.data.text);
+        if (guess != null) {
+          modal.querySelector("#e-km").value = formatNumericDisplay(String(guess), false);
+          ocrStatus.textContent = "Tahmini okundu: " + groupThousands(String(guess)) + " km — lütfen kontrol edip gerekirse düzelt.";
+        } else {
+          ocrStatus.textContent = "Km okunamadı, lütfen elle gir.";
+        }
+      }).catch(function (err) {
+        console.error(err);
+        ocrStatus.textContent = "Okuma başarısız oldu, lütfen elle gir.";
+      });
+    });
 
     modal.__photos = { receiptPhoto: editingExpense ? editingExpense.receipt || null : null };
     modal.querySelectorAll(".photo-upload input[type=file]").forEach(function (input) {
@@ -2743,6 +3054,9 @@
           render();
         }
         else if (action === "share-report") { shareExpenseReport(); }
+        else if (action === "add-to-calendar") {
+          downloadICS(el.getAttribute("data-title"), el.getAttribute("data-date"), el.getAttribute("data-notes"));
+        }
         else if (action === "export-data") { exportData(); }
         else if (action === "enable-notifications") { enableNotifications(); }
         else if (action === "disable-notifications") { disableNotifications(); }
