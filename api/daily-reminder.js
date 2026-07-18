@@ -195,7 +195,7 @@ async function runFullScan(db, bypassDedup, triggerSource) {
 
     if (!triggered.length) continue;
 
-    const title = triggered.length === 1 ? "Garaj Defteri — Hatırlatma" : `Garaj Defteri — ${triggered.length} hatırlatma`;
+    const title = triggered.length === 1 ? "Garaj Defteri — Hatırlatma" : `Garaj Defteri — ${triggered.length} Hatırlatma`;
     const body = triggered.slice(0, 3).join("  •  ") + (triggered.length > 3 ? ` (+${triggered.length - 3} diğer)` : "");
 
     const response = await admin.messaging().sendEachForMulticast({
