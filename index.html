@@ -63,6 +63,30 @@
     cursor: pointer; font-size: 16px; flex-shrink: 0; margin-left: 8px;
   }
   .theme-toggle:hover { border-color: var(--amber); }
+
+  .fab-add-expense {
+    position: fixed;
+    right: 20px;
+    bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    background: var(--amber);
+    color: #1B1F24;
+    border: none;
+    font-size: 28px;
+    font-weight: 600;
+    line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 6px 18px #00000050;
+    cursor: pointer;
+    z-index: 45;
+    transition: transform .15s ease, filter .15s ease;
+  }
+  .fab-add-expense:hover { filter: brightness(1.08); transform: scale(1.05); }
+  .fab-add-expense:active { transform: scale(0.96); }
+  @media (max-width: 640px) {
+    .toast { bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
+  }
   .wrap { max-width: 980px; margin: 0 auto; padding: 20px; }
 
   /* ---------- Accessibility: focus states ---------- */
@@ -533,7 +557,7 @@
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.3.2"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.3.1"; // Dynamic Version Tracking
   var APP_UPDATED = "18 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -2059,6 +2083,10 @@
       }
 
       html += renderLogPanel();
+    }
+
+    if (carsList.length > 0) {
+      html += '<button type="button" class="fab-add-expense" data-action="open-add-expense" aria-label="Masraf Ekle" title="Masraf Ekle">+</button>';
     }
 
     app.innerHTML = html;
