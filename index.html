@@ -68,22 +68,37 @@
     position: fixed;
     right: 20px;
     bottom: calc(20px + env(safe-area-inset-bottom, 0px));
-    width: 56px; height: 56px;
-    border-radius: 50%;
-    background: var(--amber);
+    display: flex; align-items: center; gap: 10px;
+    height: 52px;
+    padding: 0 20px 0 8px;
+    border-radius: 999px;
+    background: linear-gradient(155deg, #FFC266, var(--amber) 55%);
     color: #1B1F24;
     border: none;
-    font-size: 28px;
-    font-weight: 600;
-    line-height: 1;
-    display: flex; align-items: center; justify-content: center;
-    box-shadow: 0 6px 18px #00000050;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
     cursor: pointer;
+    box-shadow: 0 8px 20px -4px #00000060, 0 2px 6px #00000040;
     z-index: 45;
-    transition: transform .15s ease, filter .15s ease;
+    transition: transform .18s ease, box-shadow .18s ease, filter .18s ease;
   }
-  .fab-add-expense:hover { filter: brightness(1.08); transform: scale(1.05); }
-  .fab-add-expense:active { transform: scale(0.96); }
+  .fab-add-expense-icon {
+    display: flex; align-items: center; justify-content: center;
+    width: 36px; height: 36px; border-radius: 50%;
+    background: #1B1F24; color: var(--amber);
+    font-size: 19px; font-weight: 700; line-height: 1; flex-shrink: 0;
+    transition: transform .25s ease;
+  }
+  .fab-add-expense:hover { filter: brightness(1.05); transform: translateY(-2px); box-shadow: 0 12px 26px -4px #00000070, 0 3px 8px #00000045; }
+  .fab-add-expense:hover .fab-add-expense-icon { transform: rotate(90deg); }
+  .fab-add-expense:active { transform: translateY(0) scale(0.97); }
+  @media (max-width: 480px) {
+    .fab-add-expense-label { display: none; }
+    .fab-add-expense { padding: 0; width: 52px; justify-content: center; }
+  }
   @media (max-width: 640px) {
     .toast { bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
   }
@@ -557,7 +572,7 @@
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.3.2"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.3.1"; // Dynamic Version Tracking
   var APP_UPDATED = "18 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -2086,7 +2101,10 @@
     }
 
     if (carsList.length > 0) {
-      html += '<button type="button" class="fab-add-expense" data-action="open-add-expense" aria-label="Masraf Ekle" title="Masraf Ekle">+</button>';
+      html += '<button type="button" class="fab-add-expense" data-action="open-add-expense" aria-label="Masraf Ekle">' +
+        '<span class="fab-add-expense-icon">+</span>' +
+        '<span class="fab-add-expense-label">Masraf Ekle</span>' +
+      '</button>';
     }
 
     app.innerHTML = html;
