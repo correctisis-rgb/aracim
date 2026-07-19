@@ -29,7 +29,10 @@ const db = admin.firestore();
 //     çalıştırma, gereksiz yere her 10 dakikada bir tüm kullanıcıları
 //     taramaz.
 const TRIGGER_SOURCE = process.env.TRIGGER_SOURCE || "";
-const IS_DAILY_RUN = TRIGGER_SOURCE === "3 6 * * *" || TRIGGER_SOURCE === "workflow_dispatch" || !TRIGGER_SOURCE;
+// "3 6 * * *" (09:03 TR), "3 11 * * *" (14:03 TR), "3 17 * * *" (20:03 TR):
+// bunlar cron-job.org'un tam saatinde (09:00/14:00/20:00) attığı workflow_dispatch
+// isteği kaçarsa devreye giren GitHub-native yedek zamanlamalar.
+const IS_DAILY_RUN = TRIGGER_SOURCE === "3 6 * * *" || TRIGGER_SOURCE === "3 11 * * *" || TRIGGER_SOURCE === "3 17 * * *" || TRIGGER_SOURCE === "workflow_dispatch" || !TRIGGER_SOURCE;
 
 // ---------- Sağlık izleme: runLogs kaydı ----------
 // Her gerçek tarama çalıştırmasının sonucunu (başarılı/başarısız, kaç
@@ -64,38 +67,70 @@ async function checkManualTriggerFlag() {
   return false;
 }
 
-// ---------- Günlük tarama yedek (catch-up) mekanizması ----------
+// ---------- Kademeli hatırlatma saatleri ----------
+// Vade tarihine kalan gün azaldıkça gönderim sıklığı artar:
+//  - 30-8 gün kala : sadece 09:00
+//  - 7-2 gün kala  : 09:00 + 20:00
+//  - 1-0 gün kala  : 09:00 + 14:00 + 20:00
+// cron-job.org bu üç saatte de GitHub'ın workflow_dispatch API'sini çağırıyor
+// (bkz. cron-job.org paneli). Aşağıdaki HOUR_SLOTS_TR listesi, hem hangi
+// saatlerde bildirim gönderilebileceğini hem de aşağıdaki yedek (catch-up)
+// mekanizmanın hangi saatleri "geçerli dilim" sayacağını belirliyor.
+const HOUR_SLOTS_TR = [9, 14, 20];
+
+function currentTRHour() {
+  // Türkiye sabit UTC+3 kullanıyor (yaz/kış saati uygulamıyor).
+  const trNow = new Date(Date.now() + 3 * 60 * 60 * 1000);
+  return trNow.getUTCHours();
+}
+
+// Şu an HOUR_SLOTS_TR içindeki saatlerden birinin içindeysek (örn. 09:00-09:59
+// arası herhangi bir an) o dilimi döndürür, değilse null. Saat aralığının tamamı
+// eşleşmesi -tam dakikasında değil- kasıtlı: cron-job.org'un isteği gecikirse ya
+// da yedek GitHub cron'u devreye girerse bile aynı saat diliminde sayılır.
+function matchedHourSlot() {
+  const h = currentTRHour();
+  return HOUR_SLOTS_TR.includes(h) ? h : null;
+}
+
+function requiredSlotsForDays(days) {
+  if (days <= 1) return [9, 14, 20];
+  if (days <= 7) return [9, 20];
+  return [9];
+}
+
+// ---------- Saat dilimi bazlı yedek (catch-up) mekanizması ----------
 // Aynı dakikaya birden fazla cron ifadesi denk geldiğinde GitHub Actions
 // bazen sadece TEK bir run tetikliyor ve bu run'ın github.event.schedule
-// değeri her zaman "0 6 * * *" olmuyor — "*/10 * * * *" olarak da
-// gelebiliyor. Bu durumda IS_DAILY_RUN yanlışlıkla false olur, script
-// kendini "sık kontrol" sanır ve manuel bayrak da yoksa hiçbir şey
-// yapmadan çıkar — günlük tarama o gün hiç gerçekleşmez. Bunu tamamen
-// cron string'ine güvenmek yerine, Firestore'da "bugün tarama yapıldı
-// mı" bilgisini tutarak garanti altına alıyoruz: saat 06:00 UTC'yi
-// (09:00 TR) geçtikten sonraki ilk çalıştırma — hangi cron tetiklerse
-// tetiklesin — günlük taramayı yedek olarak yapar.
+// değeri beklenen cron string'iyle eşleşmeyebiliyor. Bu durumda IS_DAILY_RUN
+// yanlışlıkla false olur, script kendini "sık kontrol" sanır ve manuel
+// bayrak da yoksa hiçbir şey yapmadan çıkar. Bunu tamamen cron string'ine
+// güvenmek yerine, Firestore'da "bu saat diliminde bugün tarama yapıldı mı"
+// bilgisini tutarak garanti altına alıyoruz: HOUR_SLOTS_TR'den birinin
+// içindeki ilk çalıştırma — hangi cron tetiklerse tetiklesin — o dilimin
+// taramasını yedek olarak yapar.
 function todayDateStrTR() {
-  // Türkiye sabit UTC+3 kullanıyor (yaz/kış saati uygulamıyor).
   const trNow = new Date(Date.now() + 3 * 60 * 60 * 1000);
   return trNow.toISOString().slice(0, 10); // YYYY-MM-DD
 }
 
-async function claimDailyScanIfDue() {
-  if (new Date().getUTCHours() < 6) return false; // henüz 09:00 TR olmadı
+async function claimSlotScanIfDue() {
+  const slot = matchedHourSlot();
+  if (slot == null) return false; // şu an tanımlı gönderim saatlerinden birinde değiliz
   const ref = db.collection("admin").doc("reminderTrigger");
   const snap = await ref.get();
   const data = snap.exists ? snap.data() : null;
-  const today = todayDateStrTR();
-  if (data && data.lastDailyScanDate === today) return false; // bugün zaten yapıldı
-  await ref.set({ lastDailyScanDate: today }, { merge: true });
+  const claimKey = todayDateStrTR() + ":" + slot;
+  if (data && data.lastSlotScan === claimKey) return false; // bu dilimde bugün zaten yapıldı
+  await ref.set({ lastSlotScan: claimKey }, { merge: true });
   return true;
 }
 
-async function markDailyScanDoneIfApplicable() {
-  if (new Date().getUTCHours() < 6) return;
+async function markSlotScanDoneIfApplicable() {
+  const slot = matchedHourSlot();
+  if (slot == null) return;
   const ref = db.collection("admin").doc("reminderTrigger");
-  await ref.set({ lastDailyScanDate: todayDateStrTR() }, { merge: true }).catch(function () {});
+  await ref.set({ lastSlotScan: todayDateStrTR() + ":" + slot }, { merge: true }).catch(function () {});
 }
 
 // ---------- Admin: tüm kullanıcılara duyuru / bakım mesajı ----------
@@ -197,10 +232,11 @@ const DATE_FIELDS = [
 
 // Eskiden sadece belirli gün eşiklerinde (7-3-1-0) tek seferlik bildirim
 // gidiyordu. Artık kalan gün sayısı bu eşiğin altına düştüğü andan
-// itibaren -tarih güncellenene ya da bugüne (0. gün) kadar- HER GÜN sabah
-// taraması bir kez bildirim gönderiyor (aşağıdaki notifState dedup
-// mekanizması aynı gün içinde ikinci kez göndermeyi zaten engelliyor,
-// çünkü "days" değeri bir sonraki taramaya kadar aynı kalıyor).
+// itibaren -tarih güncellenene ya da bugüne (0. gün) kadar- HER GÜN en az
+// bir kez bildirim gönderiliyor. Kaç kez gönderileceği ise gün sayısına
+// göre kademeli artıyor, bkz. requiredSlotsForDays() (30-8 gün: sadece
+// 09:00 — 7-2 gün: 09:00+20:00 — 1-0 gün: 09:00+14:00+20:00). Aynı dilimde
+// ikinci kez göndermeyi aşağıdaki notifState dedup mekanizması engelliyor.
 // Vade tarihi geçtikten sonra (days negatif) artık hatırlatma GÖNDERİLMİYOR
 // — son bildirim tam vade gününde (days === 0) gidiyor, sonrasında sessiz
 // kalınıyor.
@@ -234,23 +270,25 @@ async function main() {
   let bypassDedup = false;
 
   if (IS_DAILY_RUN) {
-    // Gerçek günlük cron ("0 6 * * *") ya da elle "Run workflow" testi:
-    // tam taramayı yap ve bugünü "yapıldı" olarak işaretle (aşağıdaki
-    // yedek mekanizmanın gereksiz yere tekrar taramaması için).
-    await markDailyScanDoneIfApplicable();
+    // Gerçek tetikleme (cron-job.org'un workflow_dispatch çağrısı, GitHub'ın
+    // yedek saatlik cron'larından biri, ya da elle "Run workflow" testi):
+    // tam taramayı yap ve -eğer şu an tanımlı saat dilimlerinden birindeysek-
+    // bu dilimi "yapıldı" olarak işaretle (aşağıdaki yedek mekanizmanın
+    // gereksiz yere tekrar taramaması için).
+    await markSlotScanDoneIfApplicable();
   } else {
     const manualTriggered = await checkManualTriggerFlag();
     if (manualTriggered) {
-      // Admin panelinden bilerek tekrar tetiklendi: aynı gün/aynı km eşiği
+      // Admin panelinden bilerek tekrar tetiklendi: saat dilimi/gün/km eşiği
       // daha önce bildirildiyse bile bu taramada tekrar gönder.
       bypassDedup = true;
     } else {
-      const dailyCatchUp = await claimDailyScanIfDue();
-      if (!dailyCatchUp) {
-        console.log("Sık kontrol çalıştırması: manuel istek yok ve günlük tarama zaten yapılmış, çıkılıyor.");
+      const slotCatchUp = await claimSlotScanIfDue();
+      if (!slotCatchUp) {
+        console.log("Sık kontrol çalıştırması: manuel istek yok, şu an geçerli bir gönderim saati değil ya da bu dilim zaten taranmış, çıkılıyor.");
         return;
       }
-      console.log("Günlük cron tetiklemesi bu run'da doğru tanınmamış olabilir; 09:00 sonrası ilk kontrol olarak günlük tarama yedek şekilde çalıştırılıyor.");
+      console.log("Beklenen tetikleme bu run'da doğru tanınmamış olabilir; geçerli saat dilimi (09/14/20) yedek şekilde taranıyor.");
     }
   }
 
@@ -280,9 +318,19 @@ async function main() {
         if (days > DAYS_LEFT_ALERT_THRESHOLD || days < 0) return;
 
         const stateKey = car.id + "_" + f.key;
-        if (!bypassDedup && newNotifState[stateKey] === days) return;
+        const slot = matchedHourSlot();
 
-        newNotifState[stateKey] = days;
+        if (!bypassDedup) {
+          if (slot == null) return; // şu an 09/14/20 dilimlerinden birinde değiliz
+          if (!requiredSlotsForDays(days).includes(slot)) return; // bu gün sayısı için bu dilim gerekli değil
+          const sentMarker = todayDateStrTR() + ":" + slot;
+          if (newNotifState[stateKey] === sentMarker) return; // bu dilimde bugün zaten gönderildi
+          newNotifState[stateKey] = sentMarker;
+        } else {
+          // Admin panelinden elle tetiklendi: saat/dedup kısıtlaması yok, hemen gönder.
+          newNotifState[stateKey] = todayDateStrTR() + ":" + (slot != null ? slot : "manual");
+        }
+
         const carName = car.name || "Aracın";
         const dayText = days === 0 ? "bugün" : days > 0 ? days + " gün içinde" : Math.abs(days) + " gün geçti";
         triggered.push(`${f.emoji} ${carName}: ${f.label} ${dayText}`);
