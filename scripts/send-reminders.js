@@ -69,9 +69,10 @@ async function checkManualTriggerFlag() {
 
 // ---------- Kademeli hatırlatma saatleri ----------
 // Vade tarihine kalan gün azaldıkça gönderim sıklığı artar:
-//  - 30-8 gün kala : sadece 09:00
-//  - 7-2 gün kala  : 09:00 + 20:00
-//  - 1-0 gün kala  : 09:00 + 14:00 + 20:00
+//  - 30 gün ve 15 gün kala (sadece bu iki gün, aradaki günler DAHİL DEĞİL):
+//    tek seferlik, sadece 09:00
+//  - 7-2 gün kala  : HER GÜN 09:00 + 20:00
+//  - 1-0 gün kala  : HER GÜN 09:00 + 14:00 + 20:00
 // cron-job.org bu üç saatte de GitHub'ın workflow_dispatch API'sini çağırıyor
 // (bkz. cron-job.org paneli). Aşağıdaki HOUR_SLOTS_TR listesi, hem hangi
 // saatlerde bildirim gönderilebileceğini hem de aşağıdaki yedek (catch-up)
@@ -96,7 +97,8 @@ function matchedHourSlot() {
 function requiredSlotsForDays(days) {
   if (days <= 1) return [9, 14, 20];
   if (days <= 7) return [9, 20];
-  return [9];
+  if (days === 30 || days === 15) return [9]; // sadece tam 30. ve 15. günde tek seferlik
+  return []; // 8-30 gün arası (30 ve 15 hariç): artık gönderim yok
 }
 
 // ---------- Saat dilimi bazlı yedek (catch-up) mekanizması ----------
@@ -230,16 +232,17 @@ const DATE_FIELDS = [
   { key: "tireDate", label: "Lastik Değişimi", emoji: "🛞" }
 ];
 
-// Eskiden sadece belirli gün eşiklerinde (7-3-1-0) tek seferlik bildirim
-// gidiyordu. Artık kalan gün sayısı bu eşiğin altına düştüğü andan
-// itibaren -tarih güncellenene ya da bugüne (0. gün) kadar- HER GÜN en az
-// bir kez bildirim gönderiliyor. Kaç kez gönderileceği ise gün sayısına
-// göre kademeli artıyor, bkz. requiredSlotsForDays() (30-8 gün: sadece
-// 09:00 — 7-2 gün: 09:00+20:00 — 1-0 gün: 09:00+14:00+20:00). Aynı dilimde
-// ikinci kez göndermeyi aşağıdaki notifState dedup mekanizması engelliyor.
-// Vade tarihi geçtikten sonra (days negatif) artık hatırlatma GÖNDERİLMİYOR
-// — son bildirim tam vade gününde (days === 0) gidiyor, sonrasında sessiz
-// kalınıyor.
+// 7 gün ve altında kalan gün sayısı düştüğü andan itibaren -tarih
+// güncellenene ya da bugüne (0. gün) kadar- HER GÜN en az bir kez bildirim
+// gönderiliyor. 8-30 gün aralığında ise artık her gün DEĞİL, sadece tam
+// 30. ve 15. günde birer kez tek seferlik bildirim gidiyor (aradaki diğer
+// günlerde sessiz kalınıyor). Kaç kez/hangi günler gönderileceği
+// requiredSlotsForDays()'te tanımlı (30. ve 15. gün: sadece 09:00 — 7-2
+// gün: HER GÜN 09:00+20:00 — 1-0 gün: HER GÜN 09:00+14:00+20:00). Aynı
+// dilimde ikinci kez göndermeyi aşağıdaki notifState dedup mekanizması
+// engelliyor. Vade tarihi geçtikten sonra (days negatif) artık hatırlatma
+// GÖNDERİLMİYOR — son bildirim tam vade gününde (days === 0) gidiyor,
+// sonrasında sessiz kalınıyor.
 const DAYS_LEFT_ALERT_THRESHOLD = 30;
 const KM_THRESHOLDS = [3000, 1000, 0];
 
@@ -295,13 +298,44 @@ async function main() {
   const usersSnap = await db.collection("users").get();
   console.log(`Toplam ${usersSnap.size} kullanıcı taranıyor...`);
 
+  // ---------- Ortak hane (household) token birleştirme ----------
+  // Bir kullanıcı başka birinin ortak hanesine katıldığında kendi FCM
+  // token'ı KENDİ doc'unda tutulur (bkz. index.html enableNotifications ->
+  // users/{currentUser.id}), ama araç/tarih verileri (cars) her zaman
+  // hanenin asıl doc'unda tutulur (bkz. persistCars -> users/{dataDocId()},
+  // dataDocId() = householdId || kendi id). Yani katılan bir üye hanenin
+  // araçlarını görür ama kendi cihaz token'ı o araçların bulunduğu doc'ta
+  // değildir — bu yüzden önceden sadece hane sahibi bildirim alıyordu.
+  // Burada her doc için "etkin hane id'si"ni (householdId alanı varsa o,
+  // yoksa kendi doc id'si) hesaplayıp, aynı haneye ait TÜM kullanıcıların
+  // token'larını birleştiriyoruz. Ayrıca geçersiz token temizliğinin doğru
+  // doc'a yazılabilmesi için her token'ın asıl sahibi doc'unu da saklıyoruz.
+  const tokensByHousehold = {}; // householdId -> Set(token)
+  const tokenOwnerDoc = {}; // token -> gerçekte kayıtlı olduğu doc id
+  usersSnap.forEach((doc) => {
+    const u = doc.data();
+    const effectiveHouseholdId = u.householdId || doc.id;
+    if (!tokensByHousehold[effectiveHouseholdId]) tokensByHousehold[effectiveHouseholdId] = new Set();
+    (u.fcmTokens || []).forEach((t) => {
+      tokensByHousehold[effectiveHouseholdId].add(t);
+      tokenOwnerDoc[t] = doc.id;
+    });
+  });
+
   let usersNotified = 0;
   let totalSent = 0;
   let totalFailed = 0;
 
   for (const userDoc of usersSnap.docs) {
     const user = userDoc.data();
-    const tokens = user.fcmTokens || [];
+
+    // Bu doc, başka bir hanenin üyesiyse (householdId kendi id'sinden
+    // farklıysa) araç verisi burada değil, hane sahibinin doc'undadır —
+    // bu doc'u atlıyoruz; ilgili araçlar hane sahibinin sırasında,
+    // birleştirilmiş token listesiyle zaten işlenecek.
+    if (user.householdId && user.householdId !== userDoc.id) continue;
+
+    const tokens = Array.from(tokensByHousehold[userDoc.id] || []);
     if (!tokens.length) continue;
 
     const cars = user.cars || [];
@@ -377,21 +411,33 @@ async function main() {
       }
     });
 
-    const invalidTokens = [];
+    // Geçersiz token'lar birden fazla farklı doc'tan (hane sahibi + ortak
+    // haneye katılan üyeler) gelmiş olabilir — her birini KENDİ sahibi
+    // olduğu doc'tan silmemiz gerekir, hepsini userDoc.id'ye yazamayız.
+    const invalidTokensByOwnerDoc = {}; // ownerDocId -> [token, ...]
     response.responses.forEach((r, i) => {
       if (!r.success) {
         const code = r.error && r.error.code;
         if (code === "messaging/invalid-registration-token" || code === "messaging/registration-token-not-registered") {
-          invalidTokens.push(tokens[i]);
+          const tok = tokens[i];
+          const ownerDocId = tokenOwnerDoc[tok] || userDoc.id;
+          if (!invalidTokensByOwnerDoc[ownerDocId]) invalidTokensByOwnerDoc[ownerDocId] = [];
+          invalidTokensByOwnerDoc[ownerDocId].push(tok);
         }
       }
     });
 
-    const update = { notifState: newNotifState };
-    if (invalidTokens.length) {
-      update.fcmTokens = admin.firestore.FieldValue.arrayRemove(...invalidTokens);
+    // notifState her zaman hanenin asıl (araçların bulunduğu) doc'una yazılır.
+    await db.collection("users").doc(userDoc.id).set({ notifState: newNotifState }, { merge: true });
+
+    // Geçersiz token'ları kendi asıl sahibi doc'undan temizle (userDoc.id
+    // ile aynıysa yukarıdaki yazımla birlikte de yapılabilirdi, ama farklı
+    // doc'lar için ayrı ayrı update gerekir).
+    for (const ownerDocId of Object.keys(invalidTokensByOwnerDoc)) {
+      await db.collection("users").doc(ownerDocId).set({
+        fcmTokens: admin.firestore.FieldValue.arrayRemove(...invalidTokensByOwnerDoc[ownerDocId])
+      }, { merge: true }).catch((e) => console.error(`  Token temizleme hatası (${ownerDocId}):`, e && e.message ? e.message : e));
     }
-    await db.collection("users").doc(userDoc.id).set(update, { merge: true });
   }
 
   console.log("Bitti.");
