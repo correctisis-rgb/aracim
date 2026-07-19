@@ -2,17 +2,26 @@ name: Günlük Hatırlatma Bildirimi
 
 on:
   schedule:
-    # 06:00 UTC = 09:00 Türkiye saati (Türkiye yaz/kış saati uygulamıyor, sabit UTC+3)
+    # Bu üç zamanlanmış cron, asıl tetikleyici olan cron-job.org'un
+    # (workflow_dispatch API çağrısıyla) 09:00 / 14:00 / 20:00 TR'de atması
+    # gereken isteği kaçırırsa devreye giren GitHub-native YEDEKLERDİR.
+    # Kademeli hatırlatma sistemi (bkz. send-reminders.js — requiredSlotsForDays)
+    # vadeye kalan güne göre bu üç saatten bir kısmını ya da tamamını kullanır.
+    #
     # NOT: Dakika bilerek 00 değil 03 seçildi. GitHub Actions'ta saat başları (00. dakika)
     # herkesin cron'unun toplandığı en yoğun an olduğu için en çok gecikme orada yaşanıyor.
     # Birkaç dakika kaydırmak (GitHub'ın resmi önerisi) kuyruğu kısaltıp gecikmeyi azaltır,
-    # ama GitHub schedule tetiklemelerinde dakika hassasiyeti hiçbir zaman garanti edilmez.
-    - cron: "3 6 * * *"
+    # ama GitHub schedule tetiklemelerinde dakika hassasiyeti hiçbir zaman garanti edilmez
+    # — asıl hassas zamanlama cron-job.org tarafında sağlanıyor, bunlar sadece yedek.
+    - cron: "3 6 * * *"   # 09:03 TR
+    - cron: "3 11 * * *"  # 14:03 TR
+    - cron: "3 17 * * *"  # 20:03 TR
     # Sık kontrol: uygulama içindeki admin "Bildirimleri Tetikle" butonuna
     # basılıp basılmadığını (Firestore bayrağını) her 10 dakikada bir kontrol
-    # eder. Bayrak yoksa script anında çıkar, gerçek tarama yapmaz.
+    # eder. Bayrak yoksa ve yukarıdaki üç saat diliminden birinde de değilsek
+    # script anında çıkar, gerçek tarama yapmaz.
     - cron: "*/10 * * * *"
-  workflow_dispatch: {} # Elle tetiklemek için (test amaçlı) "Run workflow" butonu
+  workflow_dispatch: {} # Elle tetiklemek (test) VE cron-job.org'un asıl tetikleme yöntemi
 
 jobs:
   send-reminders:
