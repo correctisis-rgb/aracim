@@ -413,6 +413,12 @@
   .mon-recipients { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
   .mon-recipient-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; font-size: 11.5px; }
   .mon-recipient-email { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .mon-recipient-sub { color: var(--muted); font-size: 10.5px; white-space: nowrap; flex-shrink: 0; }
+  .mon-recipient-group { margin-top: 8px; }
+  .mon-recipient-group-title { font-size: 11.5px; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
+  .notif-history-items { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+  .notif-history-items li { font-size: 12px; color: var(--muted); padding-left: 2px; }
+  .account-chip-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); flex-shrink: 0; display: inline-block; }
   .mon-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 999px; font-family: 'JetBrains Mono', monospace; }
   .mon-badge.ok { color: #7BC67E; background: #7BC67E1A; }
   .mon-badge.warn { color: var(--amber); background: rgba(242,169,59,0.12); }
@@ -583,7 +589,7 @@
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.3.5"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.3.6"; // Dynamic Version Tracking
   var APP_UPDATED = "19 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -844,6 +850,7 @@
     budgets: getLocalData("budgets", {}),
     householdId: null,
     householdMembers: [],
+    notifHistory: getLocalData("notif_history", []),
     theme: getLocalData("theme", "dark")
   };
   document.documentElement.setAttribute("data-theme", state.theme === "light" ? "light" : "dark");
@@ -882,10 +889,12 @@
       var p = (data.memberProfiles || {})[uidKey] || {};
       return { uid: uidKey, name: p.name || "Üye", email: p.email || "" };
     });
+    state.notifHistory = data.notifHistory || state.notifHistory || [];
     setLocalData("cars", state.cars);
     setLocalData("expenses", state.expenses);
     setLocalData("family", state.familyMembers);
     setLocalData("budgets", state.budgets);
+    setLocalData("notif_history", state.notifHistory);
   }
   function subscribeHousehold(householdId) {
     if (unsubscribeHouseholdDoc) { unsubscribeHouseholdDoc(); unsubscribeHouseholdDoc = null; }
@@ -913,6 +922,56 @@
     db.collection("users").doc(docId).set({ expenses: state.expenses }, { merge: true })
       .catch(function (err) { console.error(err); });
   }
+  // Araç silindiğinde, o araca ait vade/randevu/km hatırlatma dedup
+  // anahtarları (bkz. send-reminders.js -> stateKey = car.id + "_" + ...)
+  // notifState içinde sonsuza kadar kalmasın diye temizler. notifState
+  // sadece hatırlatma script'i tarafından okunur, burada tam alan olarak
+  // (merge:true ile) geri yazılır — bu yüzden önce mevcut hâlini okumamız
+  // gerekiyor.
+  function cleanupNotifStateForCar(carId) {
+    var docId = dataDocId();
+    if (!docId || !carId) return;
+    var prefix = carId + "_";
+    db.collection("users").doc(docId).get().then(function (snap) {
+      if (!snap.exists) return;
+      var notifState = (snap.data() || {}).notifState || {};
+      var changed = false;
+      var cleaned = {};
+      Object.keys(notifState).forEach(function (key) {
+        if (key.indexOf(prefix) === 0) { changed = true; return; }
+        cleaned[key] = notifState[key];
+      });
+      if (!changed) return;
+      return db.collection("users").doc(docId).set({ notifState: cleaned }, { merge: true });
+    }).catch(function (err) { console.error("notifState temizliği başarısız:", err); });
+  }
+
+  // ---------- Bildirim geçmişi ("gelen kutusu") ----------
+  // Push bildirimi telefon kapalıyken/izinsizken kaçırılırsa kullanıcı bu
+  // listeden geçmiş hatırlatmaları görebilir (bkz. send-reminders.js ->
+  // notifHistory). En son görülen kaydın zaman damgası localStorage'da
+  // tutulur, ondan daha yeni kayıt varsa hesap menüsünde küçük bir nokta
+  // gösterilir.
+  function notifHistoryTimestampMs(entry) {
+    var ts = entry && entry.sentAt;
+    if (!ts) return 0;
+    if (typeof ts.toDate === "function") return ts.toDate().getTime();
+    if (typeof ts.seconds === "number") return ts.seconds * 1000;
+    var d = new Date(ts);
+    return isNaN(d.getTime()) ? 0 : d.getTime();
+  }
+  function hasUnseenNotifHistory() {
+    var list = state.notifHistory || [];
+    if (!list.length) return false;
+    var lastSeen = getLocalData("notif_history_seen", 0);
+    return notifHistoryTimestampMs(list[0]) > lastSeen;
+  }
+  function markNotifHistorySeen() {
+    var list = state.notifHistory || [];
+    if (!list.length) return;
+    setLocalData("notif_history_seen", notifHistoryTimestampMs(list[0]));
+  }
+
   function persistFamily() {
     setLocalData("family", state.familyMembers);
     var docId = dataDocId();
@@ -2044,9 +2103,11 @@
         '</div>' +
         '<div style="display:flex; align-items:center; margin-left:auto;">' +
         (user ? '<div class="account-chip" data-action="toggle-account-menu" role="button" tabindex="0" aria-haspopup="true" aria-expanded="' + (state.accountMenuOpen ? "true" : "false") + '" aria-label="Hesap menüsü">' + userAvatarHTML(user, 28) +
+          (hasUnseenNotifHistory() ? '<span class="account-chip-dot" aria-hidden="true"></span>' : '') +
           '<span class="account-name">' + esc(user.name) + '</span><span class="account-chevron">▾</span>' +
           (state.accountMenuOpen ? '<div class="account-menu">' +
             '<button type="button" class="account-menu-item" data-action="open-profile">👤 Hesabım</button>' +
+            '<button type="button" class="account-menu-item" data-action="open-notif-history">🔔 Geçmiş Hatırlatmalar' + (hasUnseenNotifHistory() ? ' <span class="account-chip-dot" aria-hidden="true"></span>' : '') + '</button>' +
             (isAdminUser(user) ?
               '<div class="account-menu-divider"></div>' +
               '<button type="button" class="account-menu-item" data-action="open-announcement">📢 Duyuru / Bakım Mesajı Gönder</button>' +
@@ -2637,6 +2698,8 @@
       backdrop.appendChild(buildExpenseModal());
     } else if (state.modal.type === "profile") {
       backdrop.appendChild(buildProfileModal());
+    } else if (state.modal.type === "notifHistory") {
+      backdrop.appendChild(buildNotifHistoryModal());
     } else if (state.modal.type === "health") {
       backdrop.appendChild(buildHealthModal());
     } else if (state.modal.type === "errors") {
@@ -2798,9 +2861,35 @@
   }
 
   function renderRunLogRecipients(r) {
-    // Supports a few possible backend field shapes for per-user notification results.
     var list = r.recipients || r.results || r.details || r.users || null;
     if (!list || !list.length) return "";
+
+    // Yeni format: her giriş bir hane, içinde üye kırılımı var (bkz.
+    // send-reminders.js -> recipients.push({ household, members })). Ortak
+    // hanede kimin bildirim aldığını (sadece toplam token sayısı değil, ad/
+    // e-posta ve kaç cihazına gittiğini) burada gösteriyoruz.
+    if (list[0] && list[0].members) {
+      var groupHtml = "";
+      list.forEach(function (group) {
+        groupHtml += '<div class="mon-recipient-group">' +
+          '<div class="mon-recipient-group-title">🏠 ' + esc(group.household || "Hane") + '</div>' +
+          '<ul class="mon-recipients">' +
+          (group.members || []).map(function (m) {
+            var label = m.name || m.email || "Bilinmeyen kullanıcı";
+            var devText = (m.deviceCount != null) ? (m.deviceCount + " cihaz") : "";
+            var ok = m.success !== false;
+            return '<li class="mon-recipient-row">' +
+              '<span class="mon-recipient-email">' + esc(label) + (m.email && m.name ? ' <span class="mon-recipient-sub">(' + esc(m.email) + ')</span>' : '') + '</span>' +
+              '<span class="mon-recipient-sub">' + esc(devText) + '</span>' +
+              (ok ? '<span class="mon-badge ok">✓</span>' : '<span class="mon-badge bad">✗' + (m.failed ? (' ' + m.failed) : '') + '</span>') +
+              '</li>';
+          }).join("") +
+          '</ul></div>';
+      });
+      return groupHtml;
+    }
+
+    // Eski (düz) format ile geriye dönük uyumluluk.
     var html = '<ul class="mon-recipients">';
     list.forEach(function (u) {
       var email = u.email || u.userEmail || u.name || u.id || "Bilinmeyen kullanıcı";
@@ -2811,6 +2900,38 @@
     });
     html += '</ul>';
     return html;
+  }
+
+  function buildNotifHistoryModal() {
+    var modal = document.createElement("div");
+    modal.className = "modal wide";
+    modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
+
+    var list = state.notifHistory || [];
+    var html = '<div class="modal-head"><h3>🔔 Geçmiş Hatırlatmalar</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>';
+    html += '<p class="field-hint" style="margin-top:-4px">Push bildirimi kaçırmış olsan bile (telefon kapalıyken, izin yokken vs.) gönderilen tüm hatırlatmaları burada görebilirsin.</p>';
+
+    if (!list.length) {
+      html += '<p class="mon-empty">Henüz gönderilmiş bir hatırlatma yok.</p>';
+    } else {
+      html += '<ul class="err-list">';
+      list.forEach(function (entry) {
+        var items = entry.items || [];
+        html += '<li class="err-item">' +
+          '<div class="err-item-head">' +
+            '<span class="err-item-time">' + fmtDateTime(entry.sentAt) + '</span>' +
+          '</div>' +
+          '<div class="err-item-msg">' + esc(entry.title || "Hatırlatma") + '</div>' +
+          (items.length
+            ? '<ul class="notif-history-items">' + items.map(function (it) { return '<li>' + esc(it) + '</li>'; }).join("") + '</ul>'
+            : (entry.body ? '<div class="err-item-meta">' + esc(entry.body) + '</div>' : '')) +
+        '</li>';
+      });
+      html += '</ul>';
+    }
+
+    modal.innerHTML = html;
+    return modal;
   }
 
   function buildHealthModal() {
@@ -3446,6 +3567,7 @@
               state.expenses = (state.expenses || []).filter(function (e) { return e.carId !== carId; });
               if (state.selectedCarId === carId) state.selectedCarId = "all";
               persistCars(); persistExpenses(); render();
+              cleanupNotifStateForCar(carId);
               toastWithUndo("Araç ve " + deletedExpenses.length + " masraf kaydı silindi.", function () {
                 if (deletedCar) {
                   state.cars = state.cars || [];
@@ -3484,6 +3606,13 @@
           render();
         }
         else if (action === "open-profile") { ev.stopPropagation(); state.modal = { type: "profile" }; state.accountMenuOpen = false; render(); }
+        else if (action === "open-notif-history") {
+          ev.stopPropagation();
+          state.modal = { type: "notifHistory" };
+          state.accountMenuOpen = false;
+          markNotifHistorySeen();
+          render();
+        }
         else if (action === "open-health") {
           ev.stopPropagation();
           if (!isAdminUser(state.currentUser)) return;
