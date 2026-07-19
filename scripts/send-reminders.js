@@ -20,7 +20,7 @@ const db = admin.firestore();
 
 // ---------- Manuel tetikleme desteği ----------
 // Bu script iki farklı zamanlamayla çalıştırılabilir (bkz. daily-reminder.yml):
-//  1) Günlük normal çalıştırma (her sabah 09:00 TR / 06:00 UTC) veya elle
+//  1) Günlük normal çalıştırma (her sabah ~09:03 TR / 06:03 UTC) veya elle
 //     "Run workflow" ile tetiklenme → HER ZAMAN tam taramayı yapar.
 //  2) Sık aralıklı kontrol çalıştırması (her ~10 dakikada bir) → sadece
 //     uygulama içinden admin "Bildirimleri Tetikle" butonuna basıldıysa
@@ -29,7 +29,7 @@ const db = admin.firestore();
 //     çalıştırma, gereksiz yere her 10 dakikada bir tüm kullanıcıları
 //     taramaz.
 const TRIGGER_SOURCE = process.env.TRIGGER_SOURCE || "";
-const IS_DAILY_RUN = TRIGGER_SOURCE === "0 6 * * *" || TRIGGER_SOURCE === "workflow_dispatch" || !TRIGGER_SOURCE;
+const IS_DAILY_RUN = TRIGGER_SOURCE === "3 6 * * *" || TRIGGER_SOURCE === "workflow_dispatch" || !TRIGGER_SOURCE;
 
 // ---------- Sağlık izleme: runLogs kaydı ----------
 // Her gerçek tarama çalıştırmasının sonucunu (başarılı/başarısız, kaç
@@ -195,7 +195,16 @@ const DATE_FIELDS = [
   { key: "tireDate", label: "Lastik Değişimi", emoji: "🛞" }
 ];
 
-const DAY_THRESHOLDS = [7, 3, 1, 0];
+// Eskiden sadece belirli gün eşiklerinde (7-3-1-0) tek seferlik bildirim
+// gidiyordu. Artık kalan gün sayısı bu eşiğin altına düştüğü andan
+// itibaren -tarih güncellenene ya da bugüne (0. gün) kadar- HER GÜN sabah
+// taraması bir kez bildirim gönderiyor (aşağıdaki notifState dedup
+// mekanizması aynı gün içinde ikinci kez göndermeyi zaten engelliyor,
+// çünkü "days" değeri bir sonraki taramaya kadar aynı kalıyor).
+// Vade tarihi geçtikten sonra (days negatif) artık hatırlatma GÖNDERİLMİYOR
+// — son bildirim tam vade gününde (days === 0) gidiyor, sonrasında sessiz
+// kalınıyor.
+const DAYS_LEFT_ALERT_THRESHOLD = 30;
 const KM_THRESHOLDS = [3000, 1000, 0];
 
 function daysUntil(dateStr) {
@@ -268,14 +277,14 @@ async function main() {
         if (!dateVal) return;
         const days = daysUntil(dateVal);
         if (days == null) return;
-        if (!DAY_THRESHOLDS.includes(days)) return;
+        if (days > DAYS_LEFT_ALERT_THRESHOLD || days < 0) return;
 
         const stateKey = car.id + "_" + f.key;
         if (!bypassDedup && newNotifState[stateKey] === days) return;
 
         newNotifState[stateKey] = days;
         const carName = car.name || "Aracın";
-        const dayText = days === 0 ? "bugün" : days + " gün içinde";
+        const dayText = days === 0 ? "bugün" : days > 0 ? days + " gün içinde" : Math.abs(days) + " gün geçti";
         triggered.push(`${f.emoji} ${carName}: ${f.label} ${dayText}`);
       });
 
