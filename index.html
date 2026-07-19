@@ -236,6 +236,17 @@
   .car-stat-chip { display: inline-flex; align-items: baseline; gap: 6px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 7px 12px; font-size: 13px; font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--amber); }
   .car-stat-chip .csc-label { color: var(--muted); font-family: 'Inter', sans-serif; font-size: 10.5px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; }
   .car-info-actions { display: flex; gap: 16px; flex-wrap: wrap; padding-top: 4px; border-top: 1px solid var(--border); }
+  .quick-actions-row { display: flex; gap: 8px; flex-wrap: wrap; padding: 10px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+  .quick-actions-label { flex-basis: 100%; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-bottom: 2px; }
+  .quick-action-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+    padding: 8px 12px; font-size: 12.5px; font-weight: 600; color: var(--text);
+    text-decoration: none; font-family: inherit; cursor: pointer;
+    transition: border-color .15s ease, transform .15s ease;
+  }
+  .quick-action-chip:hover { border-color: var(--amber); transform: translateY(-1px); }
+  .quick-action-chip .qac-emoji { font-size: 14px; }
 
   .summary-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
   .summary-row { display: grid; grid-template-columns: 40px 1fr auto auto; align-items: center; gap: 12px; padding: 10px 4px; border-bottom: 1px solid var(--border); }
@@ -572,8 +583,8 @@
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.3.3"; // Dynamic Version Tracking
-  var APP_UPDATED = "18 Temmuz 2026";
+  var APP_VERSION = "v1.3.4"; // Dynamic Version Tracking
+  var APP_UPDATED = "19 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -2232,6 +2243,12 @@
         '<div class="car-info-main"><h2 class="car-info-name">' + esc(car.name) + '</h2><p class="car-info-meta">' + meta + '</p></div>' +
       '</div>' +
       '<div class="car-info-stats">' + stats + '</div>' +
+      '<div class="quick-actions-row">' +
+        '<span class="quick-actions-label">Hızlı İşlemler</span>' +
+        (car.plate ? '<button type="button" class="quick-action-chip" data-action="copy-plate" data-plate="' + esc(car.plate) + '"><span class="qac-emoji">📋</span>Plakayı Kopyala</button>' : '') +
+        '<a class="quick-action-chip" href="https://www.tuvturk.com.tr" target="_blank" rel="noopener noreferrer"><span class="qac-emoji">🚦</span>TÜVTÜRK Randevu / Sorgu</a>' +
+        '<a class="quick-action-chip" href="https://www.turkiye.gov.tr/araclarim" target="_blank" rel="noopener noreferrer"><span class="qac-emoji">🏛️</span>e-Devlet — Araçlarım</a>' +
+      '</div>' +
       '<div class="car-info-actions">' +
         (car.ruhsat ? '<button class="link-btn" data-action="open-lightbox" data-src="' + car.ruhsat + '" data-caption="' + esc(car.name) + ' Ruhsatı">🪪 Ruhsatı Gör</button>' : '') +
         '<button class="link-btn" data-action="open-edit-car" data-car="' + car.id + '">✏️ Araç / Ruhsat Düzenle</button>' +
@@ -3319,6 +3336,16 @@
         else if (action === "open-add-car") { state.modal = { type: "addCar" }; render(); }
         else if (action === "open-edit-car") { state.modal = { type: "editCar", carId: el.getAttribute("data-car") }; render(); }
         else if (action === "open-add-expense") { state.modal = { type: "addExpense" }; render(); }
+        else if (action === "copy-plate") {
+          var plateVal = el.getAttribute("data-plate") || "";
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(plateVal).then(function () {
+              toast("Plaka kopyalandı: " + plateVal);
+            }).catch(function () { toast("Kopyalanamadı, plakayı elle yazabilirsin: " + plateVal); });
+          } else {
+            toast("Kopyalanamadı, plakayı elle yazabilirsin: " + plateVal);
+          }
+        }
         else if (action === "open-edit-expense") { state.modal = { type: "editExpense", expenseId: el.getAttribute("data-id") }; render(); }
         else if (action === "delete-expense") {
           var id = el.getAttribute("data-id");
