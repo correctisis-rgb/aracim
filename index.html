@@ -583,7 +583,7 @@
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.3.4"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.3.5"; // Dynamic Version Tracking
   var APP_UPDATED = "19 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1836,17 +1836,18 @@
     var relevant = state.selectedCarId === "all" ? carsToProcess : carsToProcess.filter(function (c) { return c.id === state.selectedCarId; });
     var items = [];
     relevant.forEach(function (c) {
-      items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Muayene", emoji: "🗓️", date: c.inspectionDate || null });
-      items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Bakım / Servis (tarih)", emoji: "🔧", date: c.maintenanceDate || null });
-      items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Trafik Sigortası", emoji: "🛡️", date: c.insuranceDate || null });
-      items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Kasko", emoji: "🚙", date: c.kaskoDate || null });
-      items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Vergi (MTV)", emoji: "💰", date: c.taxDate || null });
-      items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Lastik Değişimi", emoji: "🛞", date: c.tireDate || null });
+      items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Muayene", emoji: "🗓️", date: c.inspectionDate || null, apptDate: (c.appointments && c.appointments.inspectionDate) || null });
+      items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Bakım / Servis (tarih)", emoji: "🔧", date: c.maintenanceDate || null, apptDate: (c.appointments && c.appointments.maintenanceDate) || null });
+      items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Trafik Sigortası", emoji: "🛡️", date: c.insuranceDate || null, apptDate: (c.appointments && c.appointments.insuranceDate) || null });
+      items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Kasko", emoji: "🚙", date: c.kaskoDate || null, apptDate: (c.appointments && c.appointments.kaskoDate) || null });
+      items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Vergi (MTV)", emoji: "💰", date: c.taxDate || null, apptDate: (c.appointments && c.appointments.taxDate) || null });
+      items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Lastik Değişimi", emoji: "🛞", date: c.tireDate || null, apptDate: (c.appointments && c.appointments.tireDate) || null });
     });
     items.forEach(function (it) {
       it.days = daysUntil(it.date);
       it.status = urgency(it.days);
       it.dateLabel = it.date ? fmtDateTR(it.date) : "Tarih girilmedi";
+      if (it.apptDate) it.dateLabel += " · 📅 Randevu: " + fmtDateTR(it.apptDate);
       it.tier = tierOf(it.status);
       it.metric = it.days === null ? 99999 : it.days;
     });
@@ -3025,6 +3026,22 @@
         '<label class="field"><span>Lastik değişimi (opsiyonel)</span><input id="f-tire" type="date" value="' + (car && car.tireDate ? car.tireDate : "") + '" /></label>' +
       '</div>' +
       '<label class="field"><span>Şasi no / VIN (opsiyonel)</span><input id="f-vin" value="' + (car ? esc(car.vin || "") : "") + '" placeholder="17 haneli şasi numarası" /></label>' +
+      '<details class="field-appointments" style="margin:4px 0 8px">' +
+        '<summary style="cursor:pointer">📅 Randevu aldın mı? (opsiyonel)</summary>' +
+        '<p class="field-hint">Bir işlem için randevu tarihi girersen, o işlem için vade hatırlatmaları durur; sadece randevudan 1 gün önce ve randevu günü hatırlatma alırsın. Randevu günü geçip vade tarihini güncellemezsen bir kez "tarihi güncellemeyi unuttun mu?" hatırlatması alırsın.</p>' +
+        '<div class="field-row">' +
+          '<label class="field"><span>Muayene randevusu</span><input id="f-appt-inspection" type="date" value="' + (car && car.appointments && car.appointments.inspectionDate ? car.appointments.inspectionDate : "") + '" /></label>' +
+          '<label class="field"><span>Bakım randevusu</span><input id="f-appt-maintenance" type="date" value="' + (car && car.appointments && car.appointments.maintenanceDate ? car.appointments.maintenanceDate : "") + '" /></label>' +
+        '</div>' +
+        '<div class="field-row">' +
+          '<label class="field"><span>Sigorta randevusu</span><input id="f-appt-insurance" type="date" value="' + (car && car.appointments && car.appointments.insuranceDate ? car.appointments.insuranceDate : "") + '" /></label>' +
+          '<label class="field"><span>Kasko randevusu</span><input id="f-appt-kasko" type="date" value="' + (car && car.appointments && car.appointments.kaskoDate ? car.appointments.kaskoDate : "") + '" /></label>' +
+        '</div>' +
+        '<div class="field-row">' +
+          '<label class="field"><span>Vergi randevusu</span><input id="f-appt-tax" type="date" value="' + (car && car.appointments && car.appointments.taxDate ? car.appointments.taxDate : "") + '" /></label>' +
+          '<label class="field"><span>Lastik randevusu</span><input id="f-appt-tire" type="date" value="' + (car && car.appointments && car.appointments.tireDate ? car.appointments.tireDate : "") + '" /></label>' +
+        '</div>' +
+      '</details>' +
       '<div class="field-row">' +
         '<label class="field"><span>Güncel kilometre (opsiyonel)</span><input id="f-km" type="text" inputmode="numeric" value="' + (car && car.currentKm != null ? groupThousands(String(car.currentKm)) : "") + '" placeholder="Örn. 84.500" /></label>' +
         '<label class="field"><span>Sonraki bakım km (opsiyonel)</span><input id="f-maintkm" type="text" inputmode="numeric" value="' + (car && car.maintenanceKm != null ? groupThousands(String(car.maintenanceKm)) : "") + '" placeholder="Örn. 95.000" /></label>' +
@@ -3091,6 +3108,39 @@
         photo: modal.__photos.carPhoto || null,
         ruhsat: modal.__photos.ruhsatPhoto || null
       };
+
+      // ---------- Randevu tarihleri ----------
+      // Her randevu tarihinin yanında, randevu YENİ girildiği ya da
+      // DEĞİŞTİĞİ anda o alanın o anki vade tarihini "anlık görüntü"
+      // (DueSnapshot) olarak saklıyoruz. send-reminders.js, randevu günü
+      // geçtikten sonra vade tarihinin bu anlık görüntüden farklı olup
+      // olmadığına bakarak kullanıcının tarihi güncelleyip güncellemediğini
+      // anlıyor — randevu her zaman vadeden önce olacağı için doğrudan
+      // "vade <= randevu" kıyası işe yaramaz.
+      var prevAppt = (car && car.appointments) || {};
+      var apptInputMap = {
+        inspectionDate: "f-appt-inspection",
+        maintenanceDate: "f-appt-maintenance",
+        insuranceDate: "f-appt-insurance",
+        kaskoDate: "f-appt-kasko",
+        taxDate: "f-appt-tax",
+        tireDate: "f-appt-tire"
+      };
+      var appointments = {};
+      Object.keys(apptInputMap).forEach(function (key) {
+        var apptVal = modal.querySelector("#" + apptInputMap[key]).value || null;
+        appointments[key] = apptVal;
+        var snapKey = key + "DueSnapshot";
+        if (!apptVal) {
+          appointments[snapKey] = null; // randevu silindiyse anlık görüntü de temizlenir
+        } else if (!prevAppt[key] || prevAppt[key] !== apptVal) {
+          appointments[snapKey] = patch[key]; // randevu yeni girildi/değişti: o anki vade tarihini yakala
+        } else {
+          appointments[snapKey] = prevAppt[snapKey] != null ? prevAppt[snapKey] : patch[key]; // randevu aynı: eski anlık görüntüyü koru
+        }
+      });
+      patch.appointments = appointments;
+
       if (isEdit) {
         state.cars = state.cars.map(function (c) { return c.id === car.id ? Object.assign({}, c, patch) : c; });
       } else {
@@ -3103,6 +3153,7 @@
 
     return modal;
   }
+
 
   function photoUploadHTML(key, label, existing) {
     var content = existing
