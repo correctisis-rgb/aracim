@@ -347,12 +347,77 @@ async function main() {
       DATE_FIELDS.forEach((f) => {
         const dateVal = car[f.key];
         if (!dateVal) return;
-        const days = daysUntil(dateVal);
-        if (days == null) return;
-        if (days > DAYS_LEFT_ALERT_THRESHOLD || days < 0) return;
 
         const stateKey = car.id + "_" + f.key;
         const slot = matchedHourSlot();
+        const carName = car.name || "Aracın";
+
+        // ---------- Randevu tarihi varsa: vade hatırlatmaları yerine
+        // randevu odaklı bildirim akışına geç ----------
+        // (bkz. index.html car edit formu -> "Randevu aldın mı?" alanı,
+        // car.appointments[f.key] içinde saklanıyor)
+        const apptVal = (car.appointments || {})[f.key];
+        if (apptVal) {
+          const apptDays = daysUntil(apptVal);
+          if (apptDays != null) {
+            if (apptDays > 1) {
+              // Randevuya daha çok var: eski kademeli (30/15/7/2/1/0) vade
+              // hatırlatmaları TAMAMEN durur, randevu gününe kadar sessiz
+              // kalınır.
+              return;
+            }
+            if (apptDays === 0 || apptDays === 1) {
+              // Randevudan 1 gün önce ve randevu günü: tek seferlik
+              // (günde bir, sadece 09:00 diliminde) hatırlatma.
+              const apptStateKey = stateKey + "_appt:" + apptVal;
+              if (!bypassDedup) {
+                if (slot !== 9) return;
+                const sentMarker = todayDateStrTR() + ":" + slot;
+                if (newNotifState[apptStateKey] === sentMarker) return;
+                newNotifState[apptStateKey] = sentMarker;
+              } else {
+                newNotifState[apptStateKey] = todayDateStrTR() + ":manual";
+              }
+              const when = apptDays === 0 ? "bugün" : "yarın";
+              triggered.push(`${f.emoji} ${carName}: ${f.label} randevun ${when}`);
+              return;
+            }
+            // apptDays < 0 → randevu günü geçti. index.html, randevu ilk
+            // girildiği/değiştiği anda o alanın o anki vade tarihini
+            // car.appointments[key+"DueSnapshot"] içine kaydediyor. Vade
+            // tarihi (dateVal) hâlâ o anlık görüntüyle AYNIYSA kullanıcı
+            // muhtemelen işlemi yaptırdı ama tarihi güncellemeyi unuttu:
+            // TEK seferlik "tarihi güncellemeyi unuttun mu?" hatırlatması
+            // gönder, sonra (aynı randevu tarihi için) tamamen sessiz kal.
+            // Vade tarihi değiştiyse (anlık görüntüden farklıysa), randevu
+            // "çözülmüş" sayılır ve normal kademeli akışa devam edilir.
+            const dueSnapshot = (car.appointments || {})[f.key + "DueSnapshot"];
+            const dueUnchanged = dueSnapshot != null && dueSnapshot === dateVal;
+            if (dueUnchanged) {
+              const missedKey = stateKey + "_apptMissed:" + apptVal;
+              if (!bypassDedup) {
+                if (slot !== 9) return;
+                if (newNotifState[missedKey]) return; // zaten bir kez gönderildi
+                newNotifState[missedKey] = true;
+              } else {
+                newNotifState[missedKey] = true;
+              }
+              triggered.push(`${f.emoji} ${carName}: ${f.label} tarihini güncellemeyi unuttun mu?`);
+              return;
+            }
+            // dueSnapshot ile dateVal farklı: kullanıcı vade tarihini
+            // güncellemiş — randevu "çözülmüş" sayılır, aşağıdaki normal
+            // kademeli hatırlatma akışına (yeni vade tarihine göre) devam
+            // edilir.
+          }
+        }
+
+        // ---------- Normal kademeli vade hatırlatması ----------
+        // (randevu hiç girilmediyse, ya da girilen randevu zaten
+        // çözülmüş/geride kalmış ve vade tarihi güncellenmişse)
+        const days = daysUntil(dateVal);
+        if (days == null) return;
+        if (days > DAYS_LEFT_ALERT_THRESHOLD || days < 0) return;
 
         if (!bypassDedup) {
           if (slot == null) return; // şu an 09/14/20 dilimlerinden birinde değiliz
@@ -365,7 +430,6 @@ async function main() {
           newNotifState[stateKey] = todayDateStrTR() + ":" + (slot != null ? slot : "manual");
         }
 
-        const carName = car.name || "Aracın";
         const dayText = days === 0 ? "bugün" : days > 0 ? days + " gün içinde" : Math.abs(days) + " gün geçti";
         triggered.push(`${f.emoji} ${carName}: ${f.label} ${dayText}`);
       });
