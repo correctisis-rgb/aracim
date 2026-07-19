@@ -312,8 +312,13 @@ async function main() {
   // doc'a yazılabilmesi için her token'ın asıl sahibi doc'unu da saklıyoruz.
   const tokensByHousehold = {}; // householdId -> Set(token)
   const tokenOwnerDoc = {}; // token -> gerçekte kayıtlı olduğu doc id
+  // userInfoByDoc: her kullanıcı doc'unun ad/e-posta bilgisini tutar — hane
+  // bildirimlerinde "kimin" bildirim aldığını admin panelinde gösterebilmek
+  // için (bkz. aşağıdaki recipients birleştirmesi).
+  const userInfoByDoc = {};
   usersSnap.forEach((doc) => {
     const u = doc.data();
+    userInfoByDoc[doc.id] = { name: u.name || u.email || doc.id, email: u.email || "" };
     const effectiveHouseholdId = u.householdId || doc.id;
     if (!tokensByHousehold[effectiveHouseholdId]) tokensByHousehold[effectiveHouseholdId] = new Set();
     (u.fcmTokens || []).forEach((t) => {
@@ -325,6 +330,11 @@ async function main() {
   let usersNotified = 0;
   let totalSent = 0;
   let totalFailed = 0;
+  // recipients: her hane bildirimi için, o haneye ait hangi üyelerin kaç
+  // cihazına (başarılı/başarısız) gönderim yapıldığını tutar. Admin Sağlık
+  // paneli (renderRunLogRecipients) bunu okuyup "kim bildirim aldı" listesi
+  // olarak gösterir — önceden sadece toplam token sayısı görünüyordu.
+  const recipients = [];
 
   for (const userDoc of usersSnap.docs) {
     const user = userDoc.data();
@@ -475,6 +485,34 @@ async function main() {
       }
     });
 
+    // ---------- Alıcı kırılımı (admin Sağlık paneli için) ----------
+    // Hane token'ları birden fazla üyeden (hane sahibi + katılan üyeler)
+    // gelmiş olabilir; response.responses dizisi `tokens` ile aynı sırada
+    // olduğundan her token'ın gerçek sahibini (tokenOwnerDoc) bularak kişi
+    // bazında başarılı/başarısız cihaz sayısına indirgiyoruz.
+    const memberDeviceResults = {}; // ownerDocId -> { success, failed }
+    tokens.forEach((tok, i) => {
+      const ownerDocId = tokenOwnerDoc[tok] || userDoc.id;
+      if (!memberDeviceResults[ownerDocId]) memberDeviceResults[ownerDocId] = { success: 0, failed: 0 };
+      if (response.responses[i] && response.responses[i].success) memberDeviceResults[ownerDocId].success++;
+      else memberDeviceResults[ownerDocId].failed++;
+    });
+    const householdInfo = userInfoByDoc[userDoc.id] || { name: userDoc.id, email: "" };
+    recipients.push({
+      household: householdInfo.name,
+      members: Object.keys(memberDeviceResults).map((ownerDocId) => {
+        const info = userInfoByDoc[ownerDocId] || { name: ownerDocId, email: "" };
+        const res = memberDeviceResults[ownerDocId];
+        return {
+          name: info.name,
+          email: info.email,
+          deviceCount: res.success + res.failed,
+          success: res.failed === 0,
+          failed: res.failed
+        };
+      })
+    });
+
     // Geçersiz token'lar birden fazla farklı doc'tan (hane sahibi + ortak
     // haneye katılan üyeler) gelmiş olabilir — her birini KENDİ sahibi
     // olduğu doc'tan silmemiz gerekir, hepsini userDoc.id'ye yazamayız.
@@ -491,8 +529,21 @@ async function main() {
       }
     });
 
-    // notifState her zaman hanenin asıl (araçların bulunduğu) doc'una yazılır.
-    await db.collection("users").doc(userDoc.id).set({ notifState: newNotifState }, { merge: true });
+    // ---------- Uygulama içi bildirim geçmişi ("gelen kutusu") ----------
+    // Push bildirimi kaçırılırsa (telefon kapalıyken, izin yokken vs.)
+    // kullanıcı uygulama içinde bu geçmişten hatırlatmayı görebilsin diye
+    // her gönderimi hanenin doc'undaki notifHistory dizisine ekliyoruz. En
+    // yeni kayıt başa eklenir, liste en fazla 40 kayıtla sınırlı tutulur.
+    const newNotifHistory = [
+      { title, body, items: triggered, sentAt: admin.firestore.Timestamp.now() }
+    ].concat(user.notifHistory || []).slice(0, 40);
+
+    // notifState ve notifHistory her zaman hanenin asıl (araçların
+    // bulunduğu) doc'una yazılır.
+    await db.collection("users").doc(userDoc.id).set({
+      notifState: newNotifState,
+      notifHistory: newNotifHistory
+    }, { merge: true });
 
     // Geçersiz token'ları kendi asıl sahibi doc'undan temizle (userDoc.id
     // ile aynıysa yukarıdaki yazımla birlikte de yapılabilirdi, ama farklı
@@ -506,7 +557,7 @@ async function main() {
 
   console.log("Bitti.");
 
-  await writeRunLog({
+  await writeRunLog(Object.assign({
     success: true,
     summary: usersNotified
       ? `${usersNotified} kullanıcıya bildirim gönderildi (${totalSent} başarılı, ${totalFailed} başarısız)`
@@ -515,7 +566,7 @@ async function main() {
     usersNotified,
     sentCount: totalSent,
     failedCount: totalFailed
-  });
+  }, recipients.length ? { recipients } : {}));
 }
 
 main().catch(async (err) => {
