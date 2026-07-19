@@ -3,7 +3,11 @@ name: Günlük Hatırlatma Bildirimi
 on:
   schedule:
     # 06:00 UTC = 09:00 Türkiye saati (Türkiye yaz/kış saati uygulamıyor, sabit UTC+3)
-    - cron: "0 6 * * *"
+    # NOT: Dakika bilerek 00 değil 03 seçildi. GitHub Actions'ta saat başları (00. dakika)
+    # herkesin cron'unun toplandığı en yoğun an olduğu için en çok gecikme orada yaşanıyor.
+    # Birkaç dakika kaydırmak (GitHub'ın resmi önerisi) kuyruğu kısaltıp gecikmeyi azaltır,
+    # ama GitHub schedule tetiklemelerinde dakika hassasiyeti hiçbir zaman garanti edilmez.
+    - cron: "3 6 * * *"
     # Sık kontrol: uygulama içindeki admin "Bildirimleri Tetikle" butonuna
     # basılıp basılmadığını (Firestore bayrağını) her 10 dakikada bir kontrol
     # eder. Bayrak yoksa script anında çıkar, gerçek tarama yapmaz.
