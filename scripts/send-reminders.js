@@ -472,9 +472,18 @@ async function main() {
     // fieldKey bilgisini ekliyoruz. Birden fazla işlem tetiklenirse, ya da
     // tetiklenen tek şey zaten randevusu olan/km bazlı bir uyarıysa
     // (triggered[0].actionable === false) aksiyon eklemiyoruz.
+    // Tek bir tarihe bağlı ve henüz randevusu girilmemiş işlem tetiklendiyse
+    // (ör. sadece Muayene vade hatırlatması), bildirime sw.js'in okuyup
+    // "Evet, randevu aldım / Hayır" aksiyon düğmelerine çevireceği carId/
+    // fieldKey bilgisini ekliyoruz. Km bazlı bakım uyarısı gibi actionable
+    // olmayan işlemler bu sayıma dahil edilmez, yani "Muayene 3 gün içinde"
+    // + "bakıma 1.651 km kaldı" birlikte tetiklense bile butonlar eklenir.
+    // Birden fazla FARKLI tarihe bağlı (actionable) işlem birlikte
+    // tetiklenirse, hangisi için olduğu net olmadığından buton eklenmez.
+    const dateBasedItems = triggered.filter((t) => t.actionable && t.fieldKey);
     let actionData = null;
-    if (triggered.length === 1 && triggered[0].actionable && triggered[0].fieldKey) {
-      actionData = { carId: triggered[0].carId, fieldKey: triggered[0].fieldKey, actionable: "true" };
+    if (dateBasedItems.length === 1) {
+      actionData = { carId: dateBasedItems[0].carId, fieldKey: dateBasedItems[0].fieldKey, actionable: "true" };
     }
 
     console.log(`→ ${userDoc.id}: ${body}`);
