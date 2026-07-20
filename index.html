@@ -565,6 +565,31 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   var auth = firebase.auth();
   auth.languageCode = "tr"; // Şifre sıfırlama vb. Firebase e-postaları Türkçe gönderilsin
   var db = firebase.firestore();
+
+  // ---------- Firestore çevrimdışı kalıcılık (offline persistence) ----------
+  // Bu açılmadan Firestore verileri (profil adı/e-postası/avatarı, hane
+  // üyeleri, araç/masraf verileri) sadece bellekte tutulur; sayfa yeniden
+  // yüklendiğinde (ör. internetsiz açılışta) hiç veri gelmez ve her şey
+  // varsayılan/boş değerlere döner — profil fotoğrafının kaybolmasının
+  // sebebi de tam olarak buydu. enablePersistence, Firestore'un son alınan
+  // tüm belgeleri tarayıcının IndexedDB'sinde saklamasını sağlar; böylece
+  // internet olmasa bile onSnapshot en son bilinen veriyle (avatar dahil)
+  // anında tetiklenir. synchronizeTabs: true, uygulamanın birden fazla
+  // sekme/pencerede açık olabileceği durumlarda "zaten başka sekmede açık"
+  // hatası yerine sekmeler arası senkronize çalışmasını sağlar.
+  db.enablePersistence({ synchronizeTabs: true }).catch(function (err) {
+    if (err && err.code === "failed-precondition") {
+      // Bazı çok eski/aynı anda birden fazla sekme senaryolarında (synchronizeTabs
+      // desteklenmeyen sürümlerde) oluşabilir; uygulama yine de online modda çalışmaya devam eder.
+      console.warn("[Firestore] Offline kalıcılık açılamadı (başka sekme çakışması):", err);
+    } else if (err && err.code === "unimplemented") {
+      // Tarayıcı IndexedDB'yi desteklemiyor (ör. bazı özel/gizli sekme modları).
+      console.warn("[Firestore] Bu tarayıcı offline kalıcılığı desteklemiyor:", err);
+    } else {
+      console.warn("[Firestore] Offline kalıcılık açılamadı:", err);
+    }
+  });
+
   var unsubscribeUserDoc = null;
   var unsubscribeHouseholdDoc = null;
   var qrScanStream = null;
@@ -629,7 +654,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.5.0"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.5.1"; // Dynamic Version Tracking
   var APP_UPDATED = "20 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1206,6 +1231,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   var REMINDER_TRIGGER_URL = "https://aracim-mu.vercel.app/api/trigger-reminder";
   var ANNOUNCEMENT_TRIGGER_URL = "https://aracim-mu.vercel.app/api/trigger-announcement";
   var APP_SHARE_URL = "https://correctisis-rgb.github.io/aracim/";
+  // ?a2hs=1 ile açılan link, sayfa yüklenir yüklenmez otomatik olarak
+  // "Ana Ekrana Ekle" akışını tetikler (bkz. maybeAutoTriggerAddToHomeScreen).
+  // "Uygulamayı Paylaş" ile gönderilen mesajda bu link kullanılır, böylece
+  // linke tıklayan kişi siteyi gezinmek zorunda kalmadan direkt kurulum
+  // isteminden karşılanır.
+  var APP_INSTALL_URL = APP_SHARE_URL + "?a2hs=1";
 
   function triggerReminders() {
     if (!state.currentUser || !isAdminUser(state.currentUser)) return;
@@ -1565,7 +1596,17 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   function loginAs(fbUser) {
-    state.currentUser = { id: fbUser.uid, name: fbUser.displayName || "Kullanıcı", email: fbUser.email, avatar: null };
+    // Firestore önbelleği (enablePersistence) henüz açılmamışsa veya ilk
+    // anlık görüntü daha ulaşmamışsa bile, bu cihazda daha önce görülmüş
+    // profil bilgisi (ad/avatar) varsa hemen onu göster — böylece internetsiz
+    // açılışta ekran kısa süreliğine bile boş/isimsiz kalmaz.
+    var cachedProfile = getLocalData("profile_" + fbUser.uid, null);
+    state.currentUser = {
+      id: fbUser.uid,
+      name: (cachedProfile && cachedProfile.name) || fbUser.displayName || "Kullanıcı",
+      email: (cachedProfile && cachedProfile.email) || fbUser.email,
+      avatar: (cachedProfile && cachedProfile.avatar) || null
+    };
     state.householdId = fbUser.uid;
     state.householdMembers = [];
     state.householdDataLoaded = false;
@@ -1599,6 +1640,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       // Kimlik bilgisi (isim/e-posta/avatar) her zaman kişinin kendi belgesinden gelir;
       // ortak bir haneye katılınca bile kendi adı değişmez.
       state.currentUser = { id: fbUser.uid, name: data.name || fbUser.displayName || "Kullanıcı", email: data.email || fbUser.email, avatar: data.avatar || null };
+      setLocalData("profile_" + fbUser.uid, { name: state.currentUser.name, email: state.currentUser.email, avatar: state.currentUser.avatar });
 
       // Bu kişi kendi hane belgesinde (memberProfiles/members) henüz kayıtlı
       // değilse ekleyelim (bkz. ensureSelfInHousehold).
@@ -1759,7 +1801,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   function buildAppShareMessage() {
     var myName = (state.currentUser && state.currentUser.name) ? state.currentUser.name : "Ben";
     return myName + " Aracım (Garaj Defteri) uygulamasıyla araç masraflarını takip ediyor 🚗\n" +
-      "Sen de dene, kayıt olması bir dakika sürüyor:\n\n" + APP_SHARE_URL;
+      "Sen de dene, kayıt olması bir dakika sürüyor. Linke dokunduğunda ana ekranına eklemen için yönlendirileceksin:\n\n" + APP_INSTALL_URL;
   }
 
   function shareApp() {
@@ -1856,6 +1898,25 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     document.body.appendChild(backdrop);
   }
 
+  // "Uygulamayı Paylaş" ile gönderilen ?a2hs=1 linki açıldığında, kullanıcı
+  // giriş ekranını görmeden/hiçbir menüde gezinmeden doğrudan "Ana Ekrana
+  // Ekle" akışıyla karşılansın diye çağrılır. Parametre URL'den hemen
+  // temizlenir ki sayfa daha sonra yenilendiğinde tekrar tetiklenmesin.
+  function maybeAutoTriggerAddToHomeScreen() {
+    var params;
+    try { params = new URLSearchParams(window.location.search); } catch (e) { return; }
+    if (params.get("a2hs") !== "1") return;
+    params.delete("a2hs");
+    var rest = params.toString();
+    try { window.history.replaceState({}, "", window.location.pathname + (rest ? "?" + rest : "")); } catch (e) {}
+    if (isRunningStandalone()) return; // zaten yüklüyse sessizce hiçbir şey yapma
+    // beforeinstallprompt olayı (varsa) sayfa yüklenir yüklenmez ateşlenmiş
+    // olsun diye native istemi göstermeden kısa bir an bekleniyor —
+    // böylece mümkün olduğunda tarayıcının kendi tek dokunuşluk kurulum
+    // istemi kullanılır, olmazsa (ör. iOS) elle ekleme talimatı gösterilir.
+    setTimeout(function () { addAppToHomeScreen(); }, 900);
+  }
+
   function logout() {
     if (unsubscribeUserDoc) { unsubscribeUserDoc(); unsubscribeUserDoc = null; }
     if (unsubscribeHouseholdDoc) { unsubscribeHouseholdDoc(); unsubscribeHouseholdDoc = null; }
@@ -1878,6 +1939,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   function init() {
+    maybeAutoTriggerAddToHomeScreen();
     window.addEventListener("online", function () { 
       state.online = true; 
       syncOfflineData();
