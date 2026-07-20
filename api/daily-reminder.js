@@ -207,6 +207,13 @@ async function runFullScan(db, bypassDedup, triggerSource) {
     let actionData = null;
     if (dateBasedItems.length === 1) {
       actionData = { carId: dateBasedItems[0].carId, fieldKey: dateBasedItems[0].fieldKey, actionable: "true" };
+    } else if (dateBasedItems.length > 1) {
+      // Birden fazla farklı tarihe bağlı işlem birlikte tetiklendiğinde tek
+      // bir carId/fieldKey seçemeyiz (Evet/Hayır aksiyon düğmeleri de
+      // eklenmez), ama sw.js'in bildirime tıklanınca uygulamayı bir seçim
+      // ekranıyla açabilmesi için hepsinin listesini "carId:fieldKey,carId:fieldKey"
+      // formatında gönderiyoruz.
+      actionData = { multiAppt: dateBasedItems.map((t) => `${t.carId}:${t.fieldKey}`).join(",") };
     }
 
     const response = await admin.messaging().sendEachForMulticast({
