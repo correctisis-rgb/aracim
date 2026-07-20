@@ -173,7 +173,7 @@ async function runFullScan(db, bypassDedup, triggerSource) {
         newNotifState[stateKey] = days;
         const carName = car.name || "Aracın";
         const dayText = days === 0 ? "bugün" : days + " gün içinde";
-        triggered.push(`${f.emoji} ${carName}: ${f.label} ${dayText}`);
+        triggered.push({ text: `${f.emoji} ${carName}: ${f.label} ${dayText}`, carId: car.id, fieldKey: f.key, actionable: true });
       });
 
       if (car.maintenanceKm != null && car.currentKm != null) {
@@ -187,7 +187,7 @@ async function runFullScan(db, bypassDedup, triggerSource) {
             const kmText = remaining <= 0
               ? `bakım kilometresi ${Math.abs(Math.round(remaining)).toLocaleString("tr-TR")} km geçti`
               : `bakıma ${Math.round(remaining).toLocaleString("tr-TR")} km kaldı`;
-            triggered.push(`🔧 ${carName}: ${kmText}`);
+            triggered.push({ text: `🔧 ${carName}: ${kmText}`, carId: car.id, fieldKey: null, actionable: false });
           }
         }
       }
@@ -196,12 +196,20 @@ async function runFullScan(db, bypassDedup, triggerSource) {
     if (!triggered.length) continue;
 
     const title = triggered.length === 1 ? "Garaj Defteri — Hatırlatma" : `Garaj Defteri — ${triggered.length} Hatırlatma`;
-    const body = triggered.slice(0, 3).join("  •  ") + (triggered.length > 3 ? ` (+${triggered.length - 3} diğer)` : "");
+    const body = triggered.slice(0, 3).map((t) => t.text).join("  •  ") + (triggered.length > 3 ? ` (+${triggered.length - 3} diğer)` : "");
+
+    // Tek bir tarihe bağlı işlem tetiklendiyse, bildirime sw.js'in okuyup
+    // "Evet, randevu aldım / Hayır" aksiyon düğmelerine çevireceği carId/
+    // fieldKey bilgisini ekliyoruz.
+    let actionData = null;
+    if (triggered.length === 1 && triggered[0].actionable && triggered[0].fieldKey) {
+      actionData = { carId: triggered[0].carId, fieldKey: triggered[0].fieldKey, actionable: "true" };
+    }
 
     const response = await admin.messaging().sendEachForMulticast({
       tokens,
       notification: { title, body },
-      data: { url: "/aracim/" }
+      data: Object.assign({ url: "/aracim/" }, actionData || {})
     });
 
     usersNotified++;
