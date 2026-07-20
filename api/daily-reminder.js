@@ -51,20 +51,29 @@ async function checkAndSendAnnouncement(db) {
 
   const usersSnap = await db.collection("users").get();
   const tokenEntries = [];
+  // userInfoById: TÜM kullanıcıları (token'ı olsun olmasın) baştan kaydeder,
+  // böylece admin panelindeki "kimlere ulaştı/ulaşmadı" listesinde hiç cihaz
+  // kaydı olmayan kullanıcılar da (0 cihaz olarak) görünür.
+  const userInfoById = {};
   usersSnap.forEach((doc) => {
     const u = doc.data();
+    userInfoById[doc.id] = { name: u.name || u.email || doc.id, email: u.email || "" };
     (u.fcmTokens || []).forEach((t) => tokenEntries.push({ token: t, ownerId: doc.id }));
   });
 
   if (!tokenEntries.length) {
+    const recipients = Object.keys(userInfoById).map((id) => ({
+      household: userInfoById[id].name,
+      members: [{ name: userInfoById[id].name, email: userInfoById[id].email, deviceCount: 0, success: false, failed: 0 }]
+    }));
     await ref.set({ requested: false, processedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
-    await writeRunLog(db, {
+    await writeRunLog(db, Object.assign({
       kind: "announcement",
       success: true,
       summary: `Duyuru "${title}" — gönderilecek kayıtlı cihaz bulunamadı.`,
       sentCount: 0,
       failedCount: 0
-    }, "vercel-cron");
+    }, recipients.length ? { recipients } : {}), "vercel-cron");
     return;
   }
 
@@ -72,6 +81,7 @@ async function checkAndSendAnnouncement(db) {
   let totalSuccess = 0;
   let totalFailed = 0;
   const invalidByOwner = {};
+  const deviceResultsByOwner = {}; // ownerId -> { success, failed }
 
   for (let i = 0; i < tokenEntries.length; i += CHUNK) {
     const chunk = tokenEntries.slice(i, i + CHUNK);
@@ -83,10 +93,14 @@ async function checkAndSendAnnouncement(db) {
     totalSuccess += response.successCount;
     totalFailed += response.failureCount;
     response.responses.forEach((r, idx) => {
-      if (!r.success) {
+      const owner = chunk[idx].ownerId;
+      if (!deviceResultsByOwner[owner]) deviceResultsByOwner[owner] = { success: 0, failed: 0 };
+      if (r.success) {
+        deviceResultsByOwner[owner].success++;
+      } else {
+        deviceResultsByOwner[owner].failed++;
         const code = r.error && r.error.code;
         if (code === "messaging/invalid-registration-token" || code === "messaging/registration-token-not-registered") {
-          const owner = chunk[idx].ownerId;
           if (!invalidByOwner[owner]) invalidByOwner[owner] = [];
           invalidByOwner[owner].push(chunk[idx].token);
         }
@@ -100,6 +114,20 @@ async function checkAndSendAnnouncement(db) {
     }, { merge: true }).catch(() => {});
   }
 
+  // recipients: admin panelinin "kimlere ulaştı/ulaşmadı" listesi için —
+  // her kullanıcı tek üyeli bir "hane" olarak eklenir (bkz. index.html
+  // renderRunLogRecipients). Hiç cihazı olmayan kullanıcılar da (deviceCount: 0,
+  // success: false) listede görünür.
+  const recipients = Object.keys(userInfoById).map((id) => {
+    const info = userInfoById[id];
+    const res = deviceResultsByOwner[id] || { success: 0, failed: 0 };
+    const deviceCount = res.success + res.failed;
+    return {
+      household: info.name,
+      members: [{ name: info.name, email: info.email, deviceCount, success: deviceCount > 0 && res.failed === 0, failed: res.failed }]
+    };
+  });
+
   await ref.set({ requested: false, processedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
 
   await writeRunLog(db, {
@@ -107,7 +135,8 @@ async function checkAndSendAnnouncement(db) {
     success: true,
     summary: `Duyuru gönderildi: "${title}" — ${tokenEntries.length} cihaza (${totalSuccess} başarılı, ${totalFailed} başarısız)`,
     sentCount: totalSuccess,
-    failedCount: totalFailed
+    failedCount: totalFailed,
+    recipients
   }, "vercel-cron");
 }
 
@@ -148,6 +177,11 @@ async function runFullScan(db, bypassDedup, triggerSource) {
   let usersNotified = 0;
   let totalSent = 0;
   let totalFailed = 0;
+  // recipients: her bildirim gönderilen kullanıcı için admin panelindeki
+  // "kimlere ulaştı/ulaşmadı" listesinde gösterilecek kırılım (bkz.
+  // index.html renderRunLogRecipients). Bu dosyada hane üyesi birleştirme
+  // yapılmadığından her giriş tek üyeli bir "hane"dir.
+  const recipients = [];
 
   for (const userDoc of usersSnap.docs) {
     const user = userDoc.data();
@@ -236,6 +270,18 @@ async function runFullScan(db, bypassDedup, triggerSource) {
       }
     });
 
+    const failedCountForUser = response.responses.filter((r) => !r.success).length;
+    recipients.push({
+      household: user.name || user.email || userDoc.id,
+      members: [{
+        name: user.name || user.email || userDoc.id,
+        email: user.email || "",
+        deviceCount: tokens.length,
+        success: failedCountForUser === 0,
+        failed: failedCountForUser
+      }]
+    });
+
     const update = { notifState: newNotifState };
     if (invalidTokens.length) {
       update.fcmTokens = admin.firestore.FieldValue.arrayRemove(...invalidTokens);
@@ -245,7 +291,7 @@ async function runFullScan(db, bypassDedup, triggerSource) {
 
   console.log("Bitti.");
 
-  await writeRunLog(db, {
+  await writeRunLog(db, Object.assign({
     success: true,
     summary: usersNotified
       ? `${usersNotified} kullanıcıya bildirim gönderildi (${totalSent} başarılı, ${totalFailed} başarısız)`
@@ -254,7 +300,7 @@ async function runFullScan(db, bypassDedup, triggerSource) {
     usersNotified,
     sentCount: totalSent,
     failedCount: totalFailed
-  }, triggerSource);
+  }, recipients.length ? { recipients } : {}), triggerSource);
 
   return { usersScanned: usersSnap.size, usersNotified, totalSent, totalFailed };
 }
