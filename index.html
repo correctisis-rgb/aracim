@@ -612,7 +612,7 @@
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.4.2"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.4.3"; // Dynamic Version Tracking
   var APP_UPDATED = "20 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -873,6 +873,7 @@
     budgets: getLocalData("budgets", {}),
     householdId: null,
     householdMembers: [],
+    householdDataLoaded: false,
     notifHistory: getLocalData("notif_history", []),
     theme: getLocalData("theme", "dark")
   };
@@ -960,7 +961,8 @@
     return patch;
   }
   function applyHouseholdData(data) {
-    state.cars = data.cars || state.cars || [defaultCar()];
+    state.householdDataLoaded = true;
+    state.cars = data.cars || state.cars || [];
     state.expenses = data.expenses || state.expenses || [];
     state.familyMembers = data.familyMembers || state.familyMembers || [];
     state.budgets = data.budgets || state.budgets || {};
@@ -1495,6 +1497,7 @@
     state.currentUser = { id: fbUser.uid, name: fbUser.displayName || "Kullanıcı", email: fbUser.email, avatar: null };
     state.householdId = fbUser.uid;
     state.householdMembers = [];
+    state.householdDataLoaded = false;
     state.selectedCarId = "all";
     state.view = "panel";
     state.modal = null;
@@ -1511,7 +1514,7 @@
         createPatch.email = fbUser.email;
         createPatch.avatar = null;
         createPatch.members = [fbUser.uid];
-        createPatch.cars = state.cars || [defaultCar()];
+        createPatch.cars = state.cars || [];
         createPatch.expenses = state.expenses || [];
         createPatch.familyMembers = state.familyMembers || [];
         createPatch.budgets = state.budgets || {};
@@ -1548,7 +1551,7 @@
       console.error(err);
       // fallback to local storage if offline error occurs
       if(!state.cars || !state.expenses) {
-        state.cars = getLocalData("cars", [defaultCar()]);
+        state.cars = getLocalData("cars", []);
         state.expenses = getLocalData("expenses", []);
         state.familyMembers = getLocalData("family", []);
         state.budgets = getLocalData("budgets", {});
@@ -1625,6 +1628,32 @@
         }).catch(function (err) {
           console.error(err);
           toast("Ayrılma işlemi başarısız oldu.");
+        });
+      }
+    });
+  }
+
+  function removeHouseholdMember(memberUid, memberName) {
+    if (!state.currentUser) return;
+    if (state.householdId !== state.currentUser.id) { toast("Sadece hane sahibi üye çıkarabilir."); return; }
+    if (memberUid === state.currentUser.id) return;
+    showConfirm({
+      title: "Üyeyi Haneden Çıkar",
+      message: (memberName || "Bu üye") + " ortak hanenden çıkarılacak ve artık ortak araç/masraf verilerine erişemeyecek. Emin misin?",
+      confirmLabel: "Çıkar",
+      danger: true,
+      onConfirm: function () {
+        var householdRef = db.collection("users").doc(state.currentUser.id);
+        var removePatch = {};
+        removePatch.members = firebase.firestore.FieldValue.arrayRemove(memberUid);
+        removePatch["memberProfiles." + memberUid] = firebase.firestore.FieldValue.delete();
+        householdRef.update(removePatch).then(function () {
+          toast("Üye ortak haneden çıkarıldı.");
+          state.modal = { type: "profile" };
+          renderModal();
+        }).catch(function (err) {
+          console.error(err);
+          toast("Üye çıkarılamadı: " + authErrorMessage(err));
         });
       }
     });
@@ -2093,11 +2122,14 @@
     state.authError = null; state.authBusy = true; renderAuth();
     auth.createUserWithEmailAndPassword(email, pass).then(function (cred) {
       return cred.user.updateProfile({ displayName: name }).then(function () {
-        return db.collection("users").doc(cred.user.uid).set({
-          name: name, email: email, avatar: null,
-          cars: [defaultCar()], expenses: [], familyMembers: [],
-          createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
+        var patch = buildMemberProfileEntryWithMembers(cred.user.uid, name, email);
+        patch.name = name; patch.email = email; patch.avatar = null;
+        patch.cars = []; patch.expenses = []; patch.familyMembers = [];
+        patch.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+        // merge:true kullanılır: aynı anda auth durum dinleyicisinin (loginAs)
+        // tetiklediği paralel bir belge oluşturma yazımıyla çakışırsa, birbirlerinin
+        // memberProfiles/members alanlarını ezmesinler.
+        return db.collection("users").doc(cred.user.uid).set(patch, { merge: true });
       });
     }).then(function () {
       state.authBusy = false;
@@ -2921,11 +2953,19 @@
     modal.__avatar = user.avatar || null;
 
     var isOwnHousehold = state.householdId === user.id;
-    var memberListHtml = (state.householdMembers && state.householdMembers.length)
-      ? state.householdMembers.map(function (m) {
-          return '<li class="family-item"><span class="family-name">👤 ' + esc(m.name) + (m.uid === user.id ? " (sen)" : "") + '</span><span class="family-role">' + esc(m.email || "") + '</span></li>';
-        }).join("")
-      : '<li class="empty-hint">Üye bilgisi yükleniyor…</li>';
+    var memberListHtml;
+    if (state.householdMembers && state.householdMembers.length) {
+      memberListHtml = state.householdMembers.map(function (m) {
+        var kickBtn = (isOwnHousehold && m.uid !== user.id)
+          ? '<button type="button" class="icon-btn" data-action="household-kick" data-uid="' + esc(m.uid) + '" data-name="' + esc(m.name) + '" aria-label="Üyeyi haneden çıkar" title="Üyeyi haneden çıkar">🗑️</button>'
+          : '';
+        return '<li class="family-item"><span class="family-name">👤 ' + esc(m.name) + (m.uid === user.id ? " (sen)" : "") + '</span><span class="family-role">' + esc(m.email || "") + '</span>' + kickBtn + '</li>';
+      }).join("");
+    } else if (!state.householdDataLoaded) {
+      memberListHtml = '<li class="empty-hint">Üye bilgisi yükleniyor…</li>';
+    } else {
+      memberListHtml = '<li class="empty-hint">Ortak hanede henüz başka üye yok.</li>';
+    }
 
     modal.innerHTML =
       '<div class="modal-head"><h3>Hesabım</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>' +
@@ -2990,6 +3030,11 @@
     var householdJoinBtn = modal.querySelector("#household-join");
     if (householdJoinBtn) householdJoinBtn.addEventListener("click", function () {
       joinHousehold(modal.querySelector("#household-join-code").value);
+    });
+    modal.querySelectorAll('[data-action="household-kick"]').forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        removeHouseholdMember(btn.getAttribute("data-uid"), btn.getAttribute("data-name"));
+      });
     });
 
     function bindAvatarInput() {
