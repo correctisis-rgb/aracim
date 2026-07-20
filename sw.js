@@ -59,7 +59,7 @@ self.addEventListener("push", function (event) {
       body: body,
       icon: "/aracim/icon-192.png",
       badge: "/aracim/icon-192.png",
-      data: { url: url, carId: data.carId || null, fieldKey: data.fieldKey || null },
+      data: { url: url, carId: data.carId || null, fieldKey: data.fieldKey || null, multiAppt: data.multiAppt || null },
       actions: actions
     })
   );
@@ -107,6 +107,12 @@ self.addEventListener("notificationclick", function (event) {
   var targetUrl = data.url || "/aracim/";
   if ((action === "appt-yes" || !action) && data.carId && data.fieldKey) {
     targetUrl = "/aracim/?openAppt=" + encodeURIComponent(data.carId) + ":" + encodeURIComponent(data.fieldKey);
+  } else if (!action && data.multiAppt) {
+    // Birden fazla farklı tarihe bağlı işlem aynı bildirimde tetiklendiyse
+    // (bu yüzden tek bir carId/fieldKey yok), uygulamayı açıp kullanıcının
+    // hangisi için randevu/tarih gireceğini seçebileceği bir liste ekranı
+    // göstermesi için tüm listeyi URL'e koyuyoruz.
+    targetUrl = "/aracim/?openAppts=" + encodeURIComponent(data.multiAppt);
   }
 
   event.waitUntil(
@@ -114,7 +120,7 @@ self.addEventListener("notificationclick", function (event) {
       for (var i = 0; i < windowClients.length; i++) {
         var wc = windowClients[i];
         if (wc.url.indexOf("/aracim/") !== -1 && "focus" in wc) {
-          if (targetUrl.indexOf("?openAppt=") !== -1 && "navigate" in wc) {
+          if (targetUrl.indexOf("/aracim/?open") !== -1 && "navigate" in wc) {
             return wc.navigate(targetUrl).then(function (navigated) { return navigated.focus(); });
           }
           return wc.focus();
