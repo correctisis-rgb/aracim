@@ -190,9 +190,18 @@ async function runFullScan(db, bypassDedup, triggerSource) {
     // fazla işlem aynı anda tetiklenirse ya da tetiklenen tek şey km bazlı bir
     // bakım uyarısıysa (fieldKey yok), aksiyon eklemiyoruz — hangi işlem için
     // olduğu net değil.
+    // Tek bir tarihe bağlı işlem tetiklendiyse (ör. sadece Muayene), bildirime
+    // "Evet, randevu aldım / Hayır" aksiyon düğmeleri ekleyebiliriz. Km bazlı
+    // bakım uyarısı gibi tarihi olmayan işlemler (fieldKey yok) bu sayıma
+    // dahil edilmez — yani "Muayene 3 gün içinde" + "bakıma 1.651 km kaldı"
+    // aynı anda tetiklense bile, tarihe bağlı olan tek (Muayene) olduğu için
+    // yine de butonlar eklenir. Birden fazla FARKLI tarihe bağlı işlem aynı
+    // anda tetiklenirse (ör. hem Muayene hem Sigorta), hangisi için olduğu
+    // net olmadığından buton eklenmez.
+    const dateBasedItems = triggered.filter((t) => t.fieldKey);
     let actionData = null;
-    if (triggered.length === 1 && triggered[0].fieldKey) {
-      actionData = { carId: triggered[0].carId, fieldKey: triggered[0].fieldKey, actionable: "true" };
+    if (dateBasedItems.length === 1) {
+      actionData = { carId: dateBasedItems[0].carId, fieldKey: dateBasedItems[0].fieldKey, actionable: "true" };
     }
 
     // --- Hane sahibine gönder ---
