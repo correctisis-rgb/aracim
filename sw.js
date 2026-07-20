@@ -13,8 +13,13 @@
 // bundan SONRA — ister hemen ister günler sonra — internetsiz açtığında
 // uygulama sorunsuz yüklenir.
 //
-// Cache sürümünü (CACHE_NAME) her index.html/sw.js güncellemesinde bir artırın
-// (v1 -> v2 ...) ki eski önbellek temizlenip yeni dosyalar önbelleğe alınsın.
+// Cache sürümü (CACHE_NAME): index.html'in kendisi artık "network-first"
+// servis edildiği için (aşağıdaki fetch handler'a bakın), içerik güncellemesi
+// yaptığında bunu artırmana GEREK YOK — internetteyken zaten hep en güncel
+// index.html gelir. Sadece şu nadir durumlarda artırman anlamlı olur:
+//   1) APP_SHELL_URLS listesine yeni bir dosya ekleyip/çıkardığında,
+//   2) Eskiyen/artık kullanılmayan önbellek girdilerini (ör. kaldırdığın bir
+//      CDN dosyası) diskten tamamen temizlemek istediğinde.
 var CACHE_NAME = "garaj-defteri-shell-v1";
 
 var APP_SHELL_URLS = [
@@ -203,10 +208,19 @@ self.addEventListener("notificationclick", function (event) {
 //   girmez, her zaman doğrudan ağa gider (yoksa online iken bile eski/yanlış
 //   veri servis edilebilir; ayrıca Firestore'un kendi offline persistence
 //   mekanizması zaten localStorage/IndexedDB üzerinden bunu yönetiyor).
-// - Diğer her şey (HTML kabuğu, JS, CSS, fontlar, ikonlar, Chart.js, Firebase
-//   SDK dosyaları): "stale-while-revalidate" — önbellekte varsa ANINDA ondan
-//   servis edilir (offline dahil çalışır), arka planda ağdan güncel sürüm
-//   çekilip bir sonraki açılış için önbellek tazelenir.
+// - Sayfanın kendisi (HTML kabuğu: "/aracim/", "/aracim/index.html",
+//   "/aracim/manifest.json") "network-first": ağ varsa HER ZAMAN oradan
+//   çekilir ve önbellek arka planda güncellenir; ağ yoksa (offline) en son
+//   önbelleklenen sürüme düşülür. Bu sayede index.html'de küçük bir
+//   değişiklik yapıp yayınladığında CACHE_NAME'i elle artırmana GEREK
+//   KALMAZ — kullanıcı internetteyken zaten hep en güncel sürümü alır.
+// - Diğer her şey (JS, CSS, fontlar, ikonlar, Chart.js, Firebase SDK
+//   dosyaları gibi nadiren değişen büyük/statik dosyalar): "stale-while-
+//   revalidate" — önbellekte varsa ANINDA ondan servis edilir (offline
+//   dahil çalışır, en hızlı yol), arka planda ağdan güncel sürüm çekilip
+//   bir sonraki açılış için önbellek tazelenir. Bu dosyaların adreslerinde
+//   zaten sürüm numarası olduğu için (ör. firebasejs/10.12.5/...) eskimeleri
+//   pratikte sorun olmaz.
 var NO_INTERCEPT_HOSTS = [
   "firestore.googleapis.com",
   "identitytoolkit.googleapis.com",
@@ -214,6 +228,46 @@ var NO_INTERCEPT_HOSTS = [
   "fcmregistrations.googleapis.com",
   "firebaseinstallations.googleapis.com"
 ];
+
+var APP_SHELL_DOC_PATHS = ["/aracim/", "/aracim/index.html", "/aracim/manifest.json"];
+
+function networkFirst(request, cache) {
+  return fetch(request).then(function (response) {
+    if (response && (response.ok || response.type === "opaque")) {
+      cache.put(request, response.clone());
+    }
+    return response;
+  }).catch(function () {
+    return cache.match(request).then(function (cached) {
+      if (cached) return cached;
+      if (request.mode === "navigate") {
+        return cache.match("/aracim/").then(function (shell) {
+          return shell || cache.match("/aracim/index.html");
+        });
+      }
+      return undefined;
+    });
+  });
+}
+
+function staleWhileRevalidate(request, cache) {
+  return cache.match(request).then(function (cached) {
+    var networkFetch = fetch(request).then(function (response) {
+      if (response && (response.ok || response.type === "opaque")) {
+        cache.put(request, response.clone());
+      }
+      return response;
+    }).catch(function () {
+      if (request.mode === "navigate") {
+        return cache.match("/aracim/").then(function (shell) {
+          return shell || cache.match("/aracim/index.html");
+        });
+      }
+      return undefined;
+    });
+    return cached || networkFetch;
+  });
+}
 
 self.addEventListener('fetch', (event) => {
   var request = event.request;
@@ -227,28 +281,12 @@ self.addEventListener('fetch', (event) => {
 
   if (NO_INTERCEPT_HOSTS.indexOf(reqUrl.hostname) !== -1) return;
 
+  var isAppShellDoc = request.mode === "navigate" ||
+    (reqUrl.origin === self.location.origin && APP_SHELL_DOC_PATHS.indexOf(reqUrl.pathname) !== -1);
+
   event.respondWith(
     caches.open(CACHE_NAME).then(function (cache) {
-      return cache.match(request).then(function (cached) {
-        var networkFetch = fetch(request).then(function (response) {
-          if (response && (response.ok || response.type === "opaque")) {
-            cache.put(request, response.clone());
-          }
-          return response;
-        }).catch(function () {
-          // Ağ yok. Zaten önbellek varsa aşağıda o döndürülecek; navigasyon
-          // (sayfa açma) isteğiyse ve o URL için önbellek yoksa, uygulama
-          // kabuğuna (ana sayfa) düş — böylece hiçbir zaman boş/hata sayfası
-          // görünmez.
-          if (request.mode === "navigate") {
-            return cache.match("/aracim/").then(function (shell) {
-              return shell || cache.match("/aracim/index.html");
-            });
-          }
-          return undefined;
-        });
-        return cached || networkFetch;
-      });
+      return isAppShellDoc ? networkFirst(request, cache) : staleWhileRevalidate(request, cache);
     })
   );
 });
