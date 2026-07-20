@@ -26,30 +26,73 @@ self.addEventListener("push", function (event) {
   var n = payload.notification || {};
   var title = n.title || "Garaj Defteri";
   var body = n.body || "Yaklaşan bir işlemin var.";
-  var url = (payload.data && payload.data.url) || "/aracim/";
+  var data = payload.data || {};
+  var url = data.url || "/aracim/";
+
+  // Sunucu (trigger-reminder) tekil, tarihe bağlı bir işlem için bildirim
+  // gönderdiğinde data.actionable="true" ve data.carId/data.fieldKey dolu
+  // gelir. Bu durumda bildirime "Evet / Hayır" aksiyon düğmeleri ekliyoruz.
+  var actions = [];
+  if (data.actionable === "true" && data.carId && data.fieldKey) {
+    actions = [
+      { action: "appt-yes", title: "✅ Evet, aldım" },
+      { action: "appt-no", title: "❌ Hayır" }
+    ];
+  }
 
   event.waitUntil(
     self.registration.showNotification(title, {
       body: body,
       icon: "/aracim/icon-192.png",
       badge: "/aracim/icon-192.png",
-      data: { url: url }
+      data: { url: url, carId: data.carId || null, fieldKey: data.fieldKey || null },
+      actions: actions
     })
   );
 });
 
-// Bildirime tıklanınca uygulamayı öne getir / aç
+// Bildirimin "Hayır" aksiyonunda, ilgili işlem için doğrudan yönlendirilecek
+// harici bir site varsa burada tanımlanır (şimdilik sadece Muayene ->
+// TÜVTÜRK). Eşleşme yoksa "Hayır" da uygulamayı açar.
+var APPT_EXTERNAL_LINKS = {
+  inspectionDate: "https://www.tuvturk.com.tr"
+};
+
+// Bildirime (veya bir aksiyon düğmesine) tıklanınca uygulamayı öne getir / aç
 self.addEventListener("notificationclick", function (event) {
+  var action = event.action;
+  var data = event.notification.data || {};
   event.notification.close();
-  var url = (event.notification.data && event.notification.data.url) || "/aracim/";
+
+  // "Hayır" ve bu alan için bilinen harici bir site varsa: uygulamayı hiç
+  // uğraştırmadan doğrudan o siteyi yeni sekmede aç.
+  if (action === "appt-no") {
+    var externalUrl = data.fieldKey && APPT_EXTERNAL_LINKS[data.fieldKey];
+    if (externalUrl) {
+      event.waitUntil(clients.openWindow(externalUrl));
+      return;
+    }
+  }
+
+  // "Evet" ise uygulamayı, ilgili aracın randevu formu otomatik açılacak
+  // şekilde bir deep-link ile aç/odakla.
+  var targetUrl = data.url || "/aracim/";
+  if (action === "appt-yes" && data.carId && data.fieldKey) {
+    targetUrl = "/aracim/?openAppt=" + encodeURIComponent(data.carId) + ":" + encodeURIComponent(data.fieldKey);
+  }
+
   event.waitUntil(
     clients.matchAll({ type: "window", includeUncontrolled: true }).then(function (windowClients) {
       for (var i = 0; i < windowClients.length; i++) {
-        if (windowClients[i].url.indexOf("/aracim/") !== -1 && "focus" in windowClients[i]) {
-          return windowClients[i].focus();
+        var wc = windowClients[i];
+        if (wc.url.indexOf("/aracim/") !== -1 && "focus" in wc) {
+          if (action === "appt-yes" && "navigate" in wc) {
+            return wc.navigate(targetUrl).then(function (navigated) { return navigated.focus(); });
+          }
+          return wc.focus();
         }
       }
-      if (clients.openWindow) return clients.openWindow(url);
+      if (clients.openWindow) return clients.openWindow(targetUrl);
     })
   );
 });
