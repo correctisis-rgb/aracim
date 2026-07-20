@@ -612,7 +612,7 @@
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.4.6"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.4.7"; // Dynamic Version Tracking
   var APP_UPDATED = "20 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1037,7 +1037,6 @@
         var ownData = snap.data() || {};
         applyHouseholdData(ownData);
         ensureSelfInHousehold(myUid, ownData);
-        if (state.modal && state.modal.type === "profile") { state.modal = { type: "profile" }; renderModal(); }
         toast("Ortak haneden çıkarıldın, kendi hanene döndürüldün.");
         render();
       })
@@ -1640,7 +1639,7 @@
           subscribeHousehold(code);
           closeModal();
           state.modal = { type: "profile" };
-          renderModal();
+          render();
           toast("Ortak haneye katıldın.");
         }).catch(function (err) {
           console.error(err);
@@ -1675,7 +1674,7 @@
           applyHouseholdData(snap.data() || {});
           closeModal();
           state.modal = { type: "profile" };
-          renderModal();
+          render();
           toast("Ortak haneden ayrıldın.");
         }).catch(function (err) {
           console.error(err);
@@ -1702,7 +1701,7 @@
         householdRef.update(removePatch).then(function () {
           toast("Üye ortak haneden çıkarıldı.");
           state.modal = { type: "profile" };
-          renderModal();
+          render();
         }).catch(function (err) {
           console.error(err);
           toast("Üye çıkarılamadı: " + authErrorMessage(err));
