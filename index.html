@@ -654,7 +654,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.5.2"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.5.3"; // Dynamic Version Tracking
   var APP_UPDATED = "20 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -675,6 +675,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return CATEGORIES[CATEGORIES.length - 1];
   }
   function uid() { return Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
+  // Ortak hane davet kodunun yenilenebilir kısmı. Hane belge ID'si (householdId)
+  // sabit kalmak zorunda (Firestore doküman yolu bu), ama paylaşılan davet
+  // kodunun GEÇERLİLİĞİ bu token'a bağlı. "Kodu Yenile" ile bu token değişince
+  // elde eski kodu olan biri (çıkarılmış eski üye dahil) artık katılamaz.
+  function generateInviteToken() { return Math.random().toString(36).slice(2, 10).toUpperCase(); }
+  function buildInviteCode(householdId, token) { return householdId + "-" + token; }
   function fmtTL(n) { return new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY", maximumFractionDigits: 0 }).format(n || 0); }
   function todayStr() { return new Date().toISOString().slice(0, 10); }
   function fmtDateTR(s) { return s ? new Date(s).toLocaleDateString("tr-TR") : ""; }
@@ -914,6 +920,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     logFilters: { search: "", category: "all", carId: "all", dateFrom: "", dateTo: "" },
     budgets: getLocalData("budgets", {}),
     householdId: null,
+    householdInviteToken: null,
     householdMembers: [],
     householdDataLoaded: false,
     notifHistory: getLocalData("notif_history", []),
@@ -1020,12 +1027,26 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       return { uid: uidKey, name: p.name || "Üye", email: p.email || "" };
     });
     state.notifHistory = data.notifHistory || state.notifHistory || [];
+    state.householdInviteToken = data.inviteToken || null;
     setLocalData("cars", state.cars);
     setLocalData("expenses", state.expenses);
     setLocalData("family", state.familyMembers);
     setLocalData("budgets", state.budgets);
     setLocalData("notif_history", state.notifHistory);
     tryOpenPendingDeepLink();
+    ensureInviteToken(dataDocId(), data);
+  }
+  // Kendi hanemizdeysek ve henüz bir inviteToken üretilmemişse (eski
+  // hesaplar ya da ilk kayıt), sessizce bir tane oluşturup hane belgesine
+  // yazar. Sadece hane sahibi kendi belgesine yazdığı için başka birinin
+  // hanesinde bu asla tetiklenmez.
+  function ensureInviteToken(docId, data) {
+    if (!state.currentUser || !docId) return;
+    if (docId !== state.currentUser.id) return; // sadece kendi hanemizde
+    if (data.inviteToken) return;
+    var token = generateInviteToken();
+    db.collection("users").doc(docId).set({ inviteToken: token }, { merge: true })
+      .catch(function (err) { console.error(err); });
   }
   // Şu anki kullanıcının, verilen hane belgesinde (memberProfiles/members)
   // kendi kaydı yoksa ekler. Hem kendi hanesi hem de sonradan katıldığı
@@ -1689,20 +1710,27 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     // da tek başına kopyalamış) olduğu gibi kabul et.
     if (!/\s/.test(text)) return text;
     // Mesaj şablonundaki "Davet Kodu: XXXX" satırını ara.
-    var labelMatch = text.match(/Davet\s*Kodu\s*:?\s*([A-Za-z0-9]+)/i);
+    var labelMatch = text.match(/Davet\s*Kodu\s*:?\s*([A-Za-z0-9-]+)/i);
     if (labelMatch) return labelMatch[1];
-    // Bulunamazsa: metindeki en uzun saf harf+rakam parçasını kod say.
-    // (Linkler nokta/slash/iki nokta içerdiği için bu taramaya girmez,
-    // davet kodları ise saf alfanumerik Firebase kimlikleridir.)
-    var tokens = text.match(/[A-Za-z0-9]{12,60}/g) || [];
+    // Bulunamazsa: metindeki en uzun saf harf+rakam(+tire) parçasını kod say.
+    // (Linkler nokta/slash içerdiği için bu taramaya girmez, davet kodları
+    // ise alfanumerik + tek bir tire içeren kimliklerdir.)
+    var tokens = text.match(/[A-Za-z0-9-]{12,80}/g) || [];
     if (!tokens.length) return text;
     tokens.sort(function (a, b) { return b.length - a.length; });
     return tokens[0];
   }
 
   function joinHousehold(rawCode) {
-    var code = extractHouseholdCode(rawCode);
-    if (!code) { toast("Lütfen bir davet kodu gir."); return; }
+    var raw = extractHouseholdCode(rawCode);
+    if (!raw) { toast("Lütfen bir davet kodu gir."); return; }
+    var sep = raw.indexOf("-");
+    if (sep === -1) {
+      toast("Bu davet kodu artık geçerli değil. Hane sahibinden 'Kodu Yenile' sonrası güncel kodu iste.");
+      return;
+    }
+    var code = raw.slice(0, sep);
+    var token = raw.slice(sep + 1);
     if (!state.currentUser) return;
     var myUid = state.currentUser.id;
     if (code === state.householdId) { toast("Zaten bu ortak hanedesin."); return; }
@@ -1713,9 +1741,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       danger: true,
       onConfirm: function () {
         var targetRef = db.collection("users").doc(code);
-        var patch = buildMemberProfileEntry(myUid, state.currentUser.name, state.currentUser.email);
-        patch.members = firebase.firestore.FieldValue.arrayUnion(myUid);
-        targetRef.set(patch, { merge: true }).then(function () {
+        targetRef.get().then(function (snap) {
+          if (!snap.exists) { throw { code: "not-found" }; }
+          var data = snap.data() || {};
+          if (!data.inviteToken || data.inviteToken !== token) {
+            throw { code: "invalid-token" };
+          }
+          var patch = buildMemberProfileEntry(myUid, state.currentUser.name, state.currentUser.email);
+          patch.members = firebase.firestore.FieldValue.arrayUnion(myUid);
+          return targetRef.set(patch, { merge: true });
+        }).then(function () {
           return db.collection("users").doc(myUid).set({ householdId: code }, { merge: true });
         }).then(function () {
           subscribeHousehold(code);
@@ -1725,7 +1760,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           toast("Ortak haneye katıldın.");
         }).catch(function (err) {
           console.error(err);
-          toast("Katılma başarısız oldu: kod geçersiz olabilir veya izin reddedildi.");
+          if (err && err.code === "invalid-token") {
+            toast("Davet kodu geçersiz ya da yenilenmiş. Güncel kodu hane sahibinden tekrar iste.");
+          } else if (err && err.code === "not-found") {
+            toast("Bu koda ait bir ortak hane bulunamadı.");
+          } else {
+            toast("Katılma başarısız oldu: izin reddedildi.");
+          }
         });
       }
     });
@@ -1780,8 +1821,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         var removePatch = {};
         removePatch.members = firebase.firestore.FieldValue.arrayRemove(memberUid);
         removePatch["memberProfiles." + memberUid] = firebase.firestore.FieldValue.delete();
+        // Üye çıkarılırken davet kodu da otomatik yenilenir: aksi halde
+        // çıkarılan kişi elindeki (hâlâ geçerli) eski kodla anında geri
+        // katılabilirdi. "Kodu Yenile" butonu bunu manuel yapmak içindir,
+        // ama kovma anında güvenlik varsayılan olmalı.
+        removePatch.inviteToken = generateInviteToken();
         householdRef.update(removePatch).then(function () {
-          toast("Üye ortak haneden çıkarıldı.");
+          toast("Üye ortak haneden çıkarıldı ve davet kodu güvenlik için yenilendi.");
           state.modal = { type: "profile" };
           render();
         }).catch(function (err) {
@@ -1793,6 +1839,31 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- Ortak hane davet kodu paylaşımı ----------
+  function renewHouseholdInviteCode() {
+    if (!state.currentUser) return;
+    if (state.householdId !== state.currentUser.id) { toast("Sadece hane sahibi kodu yenileyebilir."); return; }
+    showConfirm({
+      title: "Davet Kodunu Yenile",
+      message: "Mevcut davet kodu geçersiz olacak. Daha önce paylaştığın kod/QR ile artık kimse katılamayacak. Devam edilsin mi?",
+      confirmLabel: "Yenile",
+      danger: true,
+      onConfirm: function () {
+        var newToken = generateInviteToken();
+        db.collection("users").doc(state.currentUser.id).set({ inviteToken: newToken }, { merge: true })
+          .then(function () {
+            toast("Davet kodu yenilendi. Eski kod artık çalışmıyor.");
+            closeModal();
+            state.modal = { type: "profile" };
+            render();
+          })
+          .catch(function (err) {
+            console.error(err);
+            toast("Kod yenilenemedi: " + authErrorMessage(err));
+          });
+      }
+    });
+  }
+
   function buildHouseholdInviteMessage(code) {
     var myName = (state.currentUser && state.currentUser.name) ? state.currentUser.name : "Ben";
     return myName + " seni Aracım (Garaj Defteri) uygulamasında ortak hesabına davet ediyor 🚗\n" +
@@ -1807,8 +1878,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   function shareHouseholdInvite() {
-    var code = state.householdId;
-    if (!code) { toast("Paylaşılacak davet kodu bulunamadı."); return; }
+    if (!state.householdId || !state.householdInviteToken) { toast("Paylaşılacak davet kodu bulunamadı."); return; }
+    var code = buildInviteCode(state.householdId, state.householdInviteToken);
     var message = buildHouseholdInviteMessage(code);
 
     if (navigator.share) {
@@ -1950,6 +2021,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       state.familyMembers = [];
       state.budgets = {};
       state.householdId = null;
+      state.householdInviteToken = null;
       state.householdMembers = [];
       state.selectedCarId = "all";
       state.view = "panel";
@@ -3103,7 +3175,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   function buildHouseholdQRModal() {
-    var code = state.householdId || "";
+    var code = (state.householdId && state.householdInviteToken) ? buildInviteCode(state.householdId, state.householdInviteToken) : "";
     var modal = document.createElement("div");
     modal.className = "modal";
     modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
@@ -3259,11 +3331,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       '<p class="field-hint" style="margin-top:-4px">Aynı araçları eşin/ailenle ortak yönetmek için davet kodunu paylaş, ya da sana verilen bir kodla katıl. Ortak hanedeki herkes araç ve masrafları birlikte düzenleyebilir.</p>' +
       (isOwnHousehold ? '' : '<p class="field-hint" style="color:var(--amber)">Şu an başka bir kullanıcının ortak hanesindesin.</p>') +
       '<div class="budget-row">' +
-        '<input id="household-code-display" readonly value="' + esc(state.householdId || "") + '" style="flex:1" />' +
+        '<input id="household-code-display" readonly value="' + esc((isOwnHousehold && state.householdInviteToken) ? buildInviteCode(state.householdId, state.householdInviteToken) : (state.householdId || "")) + '" style="flex:1" />' +
         '<button type="button" class="btn-secondary" id="household-copy">📋 Kopyala</button>' +
         '<button type="button" class="btn-secondary" id="household-qr">🔳 QR</button>' +
         '<button type="button" class="btn-primary" id="household-share">📤 Paylaş</button>' +
       '</div>' +
+      (isOwnHousehold ? '<button type="button" class="btn-secondary full" id="household-renew" style="margin-top:6px;">🔄 Kodu Yenile (eski kodu geçersiz kılar)</button>' : '') +
       '<ul class="family-list">' + memberListHtml + '</ul>' +
       (!isOwnHousehold ? '<button type="button" class="btn-secondary full" id="household-leave" style="margin-bottom:10px;">Bu Ortak Haneden Ayrıl</button>' : '') +
       '<div class="field-row">' +
@@ -3309,6 +3382,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     });
     var householdLeaveBtn = modal.querySelector("#household-leave");
     if (householdLeaveBtn) householdLeaveBtn.addEventListener("click", function () { leaveHousehold(); });
+    var householdRenewBtn = modal.querySelector("#household-renew");
+    if (householdRenewBtn) householdRenewBtn.addEventListener("click", function () { renewHouseholdInviteCode(); });
     var householdJoinBtn = modal.querySelector("#household-join");
     if (householdJoinBtn) householdJoinBtn.addEventListener("click", function () {
       joinHousehold(modal.querySelector("#household-join-code").value);
