@@ -479,11 +479,16 @@ async function main() {
     // olmayan işlemler bu sayıma dahil edilmez, yani "Muayene 3 gün içinde"
     // + "bakıma 1.651 km kaldı" birlikte tetiklense bile butonlar eklenir.
     // Birden fazla FARKLI tarihe bağlı (actionable) işlem birlikte
-    // tetiklenirse, hangisi için olduğu net olmadığından buton eklenmez.
+    // tetiklenirse, hangisi için olduğu net olmadığından Evet/Hayır
+    // butonları eklenmez — ama sw.js'in bildirime tıklanınca uygulamayı
+    // bir seçim ekranıyla açabilmesi için hepsinin listesini
+    // "carId:fieldKey,carId:fieldKey" formatında gönderiyoruz.
     const dateBasedItems = triggered.filter((t) => t.actionable && t.fieldKey);
     let actionData = null;
     if (dateBasedItems.length === 1) {
       actionData = { carId: dateBasedItems[0].carId, fieldKey: dateBasedItems[0].fieldKey, actionable: "true" };
+    } else if (dateBasedItems.length > 1) {
+      actionData = { multiAppt: dateBasedItems.map((t) => `${t.carId}:${t.fieldKey}`).join(",") };
     }
 
     console.log(`→ ${userDoc.id}: ${body}`);
