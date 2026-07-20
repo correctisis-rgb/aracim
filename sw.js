@@ -73,13 +73,25 @@ var APPT_EXTERNAL_LINKS = {
 };
 
 // Bildirime (veya bir aksiyon düğmesine) tıklanınca uygulamayı öne getir / aç
+//
+// ÖNEMLİ (iOS/WebKit sınırlaması): iOS Safari, Web Push bildirimlerinde
+// tanımlanan özel "actions" (Evet/Hayır) düğmelerini GÖSTERMİYOR — bu,
+// Apple'ın kendi geliştirici forumunda da doğrulanmış, yıllardır çözülmemiş
+// bilinen bir WebKit kısıtlaması. iOS'ta bildirime dokunulduğunda event.action
+// her zaman boş/undefined gelir (Android/Chrome'da ise seçilen aksiyon gelir).
+// Bu yüzden, actionable bir bildirimde "action" tanımsızsa (yani muhtemelen
+// iOS'tayız ve kullanıcının Evet/Hayır seçme şansı hiç olmadı), en faydalı
+// varsayılanı seçip DOĞRUDAN randevu formunu açıyoruz. "Hayır" isteyen
+// kullanıcı, açılan formun içindeki "Randevu istemiyorum" linkinden harici
+// siteye gidebilir (bkz. index.html buildQuickApptModal).
 self.addEventListener("notificationclick", function (event) {
   var action = event.action;
   var data = event.notification.data || {};
   event.notification.close();
 
   // "Hayır" ve bu alan için bilinen harici bir site varsa: uygulamayı hiç
-  // uğraştırmadan doğrudan o siteyi yeni sekmede aç.
+  // uğraştırmadan doğrudan o siteyi yeni sekmede aç. (Sadece Android/Chrome
+  // gibi actions'ı destekleyen tarayıcılarda event.action "appt-no" olabilir.)
   if (action === "appt-no") {
     var externalUrl = data.fieldKey && APPT_EXTERNAL_LINKS[data.fieldKey];
     if (externalUrl) {
@@ -88,10 +100,12 @@ self.addEventListener("notificationclick", function (event) {
     }
   }
 
-  // "Evet" ise uygulamayı, ilgili aracın randevu formu otomatik açılacak
-  // şekilde bir deep-link ile aç/odakla.
+  // "Evet" ile AYNI davranış: hem gerçek "appt-yes" aksiyonu seçildiğinde
+  // (Android/Chrome), hem de hiç aksiyon seçilmeden düz bir dokunma
+  // olduğunda (iOS'ta her zaman, çünkü düğmeler hiç gösterilmiyor) —
+  // actionable bir bildirimse doğrudan randevu formunu aç.
   var targetUrl = data.url || "/aracim/";
-  if (action === "appt-yes" && data.carId && data.fieldKey) {
+  if ((action === "appt-yes" || !action) && data.carId && data.fieldKey) {
     targetUrl = "/aracim/?openAppt=" + encodeURIComponent(data.carId) + ":" + encodeURIComponent(data.fieldKey);
   }
 
@@ -100,7 +114,7 @@ self.addEventListener("notificationclick", function (event) {
       for (var i = 0; i < windowClients.length; i++) {
         var wc = windowClients[i];
         if (wc.url.indexOf("/aracim/") !== -1 && "focus" in wc) {
-          if (action === "appt-yes" && "navigate" in wc) {
+          if (targetUrl.indexOf("?openAppt=") !== -1 && "navigate" in wc) {
             return wc.navigate(targetUrl).then(function (navigated) { return navigated.focus(); });
           }
           return wc.focus();
