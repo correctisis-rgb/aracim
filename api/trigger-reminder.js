@@ -127,6 +127,11 @@ async function runFullScan(db, bypassDedup, triggerSource) {
   let usersNotified = 0;
   let totalSent = 0;
   let totalFailed = 0;
+  // recipients: her hane bildirimi için, hane sahibi ve katılan üyelerin
+  // kaç cihazına başarılı/başarısız gönderim yapıldığını tutar. Admin
+  // Sağlık paneli (renderRunLogRecipients, index.html) bunu okuyup "kimlere
+  // ulaştı/ulaşmadı" listesi olarak gösterir.
+  const recipients = [];
 
   for (const userDoc of usersSnap.docs) {
     const user = userDoc.data();
@@ -202,6 +207,8 @@ async function runFullScan(db, bypassDedup, triggerSource) {
     let actionData = null;
     if (dateBasedItems.length === 1) {
       actionData = { carId: dateBasedItems[0].carId, fieldKey: dateBasedItems[0].fieldKey, actionable: "true" };
+    } else if (dateBasedItems.length > 1) {
+      actionData = { multiAppt: dateBasedItems.map((t) => `${t.carId}:${t.fieldKey}`).join(",") };
     }
 
     // --- Hane sahibine gönder ---
@@ -220,22 +227,47 @@ async function runFullScan(db, bypassDedup, triggerSource) {
       ? user.members.filter((uid) => uid && uid !== ownerId)
       : [];
 
+    // recipientMembers: hane sahibi + katılan üyelerin kırılımını tutar,
+    // admin panelindeki "kimlere ulaştı/ulaşmadı" listesi için (bkz.
+    // index.html renderRunLogRecipients). Hiç cihazı olmayan üyeler de
+    // (deviceCount: 0) listede görünür.
+    const recipientMembers = [{
+      name: ownerName,
+      email: user.email || "",
+      deviceCount: ownerTokens.length,
+      success: ownerTokens.length > 0 && ownerResult.failed === 0,
+      failed: ownerResult.failed
+    }];
+
     for (const memberUid of memberUids) {
       try {
         const memberSnap = await db.collection("users").doc(memberUid).get();
         if (!memberSnap.exists) continue;
         const memberData = memberSnap.data() || {};
         const memberTokens = memberData.fcmTokens || [];
-        if (!memberTokens.length) continue;
+        const memberName = memberData.name || memberData.email || memberUid;
+        if (!memberTokens.length) {
+          recipientMembers.push({ name: memberName, email: memberData.email || "", deviceCount: 0, success: false, failed: 0 });
+          continue;
+        }
 
         const memberResult = await sendToTokens(db, memberUid, memberTokens, title, memberBody, actionData);
         totalSent += memberResult.sent;
         totalFailed += memberResult.failed;
         if (memberResult.sent > 0) usersNotified++;
+        recipientMembers.push({
+          name: memberName,
+          email: memberData.email || "",
+          deviceCount: memberTokens.length,
+          success: memberResult.failed === 0,
+          failed: memberResult.failed
+        });
       } catch (e) {
         console.error("Üyeye bildirim gönderilemedi:", memberUid, e && e.message ? e.message : e);
       }
     }
+
+    recipients.push({ household: ownerName, members: recipientMembers });
 
     // notifState tüm hane için ortak/tek bir yerde (hane sahibinin
     // dokümanında) tutulur, böylece aynı eşik tekrar tekrar herkese
@@ -243,7 +275,7 @@ async function runFullScan(db, bypassDedup, triggerSource) {
     await db.collection("users").doc(ownerId).set({ notifState: newNotifState }, { merge: true });
   }
 
-  await writeRunLog(db, {
+  await writeRunLog(db, Object.assign({
     success: true,
     summary: usersNotified
       ? `${usersNotified} kullanıcıya bildirim gönderildi (${totalSent} başarılı, ${totalFailed} başarısız)`
@@ -252,7 +284,7 @@ async function runFullScan(db, bypassDedup, triggerSource) {
     usersNotified,
     sentCount: totalSent,
     failedCount: totalFailed
-  }, triggerSource);
+  }, recipients.length ? { recipients } : {}), triggerSource);
 
   return { usersScanned: usersSnap.size, usersNotified, totalSent, totalFailed };
 }
