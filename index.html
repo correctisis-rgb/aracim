@@ -612,8 +612,8 @@
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.3.8"; // Dynamic Version Tracking
-  var APP_UPDATED = "19 Temmuz 2026";
+  var APP_VERSION = "v1.3.9"; // Dynamic Version Tracking
+  var APP_UPDATED = "20 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -890,6 +890,31 @@
   }
   applyThemeColorMeta();
 
+  // ---------- Bildirim aksiyonlarından gelen derin bağlantı ----------
+  // sw.js'teki "Evet, randevu aldım" aksiyonu tıklanınca uygulama
+  // /aracim/?openAppt=carId:fieldKey şeklinde bir URL ile açılır/odaklanır.
+  // Araç listesi (Firestore'dan) yüklendiğinde bu parametreyi okuyup
+  // ilgili aracın randevu mini-formunu otomatik açıyoruz.
+  var pendingDeepLink = (function () {
+    try {
+      var params = new URLSearchParams(window.location.search);
+      var val = params.get("openAppt");
+      if (!val) return null;
+      var idx = val.indexOf(":");
+      if (idx === -1) return null;
+      return { carId: val.slice(0, idx), key: val.slice(idx + 1) };
+    } catch (e) { return null; }
+  })();
+  function tryOpenPendingDeepLink() {
+    if (!pendingDeepLink) return;
+    var car = (state.cars || []).find(function (c) { return c.id === pendingDeepLink.carId; });
+    if (!car) return; // araç verisi henüz gelmediyse bir sonraki veri güncellemesinde tekrar denenecek
+    state.modal = { type: "quickAppt", carId: car.id, key: pendingDeepLink.key };
+    pendingDeepLink = null;
+    try { window.history.replaceState({}, "", window.location.pathname); } catch (e) {}
+    render();
+  }
+
   function defaultCar() {
     return { id: uid(), name: "Arabam", plate: "34 XX 000", color: CAR_COLORS[0], inspectionDate: null, maintenanceDate: null, photo: null, ruhsat: null };
   }
@@ -918,6 +943,7 @@
     setLocalData("family", state.familyMembers);
     setLocalData("budgets", state.budgets);
     setLocalData("notif_history", state.notifHistory);
+    tryOpenPendingDeepLink();
   }
   function subscribeHousehold(householdId) {
     if (unsubscribeHouseholdDoc) { unsubscribeHouseholdDoc(); unsubscribeHouseholdDoc = null; }
@@ -1496,6 +1522,7 @@
         state.familyMembers = getLocalData("family", []);
         state.budgets = getLocalData("budgets", {});
         render();
+        tryOpenPendingDeepLink();
       }
     });
   }
@@ -2401,6 +2428,7 @@
   function appointmentButtonHTML(it) {
     if (!it.apptKey || !it.date) return "";
     var hasAppt = !!it.apptDate;
+    if (!hasAppt && (it.days == null || it.days > 30)) return "";
     var cls = hasAppt ? "appt-pill appt-pill-set" : "appt-pill appt-pill-empty";
     var text = hasAppt ? ("📅 " + fmtDateTR(it.apptDate)) : "📅 Randevu Ekle";
     return '<button type="button" class="' + cls + '" data-action="open-quick-appt" data-car="' + it.carId + '" data-key="' + it.apptKey + '" title="' + (hasAppt ? "Randevuyu düzenle" : "Randevu tarihi ekle") + '">' + text + '</button>';
