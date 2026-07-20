@@ -14,6 +14,20 @@
 // firebase SDK'yı tamamen kaldırdık ve tek, koşulsuz bir native dinleyici
 // kullanıyoruz. Bu hem gerçek FCM mesajlarını hem DevTools test push'larını
 // güvenilir şekilde yakalar.
+// Yeni bir sw.js sürümü yayınlandığında, tarayıcı normalde eski sürüm
+// tüm sekmelerde/uygulama örneklerinde tamamen kapanana kadar yenisini
+// beklemede tutar. iOS'ta PWA'yı kapatıp açmak bazen bunu tetiklemeyebiliyor.
+// skipWaiting + clients.claim ile yeni sürüm kayıt olur olmaz hemen
+// devreye girer, böylece bildirimlerdeki değişiklikler (ör. aksiyon
+// düğmeleri) bir sonraki uygulama açılışında değil, mümkün olan en kısa
+// sürede aktif olur.
+self.addEventListener("install", function (event) {
+  self.skipWaiting();
+});
+self.addEventListener("activate", function (event) {
+  event.waitUntil(clients.claim());
+});
+
 self.addEventListener("push", function (event) {
   var payload = {};
   if (event.data) {
