@@ -612,7 +612,7 @@
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.4.4"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.4.5"; // Dynamic Version Tracking
   var APP_UPDATED = "20 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -956,8 +956,15 @@
     return state.householdId || (state.currentUser && state.currentUser.id) || null;
   }
   function buildMemberProfileEntry(uidVal, name, email) {
-    var patch = {};
-    patch["memberProfiles." + uidVal] = { name: name || "Üye", email: email || "" };
+    // ÖNEMLİ: Bu obje .set(patch, {merge:true}) ile yazılıyor. Firestore'da
+    // set()+merge, nokta içeren string anahtarları ("memberProfiles.uid" gibi)
+    // YOL olarak değil, kelimenin tam anlamıyla içinde nokta olan tek bir alan
+    // adı olarak yorumlar (dot-notation sadece update() içinde yol anlamına
+    // gelir). Bu yüzden burada gerçek iç içe (nested) bir obje kullanıyoruz;
+    // Firestore merge:true bunu yaprak (leaf) seviyesinde birleştirir ve
+    // memberProfiles haritasındaki diğer üyeleri silmez.
+    var patch = { memberProfiles: {} };
+    patch.memberProfiles[uidVal] = { name: name || "Üye", email: email || "" };
     return patch;
   }
   function applyHouseholdData(data) {
