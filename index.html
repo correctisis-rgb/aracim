@@ -612,7 +612,7 @@
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.4.0"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.4.1"; // Dynamic Version Tracking
   var APP_UPDATED = "20 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -2383,7 +2383,7 @@
   // aksiyon düğmesini WebKit kısıtlaması yüzünden gösteremediğimizden, aynı
   // "harici siteye git" seçeneğini randevu formunun içine de ekliyoruz.
   var APPT_EXTERNAL_LINKS = {
-    inspectionDate: { url: "https://www.tuvturk.com.tr", label: "TÜVTÜRK sitesine git" }
+    inspectionDate: { url: "https://www.tuvturk.com.tr", label: "TÜVTÜRK'ten randevu al" }
   };
   function saveCarAppointmentField(carId, fieldKey, apptVal) {
     var car = (state.cars || []).find(function (c) { return c.id === carId; });
@@ -2423,7 +2423,7 @@
       (current ? '<button type="button" class="btn-secondary full" id="qa-clear">Randevuyu Kaldır</button>' : '') +
       '<button type="button" class="btn-primary full" id="qa-save">Kaydet</button>' +
       '</div>' +
-      (extLink ? '<a class="link-btn" href="' + esc(extLink.url) + '" target="_blank" rel="noopener noreferrer" style="display:block;text-align:center;margin-top:10px">Randevu almak istemiyorum, ' + esc(extLink.label) + ' →</a>' : '');
+      (extLink ? '<a class="link-btn" href="' + esc(extLink.url) + '" target="_blank" rel="noopener noreferrer" style="display:block;text-align:center;margin-top:10px">Hayır, henüz almadım — ' + esc(extLink.label) + ' →</a>' : '');
     modal.querySelector("#qa-save").addEventListener("click", function () {
       var val = modal.querySelector("#qa-date").value || null;
       saveCarAppointmentField(m.carId, m.key, val);
