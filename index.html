@@ -612,7 +612,7 @@
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.4.1"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.4.2"; // Dynamic Version Tracking
   var APP_UPDATED = "20 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -893,20 +893,51 @@
   // ---------- Bildirim aksiyonlarından gelen derin bağlantı ----------
   // sw.js'teki "Evet, randevu aldım" aksiyonu tıklanınca uygulama
   // /aracim/?openAppt=carId:fieldKey şeklinde bir URL ile açılır/odaklanır.
-  // Araç listesi (Firestore'dan) yüklendiğinde bu parametreyi okuyup
-  // ilgili aracın randevu mini-formunu otomatik açıyoruz.
+  // Birden fazla farklı tarihe bağlı hatırlatma aynı bildirimde birlikte
+  // tetiklendiyse, sw.js bunun yerine tüm listeyi
+  // /aracim/?openAppts=carId1:fieldKey1,carId2:fieldKey2 şeklinde gönderir.
+  // Araç listesi (Firestore'dan) yüklendiğinde bu parametreleri okuyup
+  // ilgili aracın randevu mini-formunu (tekli) ya da bir seçim ekranını
+  // (çoklu) otomatik açıyoruz.
   var pendingDeepLink = (function () {
     try {
       var params = new URLSearchParams(window.location.search);
+      var multi = params.get("openAppts");
+      if (multi) {
+        var pairs = multi.split(",").map(function (pair) {
+          var idx = pair.indexOf(":");
+          if (idx === -1) return null;
+          return { carId: pair.slice(0, idx), key: pair.slice(idx + 1) };
+        }).filter(Boolean);
+        return pairs.length ? { multi: true, items: pairs } : null;
+      }
       var val = params.get("openAppt");
       if (!val) return null;
       var idx = val.indexOf(":");
       if (idx === -1) return null;
-      return { carId: val.slice(0, idx), key: val.slice(idx + 1) };
+      return { multi: false, carId: val.slice(0, idx), key: val.slice(idx + 1) };
     } catch (e) { return null; }
   })();
   function tryOpenPendingDeepLink() {
     if (!pendingDeepLink) return;
+    if (pendingDeepLink.multi) {
+      var validItems = pendingDeepLink.items.filter(function (it) {
+        return (state.cars || []).some(function (c) { return c.id === it.carId; });
+      });
+      if (!validItems.length) return; // araç verisi henüz gelmediyse bir sonraki veri güncellemesinde tekrar denenecek
+      pendingDeepLink = null;
+      try { window.history.replaceState({}, "", window.location.pathname); } catch (e) {}
+      // Geçerli tek bir hatırlatma kaldıysa (ör. diğer araç bu arada
+      // silindiyse), doğrudan onun randevu formunu aç; birden fazlaysa
+      // kullanıcının seçebileceği bir liste ekranı göster.
+      if (validItems.length === 1) {
+        state.modal = { type: "quickAppt", carId: validItems[0].carId, key: validItems[0].key };
+      } else {
+        state.modal = { type: "reminderPicker", items: validItems };
+      }
+      render();
+      return;
+    }
     var car = (state.cars || []).find(function (c) { return c.id === pendingDeepLink.carId; });
     if (!car) return; // araç verisi henüz gelmediyse bir sonraki veri güncellemesinde tekrar denenecek
     state.modal = { type: "quickAppt", carId: car.id, key: pendingDeepLink.key };
@@ -2379,6 +2410,11 @@
     insuranceDate: "Trafik Sigortası", kaskoDate: "Kasko",
     taxDate: "Vergi (MTV)", tireDate: "Lastik Değişimi"
   };
+  var APPT_FIELD_EMOJI = {
+    inspectionDate: "🗓️", maintenanceDate: "🔧",
+    insuranceDate: "🛡️", kaskoDate: "🚙",
+    taxDate: "💰", tireDate: "🛞"
+  };
   // sw.js'teki APPT_EXTERNAL_LINKS ile aynı liste. iOS bildirimlerde "Hayır"
   // aksiyon düğmesini WebKit kısıtlaması yüzünden gösteremediğimizden, aynı
   // "harici siteye git" seçeneğini randevu formunun içine de ekliyoruz.
@@ -2430,6 +2466,40 @@
     });
     var clearBtn = modal.querySelector("#qa-clear");
     if (clearBtn) clearBtn.addEventListener("click", function () { saveCarAppointmentField(m.carId, m.key, null); });
+    return modal;
+  }
+
+  // Bildirimde birden fazla farklı tarihe bağlı hatırlatma birlikte
+  // tetiklendiğinde (bkz. pendingDeepLink), tek bir randevu formuna
+  // atlamak yerine kullanıcının hangisi için işlem yapacağını seçebileceği
+  // bir liste ekranı gösteririz. Bir öğeye dokununca normal "open-quick-appt"
+  // aksiyonu üzerinden ilgili randevu formu açılır.
+  function buildReminderPickerModal() {
+    var m = state.modal || {};
+    var items = (m.items || []).map(function (it) {
+      var car = (state.cars || []).find(function (c) { return c.id === it.carId; });
+      return {
+        carId: it.carId,
+        key: it.key,
+        carName: car ? car.name : "Araç",
+        label: APPT_FIELD_LABELS[it.key] || it.key,
+        emoji: APPT_FIELD_EMOJI[it.key] || "📌"
+      };
+    });
+    var modal = document.createElement("div");
+    modal.className = "modal";
+    modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
+    var html = '<div class="modal-head"><h3>🔔 Hatırlatmalar</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>' +
+      '<p class="field-hint" style="margin-top:-4px">Birden fazla hatırlatman var. Randevu almak ya da tarih güncellemek için birini seç:</p>' +
+      '<ul class="err-list">' +
+      items.map(function (it) {
+        return '<li class="err-item">' +
+          '<div class="err-item-msg">' + it.emoji + ' ' + esc(it.carName) + ' — ' + esc(it.label) + '</div>' +
+          '<button type="button" class="btn-secondary full" data-action="open-quick-appt" data-car="' + esc(it.carId) + '" data-key="' + esc(it.key) + '" style="margin-top:8px">Randevu / Tarih Gir →</button>' +
+          '</li>';
+      }).join("") +
+      '</ul>';
+    modal.innerHTML = html;
     return modal;
   }
 
@@ -2829,6 +2899,8 @@
       backdrop.appendChild(buildProfileModal());
     } else if (state.modal.type === "quickAppt") {
       backdrop.appendChild(buildQuickApptModal());
+    } else if (state.modal.type === "reminderPicker") {
+      backdrop.appendChild(buildReminderPickerModal());
     } else if (state.modal.type === "notifHistory") {
       backdrop.appendChild(buildNotifHistoryModal());
     } else if (state.modal.type === "health") {
