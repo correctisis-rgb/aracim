@@ -40,19 +40,28 @@ async function writeRunLog(db, logData, triggerSource) {
 async function sendAnnouncement(db, title, body, triggerSource) {
   const usersSnap = await db.collection("users").get();
   const tokenEntries = [];
+  // userInfoById: TÜM kullanıcıları (token'ı olsun olmasın) baştan kaydeder,
+  // böylece admin panelindeki "kimlere ulaştı/ulaşmadı" listesinde hiç cihaz
+  // kaydı olmayan kullanıcılar da (0 cihaz olarak) görünür.
+  const userInfoById = {};
   usersSnap.forEach((doc) => {
     const u = doc.data();
+    userInfoById[doc.id] = { name: u.name || u.email || doc.id, email: u.email || "" };
     (u.fcmTokens || []).forEach((t) => tokenEntries.push({ token: t, ownerId: doc.id }));
   });
 
   if (!tokenEntries.length) {
-    await writeRunLog(db, {
+    const recipients = Object.keys(userInfoById).map((id) => ({
+      household: userInfoById[id].name,
+      members: [{ name: userInfoById[id].name, email: userInfoById[id].email, deviceCount: 0, success: false, failed: 0 }]
+    }));
+    await writeRunLog(db, Object.assign({
       kind: "announcement",
       success: true,
       summary: `Duyuru "${title}" — gönderilecek kayıtlı cihaz bulunamadı.`,
       sentCount: 0,
       failedCount: 0
-    }, triggerSource);
+    }, recipients.length ? { recipients } : {}), triggerSource);
     return { deviceCount: 0, sentCount: 0, failedCount: 0 };
   }
 
@@ -60,6 +69,7 @@ async function sendAnnouncement(db, title, body, triggerSource) {
   let totalSuccess = 0;
   let totalFailed = 0;
   const invalidByOwner = {};
+  const deviceResultsByOwner = {}; // ownerId -> { success, failed }
 
   for (let i = 0; i < tokenEntries.length; i += CHUNK) {
     const chunk = tokenEntries.slice(i, i + CHUNK);
@@ -71,12 +81,17 @@ async function sendAnnouncement(db, title, body, triggerSource) {
     totalSuccess += response.successCount;
     totalFailed += response.failureCount;
     response.responses.forEach((r, idx) => {
-      if (!r.success) {
+      const owner = chunk[idx].ownerId;
+      if (!deviceResultsByOwner[owner]) deviceResultsByOwner[owner] = { success: 0, failed: 0 };
+      if (r.success) {
+        deviceResultsByOwner[owner].success++;
+      } else {
+        deviceResultsByOwner[owner].failed++;
         const code = r.error && r.error.code;
         if (code === "messaging/invalid-registration-token" || code === "messaging/registration-token-not-registered") {
-          const owner = chunk[idx].ownerId;
-          if (!invalidByOwner[owner]) invalidByOwner[owner] = [];
-          invalidByOwner[owner].push(chunk[idx].token);
+          const owner2 = chunk[idx].ownerId;
+          if (!invalidByOwner[owner2]) invalidByOwner[owner2] = [];
+          invalidByOwner[owner2].push(chunk[idx].token);
         }
       }
     });
@@ -88,12 +103,27 @@ async function sendAnnouncement(db, title, body, triggerSource) {
     }, { merge: true }).catch(() => {});
   }
 
+  // recipients: admin panelinin "kimlere ulaştı/ulaşmadı" listesi için —
+  // her kullanıcı tek üyeli bir "hane" olarak eklenir (bkz. index.html
+  // renderRunLogRecipients). Hiç cihazı olmayan kullanıcılar da (deviceCount: 0,
+  // success: false) listede görünür.
+  const recipients = Object.keys(userInfoById).map((id) => {
+    const info = userInfoById[id];
+    const res = deviceResultsByOwner[id] || { success: 0, failed: 0 };
+    const deviceCount = res.success + res.failed;
+    return {
+      household: info.name,
+      members: [{ name: info.name, email: info.email, deviceCount, success: deviceCount > 0 && res.failed === 0, failed: res.failed }]
+    };
+  });
+
   await writeRunLog(db, {
     kind: "announcement",
     success: true,
     summary: `Duyuru gönderildi: "${title}" — ${tokenEntries.length} cihaza (${totalSuccess} başarılı, ${totalFailed} başarısız)`,
     sentCount: totalSuccess,
-    failedCount: totalFailed
+    failedCount: totalFailed,
+    recipients
   }, triggerSource);
 
   return { deviceCount: tokenEntries.length, sentCount: totalSuccess, failedCount: totalFailed };
