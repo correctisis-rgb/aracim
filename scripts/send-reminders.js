@@ -389,7 +389,7 @@ async function main() {
                 newNotifState[apptStateKey] = todayDateStrTR() + ":manual";
               }
               const when = apptDays === 0 ? "bugün" : "yarın";
-              triggered.push(`${f.emoji} ${carName}: ${f.label} randevun ${when}`);
+              triggered.push({ text: `${f.emoji} ${carName}: ${f.label} randevun ${when}`, carId: car.id, fieldKey: f.key, actionable: false });
               return;
             }
             // apptDays < 0 → randevu günü geçti. index.html, randevu ilk
@@ -412,7 +412,7 @@ async function main() {
               } else {
                 newNotifState[missedKey] = true;
               }
-              triggered.push(`${f.emoji} ${carName}: ${f.label} tarihini güncellemeyi unuttun mu?`);
+              triggered.push({ text: `${f.emoji} ${carName}: ${f.label} tarihini güncellemeyi unuttun mu?`, carId: car.id, fieldKey: f.key, actionable: false });
               return;
             }
             // dueSnapshot ile dateVal farklı: kullanıcı vade tarihini
@@ -441,7 +441,7 @@ async function main() {
         }
 
         const dayText = days === 0 ? "bugün" : days > 0 ? days + " gün içinde" : Math.abs(days) + " gün geçti";
-        triggered.push(`${f.emoji} ${carName}: ${f.label} ${dayText}`);
+        triggered.push({ text: `${f.emoji} ${carName}: ${f.label} ${dayText}`, carId: car.id, fieldKey: f.key, actionable: true });
       });
 
       if (car.maintenanceKm != null && car.currentKm != null) {
@@ -455,7 +455,7 @@ async function main() {
             const kmText = remaining <= 0
               ? `bakım kilometresi ${Math.abs(Math.round(remaining)).toLocaleString("tr-TR")} km geçti`
               : `bakıma ${Math.round(remaining).toLocaleString("tr-TR")} km kaldı`;
-            triggered.push(`🔧 ${carName}: ${kmText}`);
+            triggered.push({ text: `🔧 ${carName}: ${kmText}`, carId: car.id, fieldKey: null, actionable: false });
           }
         }
       }
@@ -464,7 +464,18 @@ async function main() {
     if (!triggered.length) continue;
 
     const title = triggered.length === 1 ? "Garaj Defteri — Hatırlatma" : `Garaj Defteri — ${triggered.length} hatırlatma`;
-    const body = triggered.slice(0, 3).join("  •  ") + (triggered.length > 3 ? ` (+${triggered.length - 3} diğer)` : "");
+    const body = triggered.slice(0, 3).map((t) => t.text).join("  •  ") + (triggered.length > 3 ? ` (+${triggered.length - 3} diğer)` : "");
+
+    // Tek bir tarihe bağlı ve henüz randevusu girilmemiş işlem tetiklendiyse
+    // (ör. sadece Muayene vade hatırlatması), bildirime sw.js'in okuyup
+    // "Evet, randevu aldım / Hayır" aksiyon düğmelerine çevireceği carId/
+    // fieldKey bilgisini ekliyoruz. Birden fazla işlem tetiklenirse, ya da
+    // tetiklenen tek şey zaten randevusu olan/km bazlı bir uyarıysa
+    // (triggered[0].actionable === false) aksiyon eklemiyoruz.
+    let actionData = null;
+    if (triggered.length === 1 && triggered[0].actionable && triggered[0].fieldKey) {
+      actionData = { carId: triggered[0].carId, fieldKey: triggered[0].fieldKey, actionable: "true" };
+    }
 
     console.log(`→ ${userDoc.id}: ${body}`);
     console.log(`  Gönderiliyor: ${tokens.length} cihaz token'ı bulundu.`);
@@ -472,7 +483,7 @@ async function main() {
     const response = await admin.messaging().sendEachForMulticast({
       tokens,
       notification: { title, body },
-      data: { url: "/aracim/" }
+      data: Object.assign({ url: "/aracim/" }, actionData || {})
     });
 
     console.log(`  Sonuç: ${response.successCount} başarılı, ${response.failureCount} başarısız.`);
@@ -535,7 +546,7 @@ async function main() {
     // her gönderimi hanenin doc'undaki notifHistory dizisine ekliyoruz. En
     // yeni kayıt başa eklenir, liste en fazla 40 kayıtla sınırlı tutulur.
     const newNotifHistory = [
-      { title, body, items: triggered, sentAt: admin.firestore.Timestamp.now() }
+      { title, body, items: triggered.map((t) => t.text), sentAt: admin.firestore.Timestamp.now() }
     ].concat(user.notifHistory || []).slice(0, 40);
 
     // notifState ve notifHistory her zaman hanenin asıl (araçların
