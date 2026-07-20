@@ -612,7 +612,7 @@
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.4.3"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.4.4"; // Dynamic Version Tracking
   var APP_UPDATED = "20 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -978,13 +978,32 @@
     setLocalData("notif_history", state.notifHistory);
     tryOpenPendingDeepLink();
   }
+  // Şu anki kullanıcının, verilen hane belgesinde (memberProfiles/members)
+  // kendi kaydı yoksa ekler. Hem kendi hanesi hem de sonradan katıldığı
+  // paylaşılan bir hane için kullanılabilir — bu sayede "hane sahibi
+  // üyeyi göremiyor" gibi senaryolar, katılma sırası ne olursa olsun
+  // kendiliğinden düzelir. arrayUnion kullanır, asla mevcut üyeleri silmez.
+  function ensureSelfInHousehold(householdDocId, data) {
+    if (!state.currentUser) return;
+    var myUid = state.currentUser.id;
+    var members = data.members || [];
+    var hasProfile = data.memberProfiles && data.memberProfiles[myUid];
+    if (members.indexOf(myUid) === -1 || !hasProfile) {
+      var patch = buildMemberProfileEntry(myUid, state.currentUser.name, state.currentUser.email);
+      patch.members = firebase.firestore.FieldValue.arrayUnion(myUid);
+      db.collection("users").doc(householdDocId).set(patch, { merge: true })
+        .catch(function (err) { console.error(err); });
+    }
+  }
   function subscribeHousehold(householdId) {
     if (unsubscribeHouseholdDoc) { unsubscribeHouseholdDoc(); unsubscribeHouseholdDoc = null; }
     state.householdId = householdId;
     var ref = db.collection("users").doc(householdId);
     unsubscribeHouseholdDoc = ref.onSnapshot(function (snap) {
       if (!snap.exists) return;
-      applyHouseholdData(snap.data() || {});
+      var data = snap.data() || {};
+      applyHouseholdData(data);
+      ensureSelfInHousehold(householdId, data);
       render();
     }, function (err) { console.error(err); });
   }
@@ -1529,12 +1548,9 @@
       // ortak bir haneye katılınca bile kendi adı değişmez.
       state.currentUser = { id: fbUser.uid, name: data.name || fbUser.displayName || "Kullanıcı", email: data.email || fbUser.email, avatar: data.avatar || null };
 
-      // Eski hesaplarda "members" alanı olmayabilir — ilk fırsatta ekleyelim ki
-      // bu hane ileride bir davet koduyla paylaşılabilsin.
-      if (!data.members) {
-        docRef.set(buildMemberProfileEntryWithMembers(fbUser.uid, state.currentUser.name, state.currentUser.email), { merge: true })
-          .catch(function (err) { console.error(err); });
-      }
+      // Bu kişi kendi hane belgesinde (memberProfiles/members) henüz kayıtlı
+      // değilse ekleyelim (bkz. ensureSelfInHousehold).
+      ensureSelfInHousehold(fbUser.uid, data);
 
       var targetHousehold = data.householdId || fbUser.uid;
       if (targetHousehold === fbUser.uid) {
@@ -1563,7 +1579,7 @@
 
   function buildMemberProfileEntryWithMembers(uidVal, name, email) {
     var patch = buildMemberProfileEntry(uidVal, name, email);
-    patch.members = [uidVal];
+    patch.members = firebase.firestore.FieldValue.arrayUnion(uidVal);
     return patch;
   }
 
