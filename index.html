@@ -374,6 +374,13 @@
   /* ---------- Family Section ---------- */
   .family-list { list-style: none; padding: 0; margin: 10px 0 16px 0; display: flex; flex-direction: column; gap: 8px; }
   .family-item { display: flex; align-items: center; justify-content: space-between; background: var(--bg); border: 1px solid var(--border); padding: 8px 12px; border-radius: 8px; }
+
+  .qr-canvas-wrap { display: flex; justify-content: center; align-items: center; background: #FFFFFF; border-radius: 12px; padding: 18px; margin: 6px 0 12px; }
+  .qr-canvas-wrap canvas { max-width: 100%; height: auto; display: block; }
+  .qr-code-text { text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 13px; letter-spacing: 0.02em; color: var(--muted); word-break: break-all; margin: 0 0 14px; }
+  .qr-scan-wrap { position: relative; width: 100%; aspect-ratio: 1 / 1; background: #000; border-radius: 12px; overflow: hidden; margin: 6px 0 12px; }
+  .qr-scan-wrap video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .qr-scan-frame { position: absolute; inset: 14%; border: 3px solid var(--amber); border-radius: 16px; box-shadow: 0 0 0 999px rgba(0,0,0,0.4); pointer-events: none; }
   .family-name { font-weight: 500; font-size: 13px; }
   .family-role { font-size: 11px; color: var(--amber); background: rgba(242,169,59,0.1); padding: 2px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; }
 
@@ -532,6 +539,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-messaging-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <script>
   var firebaseConfig = {
     apiKey: "AIzaSyCcfODFLDPVA4zr7L6xKPjEA6-Vle3XPio",
@@ -552,6 +561,8 @@
   var db = firebase.firestore();
   var unsubscribeUserDoc = null;
   var unsubscribeHouseholdDoc = null;
+  var qrScanStream = null;
+  var qrScanRAF = null;
 
   // ---------- service worker kaydı ----------
   // NOT: Bu kayıt artık burada, en başta yapılıyor (sayfa 'load' olayını beklemiyor).
@@ -612,7 +623,7 @@
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.4.7"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.4.8"; // Dynamic Version Tracking
   var APP_UPDATED = "20 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -2992,8 +3003,118 @@
       backdrop.appendChild(buildErrorsModal());
     } else if (state.modal.type === "announcement") {
       backdrop.appendChild(buildAnnouncementModal());
+    } else if (state.modal.type === "householdQR") {
+      backdrop.appendChild(buildHouseholdQRModal());
+    } else if (state.modal.type === "householdScan") {
+      backdrop.appendChild(buildHouseholdScanModal());
     }
     document.body.appendChild(backdrop);
+  }
+
+  function buildHouseholdQRModal() {
+    var code = state.householdId || "";
+    var modal = document.createElement("div");
+    modal.className = "modal";
+    modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
+    modal.innerHTML =
+      '<div class="modal-head"><h3>🔳 Davet QR Kodu</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>' +
+      '<p class="field-hint" style="margin-top:-4px">Ortak haneye katılmak isteyen kişi bu kodu "📷 QR Okut" ile taratsın.</p>' +
+      '<div class="qr-canvas-wrap"><canvas id="household-qr-canvas"></canvas></div>' +
+      '<p class="qr-code-text">' + esc(code) + '</p>' +
+      '<div class="budget-row">' +
+        '<button type="button" class="btn-secondary full" id="qr-copy">📋 Kodu Kopyala</button>' +
+        '<button type="button" class="btn-primary full" id="qr-share">📤 Paylaş</button>' +
+      '</div>';
+
+    if (code) {
+      if (window.QRCode) {
+        var canvas = modal.querySelector("#household-qr-canvas");
+        QRCode.toCanvas(canvas, code, { width: 220, margin: 1, color: { dark: "#1B1F24", light: "#FFFFFF" } }, function (err) {
+          if (err) { console.error(err); toast("QR kod oluşturulamadı."); }
+        });
+      } else {
+        modal.querySelector(".qr-canvas-wrap").innerHTML = '<p class="empty-hint">QR kütüphanesi yüklenemedi, internet bağlantını kontrol et.</p>';
+      }
+    } else {
+      modal.querySelector(".qr-canvas-wrap").innerHTML = '<p class="empty-hint">Kod bulunamadı.</p>';
+    }
+
+    var qrCopyBtn = modal.querySelector("#qr-copy");
+    if (qrCopyBtn) qrCopyBtn.addEventListener("click", function () {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code).then(function () { toast("Kod kopyalandı."); }).catch(function () { toast("Kopyalanamadı, elle seçip kopyalayabilirsin."); });
+      } else {
+        toast("Kopyalanamadı, elle seçip kopyalayabilirsin.");
+      }
+    });
+    var qrShareBtn = modal.querySelector("#qr-share");
+    if (qrShareBtn) qrShareBtn.addEventListener("click", function () { shareHouseholdInvite(); });
+
+    return modal;
+  }
+
+  function buildHouseholdScanModal() {
+    var modal = document.createElement("div");
+    modal.className = "modal";
+    modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
+    modal.innerHTML =
+      '<div class="modal-head"><h3>📷 QR Okut</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>' +
+      '<p class="field-hint" style="margin-top:-4px">Ortak hane sahibinin sana gösterdiği davet QR kodunu kameraya tut.</p>' +
+      '<div class="qr-scan-wrap"><video id="qr-scan-video" autoplay playsinline muted></video><div class="qr-scan-frame"></div></div>' +
+      '<canvas id="qr-scan-canvas" style="display:none;"></canvas>' +
+      '<p class="field-hint" id="qr-scan-status">Kamera açılıyor…</p>' +
+      '<button type="button" class="btn-secondary full" data-action="close-modal">İptal</button>';
+
+    var video = modal.querySelector("#qr-scan-video");
+    var canvas = modal.querySelector("#qr-scan-canvas");
+    var statusEl = modal.querySelector("#qr-scan-status");
+    var ctx = canvas.getContext("2d", { willReadFrequently: true });
+    var done = false;
+
+    function tick() {
+      if (done) return;
+      if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        var imageData;
+        try {
+          imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        } catch (e) {
+          imageData = null;
+        }
+        var result = (imageData && window.jsQR) ? jsQR(imageData.data, imageData.width, imageData.height) : null;
+        if (result && result.data) {
+          done = true;
+          var scannedCode = result.data.trim();
+          stopQrScan();
+          closeModal();
+          state.modal = { type: "profile" };
+          render();
+          joinHousehold(scannedCode);
+          return;
+        }
+      }
+      qrScanRAF = requestAnimationFrame(tick);
+    }
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      statusEl.textContent = "Bu cihaz/tarayıcı kamera erişimini desteklemiyor.";
+    } else if (!window.jsQR) {
+      statusEl.textContent = "QR okuma kütüphanesi yüklenemedi, internet bağlantını kontrol et.";
+    } else {
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }).then(function (stream) {
+        qrScanStream = stream;
+        video.srcObject = stream;
+        statusEl.textContent = "Kodu çerçeve içine getir…";
+        qrScanRAF = requestAnimationFrame(tick);
+      }).catch(function (err) {
+        console.error(err);
+        statusEl.textContent = "Kameraya erişilemedi: izin verildiğinden emin ol.";
+      });
+    }
+
+    return modal;
   }
 
   function buildProfileModal() {
@@ -3044,6 +3165,7 @@
       '<div class="budget-row">' +
         '<input id="household-code-display" readonly value="' + esc(state.householdId || "") + '" style="flex:1" />' +
         '<button type="button" class="btn-secondary" id="household-copy">📋 Kopyala</button>' +
+        '<button type="button" class="btn-secondary" id="household-qr">🔳 QR</button>' +
         '<button type="button" class="btn-primary" id="household-share">📤 Paylaş</button>' +
       '</div>' +
       '<ul class="family-list">' + memberListHtml + '</ul>' +
@@ -3051,7 +3173,10 @@
       '<div class="field-row">' +
         '<input id="household-join-code" placeholder="Katılmak istediğin davet kodu" style="background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:8px 10px; font-size:14px; width:100%;" />' +
       '</div>' +
-      '<button type="button" class="btn-secondary full" id="household-join" style="margin-top:8px;">Koda Katıl</button>' +
+      '<div class="budget-row" style="margin-top:8px;">' +
+        '<button type="button" class="btn-secondary full" id="household-join">Koda Katıl</button>' +
+        '<button type="button" class="btn-secondary full" id="household-scan">📷 QR Okut</button>' +
+      '</div>' +
 
       '<p class="profile-section-title">Şifre Değiştir</p>' +
       '<label class="field"><span>Mevcut şifre</span><input id="p-cur-pass" type="password" autocomplete="current-password" /></label>' +
@@ -3076,6 +3201,16 @@
     });
     var householdShareBtn = modal.querySelector("#household-share");
     if (householdShareBtn) householdShareBtn.addEventListener("click", function () { shareHouseholdInvite(); });
+    var householdQrBtn = modal.querySelector("#household-qr");
+    if (householdQrBtn) householdQrBtn.addEventListener("click", function () {
+      state.modal = { type: "householdQR" };
+      render();
+    });
+    var householdScanBtn = modal.querySelector("#household-scan");
+    if (householdScanBtn) householdScanBtn.addEventListener("click", function () {
+      state.modal = { type: "householdScan" };
+      render();
+    });
     var householdLeaveBtn = modal.querySelector("#household-leave");
     if (householdLeaveBtn) householdLeaveBtn.addEventListener("click", function () { leaveHousehold(); });
     var householdJoinBtn = modal.querySelector("#household-join");
@@ -3772,8 +3907,17 @@
   }
 
   function closeModal() {
+    stopQrScan();
     state.modal = null;
     document.querySelectorAll(".modal-backdrop").forEach(function (el) { el.remove(); });
+  }
+
+  function stopQrScan() {
+    if (qrScanRAF) { cancelAnimationFrame(qrScanRAF); qrScanRAF = null; }
+    if (qrScanStream) {
+      qrScanStream.getTracks().forEach(function (t) { t.stop(); });
+      qrScanStream = null;
+    }
   }
 
   function renderLightbox() {
