@@ -612,7 +612,7 @@
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.4.5"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.4.6"; // Dynamic Version Tracking
   var APP_UPDATED = "20 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1012,7 +1012,36 @@
       applyHouseholdData(data);
       ensureSelfInHousehold(householdId, data);
       render();
-    }, function (err) { console.error(err); });
+    }, function (err) {
+      console.error(err);
+      // Hane sahibi bizi ortak haneden çıkarmış olabilir: o durumda bu
+      // dokümanı okuma iznimiz kesilir (permission-denied). Sessizce takılı
+      // kalmak yerine kendi (boş) hanemize otomatik dönelim.
+      if (err && err.code === "permission-denied") {
+        handleHouseholdAccessRevoked();
+      }
+    });
+  }
+
+  function handleHouseholdAccessRevoked() {
+    if (!state.currentUser) return;
+    var myUid = state.currentUser.id;
+    if (state.householdId === myUid) return; // zaten kendi hanemizdeyiz, alakasız bir hata
+    if (unsubscribeHouseholdDoc) { unsubscribeHouseholdDoc(); unsubscribeHouseholdDoc = null; }
+    var ownRef = db.collection("users").doc(myUid);
+    ownRef.set({ householdId: firebase.firestore.FieldValue.delete() }, { merge: true })
+      .catch(function (err) { console.error(err); })
+      .then(function () { return ownRef.get(); })
+      .then(function (snap) {
+        state.householdId = myUid;
+        var ownData = snap.data() || {};
+        applyHouseholdData(ownData);
+        ensureSelfInHousehold(myUid, ownData);
+        if (state.modal && state.modal.type === "profile") { state.modal = { type: "profile" }; renderModal(); }
+        toast("Ortak haneden çıkarıldın, kendi hanene döndürüldün.");
+        render();
+      })
+      .catch(function (err) { console.error(err); });
   }
 
   // --- Offline & Cloud Sync ---
