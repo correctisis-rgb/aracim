@@ -654,7 +654,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.5.1"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.5.2"; // Dynamic Version Tracking
   var APP_UPDATED = "20 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1677,8 +1677,31 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return patch;
   }
 
+  // Kullanıcı, "Koda Katıl" alanına bazen (özellikle telefonda WhatsApp/SMS'te
+  // mesaj balonuna uzun basıp kopyalayınca) sadece kodu değil, davet
+  // mesajının TAMAMINI yapıştırıyor. Bu fonksiyon, ne yapıştırılırsa
+  // yapıştırılsın (tek başına kod / linkli tam mesaj / başında-sonunda
+  // fazladan boşluk vb.) içinden gerçek davet kodunu otomatik ayıklar.
+  function extractHouseholdCode(rawText) {
+    var text = (rawText || "").trim();
+    if (!text) return "";
+    // Zaten tek parça, boşluksuz bir metinse (kullanıcı kodu elle yazmış ya
+    // da tek başına kopyalamış) olduğu gibi kabul et.
+    if (!/\s/.test(text)) return text;
+    // Mesaj şablonundaki "Davet Kodu: XXXX" satırını ara.
+    var labelMatch = text.match(/Davet\s*Kodu\s*:?\s*([A-Za-z0-9]+)/i);
+    if (labelMatch) return labelMatch[1];
+    // Bulunamazsa: metindeki en uzun saf harf+rakam parçasını kod say.
+    // (Linkler nokta/slash/iki nokta içerdiği için bu taramaya girmez,
+    // davet kodları ise saf alfanumerik Firebase kimlikleridir.)
+    var tokens = text.match(/[A-Za-z0-9]{12,60}/g) || [];
+    if (!tokens.length) return text;
+    tokens.sort(function (a, b) { return b.length - a.length; });
+    return tokens[0];
+  }
+
   function joinHousehold(rawCode) {
-    var code = (rawCode || "").trim();
+    var code = extractHouseholdCode(rawCode);
     if (!code) { toast("Lütfen bir davet kodu gir."); return; }
     if (!state.currentUser) return;
     var myUid = state.currentUser.id;
@@ -3289,6 +3312,21 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var householdJoinBtn = modal.querySelector("#household-join");
     if (householdJoinBtn) householdJoinBtn.addEventListener("click", function () {
       joinHousehold(modal.querySelector("#household-join-code").value);
+    });
+    var householdJoinInput = modal.querySelector("#household-join-code");
+    if (householdJoinInput) householdJoinInput.addEventListener("paste", function () {
+      // Yapıştırma olayı gerçekleşmeden ÖNCE input'un değeri henüz
+      // güncellenmemiş olur; bu yüzden yapıştırılan metin bir sonraki
+      // event-loop turunda okunup ayıklanıyor. Kullanıcı, tüm davet
+      // mesajını yapıştırsa bile kutuda sadece gerçek kod görünsün diye.
+      setTimeout(function () {
+        var full = householdJoinInput.value;
+        var extracted = extractHouseholdCode(full);
+        if (extracted && extracted !== full) {
+          householdJoinInput.value = extracted;
+          toast("Mesajın içinden davet kodu ayıklandı.");
+        }
+      }, 0);
     });
     modal.querySelectorAll('[data-action="household-kick"]').forEach(function (btn) {
       btn.addEventListener("click", function () {
