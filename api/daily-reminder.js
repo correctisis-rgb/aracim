@@ -201,9 +201,12 @@ async function runFullScan(db, bypassDedup, triggerSource) {
     // Tek bir tarihe bağlı işlem tetiklendiyse, bildirime sw.js'in okuyup
     // "Evet, randevu aldım / Hayır" aksiyon düğmelerine çevireceği carId/
     // fieldKey bilgisini ekliyoruz.
+    // Tek bir tarihe bağlı işlem tetiklendiyse, butonları ekle — km bazlı
+    // uyarılar bu sayıma dahil edilmez (bkz. trigger-reminder.js'teki not).
+    const dateBasedItems = triggered.filter((t) => t.actionable && t.fieldKey);
     let actionData = null;
-    if (triggered.length === 1 && triggered[0].actionable && triggered[0].fieldKey) {
-      actionData = { carId: triggered[0].carId, fieldKey: triggered[0].fieldKey, actionable: "true" };
+    if (dateBasedItems.length === 1) {
+      actionData = { carId: dateBasedItems[0].carId, fieldKey: dateBasedItems[0].fieldKey, actionable: "true" };
     }
 
     const response = await admin.messaging().sendEachForMulticast({
