@@ -1749,6 +1749,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           }
           var patch = buildMemberProfileEntry(myUid, state.currentUser.name, state.currentUser.email);
           patch.members = firebase.firestore.FieldValue.arrayUnion(myUid);
+          // Güvenlik kuralı, bu alanın dokümandaki güncel inviteToken ile
+          // birebir eşleştiğini zorunlu kılıyor — yani gerçek/güncel davet
+          // kodunu bilmeyen biri bu yazma işlemini asla geçemez.
+          patch.inviteTokenUsed = token;
           return targetRef.set(patch, { merge: true });
         }).then(function () {
           return db.collection("users").doc(myUid).set({ householdId: code }, { merge: true });
