@@ -83,13 +83,23 @@ function kmTier(remaining) {
 
 // Bir kullanıcı dokümanındaki token listesine bildirim gönderir,
 // geçersiz token'ları o dokümandan temizler ve gönderim sayaçlarını döner.
-async function sendToTokens(db, docId, tokens, title, body) {
+// extraData: { carId, fieldKey, actionable } gibi ek alanlar; sw.js bunları
+// okuyup bildirime "Evet / Hayır" aksiyon düğmeleri ekler. FCM data
+// payload'ı yalnızca string değer kabul eder, bu yüzden burada stringe
+// çeviriyoruz.
+async function sendToTokens(db, docId, tokens, title, body, extraData) {
   if (!tokens || !tokens.length) return { sent: 0, failed: 0 };
+
+  var dataPayload = Object.assign({ url: "/aracim/" }, extraData || {});
+  var stringData = {};
+  Object.keys(dataPayload).forEach(function (k) {
+    if (dataPayload[k] != null) stringData[k] = String(dataPayload[k]);
+  });
 
   const response = await admin.messaging().sendEachForMulticast({
     tokens,
     notification: { title, body },
-    data: { url: "/aracim/" }
+    data: stringData
   });
 
   const invalidTokens = [];
@@ -150,7 +160,7 @@ async function runFullScan(db, bypassDedup, triggerSource) {
         newNotifState[stateKey] = days;
         const carName = car.name || "Aracın";
         const dayText = days === 0 ? "bugün" : days + " gün içinde";
-        triggered.push(`${f.emoji} ${carName}: ${f.label} ${dayText}`);
+        triggered.push({ text: `${f.emoji} ${carName}: ${f.label} ${dayText}`, carId: car.id, fieldKey: f.key });
       });
 
       if (car.maintenanceKm != null && car.currentKm != null) {
@@ -164,7 +174,7 @@ async function runFullScan(db, bypassDedup, triggerSource) {
             const kmText = remaining <= 0
               ? `bakım kilometresi ${Math.abs(Math.round(remaining)).toLocaleString("tr-TR")} km geçti`
               : `bakıma ${Math.round(remaining).toLocaleString("tr-TR")} km kaldı`;
-            triggered.push(`🔧 ${carName}: ${kmText}`);
+            triggered.push({ text: `🔧 ${carName}: ${kmText}`, carId: car.id, fieldKey: null });
           }
         }
       }
@@ -173,11 +183,21 @@ async function runFullScan(db, bypassDedup, triggerSource) {
     if (!triggered.length) continue;
 
     const title = triggered.length === 1 ? "Garaj Defteri — Hatırlatma" : `Garaj Defteri — ${triggered.length} Hatırlatma`;
-    const bodyBase = triggered.slice(0, 3).join("  •  ") + (triggered.length > 3 ? ` (+${triggered.length - 3} diğer)` : "");
+    const bodyBase = triggered.slice(0, 3).map((t) => t.text).join("  •  ") + (triggered.length > 3 ? ` (+${triggered.length - 3} diğer)` : "");
+
+    // Tek bir tarihe bağlı işlem tetiklendiyse (ör. sadece Muayene), bildirime
+    // "Evet, randevu aldım / Hayır" aksiyon düğmeleri ekleyebiliriz. Birden
+    // fazla işlem aynı anda tetiklenirse ya da tetiklenen tek şey km bazlı bir
+    // bakım uyarısıysa (fieldKey yok), aksiyon eklemiyoruz — hangi işlem için
+    // olduğu net değil.
+    let actionData = null;
+    if (triggered.length === 1 && triggered[0].fieldKey) {
+      actionData = { carId: triggered[0].carId, fieldKey: triggered[0].fieldKey, actionable: "true" };
+    }
 
     // --- Hane sahibine gönder ---
     const ownerTokens = user.fcmTokens || [];
-    const ownerResult = await sendToTokens(db, ownerId, ownerTokens, title, bodyBase);
+    const ownerResult = await sendToTokens(db, ownerId, ownerTokens, title, bodyBase, actionData);
     totalSent += ownerResult.sent;
     totalFailed += ownerResult.failed;
     if (ownerResult.sent > 0) usersNotified++;
@@ -199,7 +219,7 @@ async function runFullScan(db, bypassDedup, triggerSource) {
         const memberTokens = memberData.fcmTokens || [];
         if (!memberTokens.length) continue;
 
-        const memberResult = await sendToTokens(db, memberUid, memberTokens, title, memberBody);
+        const memberResult = await sendToTokens(db, memberUid, memberTokens, title, memberBody, actionData);
         totalSent += memberResult.sent;
         totalFailed += memberResult.failed;
         if (memberResult.sent > 0) usersNotified++;
