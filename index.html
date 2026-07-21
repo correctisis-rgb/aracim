@@ -491,6 +491,18 @@
   .err-item-msg { font-size: 12.5px; color: var(--text); line-height: 1.45; word-break: break-word; }
   .err-item-meta { font-size: 10.5px; color: var(--muted); margin-top: 4px; word-break: break-word; }
   .mon-refresh-row { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+  .act-item { cursor: pointer; }
+  .act-item:hover { border-color: var(--amber); }
+  .act-item-caret { font-size: 10px; color: var(--muted); transition: transform .15s ease; margin-left: 4px; }
+  .act-item.expanded .act-item-caret { transform: rotate(90deg); }
+  .act-detail { display: none; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); flex-direction: column; gap: 6px; }
+  .act-item.expanded .act-detail { display: flex; }
+  .act-detail-row { font-size: 11.5px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; }
+  .act-detail-label { color: var(--muted); min-width: 120px; flex-shrink: 0; }
+  .act-old { color: var(--red); text-decoration: line-through; opacity: .85; }
+  .act-arrow { color: var(--muted); }
+  .act-new { color: var(--green); font-weight: 600; }
+  .act-snap-value { color: var(--text); }
   .mon-refresh-row button { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 7px; padding: 5px 10px; font-size: 11.5px; cursor: pointer; font-family: inherit; }
   .mon-refresh-row button:hover { color: var(--text); border-color: var(--amber); }
 
@@ -786,7 +798,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.5.8"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.5.9"; // Dynamic Version Tracking
   var APP_UPDATED = "21 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1394,6 +1406,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       carId: meta.carId || null,
       carName: meta.carName || "",
       summary: meta.summary || "",
+      changes: meta.changes && meta.changes.length ? meta.changes : null,
+      snapshot: meta.snapshot && meta.snapshot.length ? meta.snapshot : null,
       byUid: state.currentUser ? state.currentUser.id : null,
       byName: state.currentUser ? state.currentUser.name : "Bilinmiyor",
       at: new Date().toISOString()
@@ -1420,6 +1434,89 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (!list.length) return;
     var latestMs = new Date(list[0].at).getTime();
     setLocalData("activity_log_seen", isNaN(latestMs) ? Date.now() : latestMs);
+  }
+
+  // ---------- Aktivite detayı: alan bazlı karşılaştırma ----------
+  // Her araç/masraf alanının ekranda nasıl gösterileceğini (etiket + tip)
+  // tanımlar. "type" değeri formatActivityFieldValue() içinde kullanılır.
+  function carActivityFieldDefs() {
+    return [
+      { key: "name", label: "Araç adı" },
+      { key: "plate", label: "Plaka" },
+      { key: "brand", label: "Marka / Model" },
+      { key: "year", label: "Model yılı" },
+      { key: "fuelType", label: "Yakıt tipi" },
+      { key: "transmission", label: "Vites" },
+      { key: "tankCapacity", label: "Depo hacmi (lt)", type: "number" },
+      { key: "inspectionDate", label: "Muayene tarihi", type: "date" },
+      { key: "maintenanceDate", label: "Sonraki bakım tarihi", type: "date" },
+      { key: "insuranceDate", label: "Trafik sigortası bitiş", type: "date" },
+      { key: "kaskoDate", label: "Kasko bitiş", type: "date" },
+      { key: "insuranceCompany", label: "Sigorta şirketi" },
+      { key: "policyNo", label: "Poliçe no" },
+      { key: "taxDate", label: "Vergi (MTV) ödeme tarihi", type: "date" },
+      { key: "tireDate", label: "Lastik değişimi", type: "date" },
+      { key: "vin", label: "Şasi no / VIN" },
+      { key: "currentKm", label: "Güncel kilometre", type: "number" },
+      { key: "maintenanceKm", label: "Sonraki bakım km", type: "number" },
+      { key: "photo", label: "Araç fotoğrafı", type: "photo" },
+      { key: "ruhsat", label: "Ruhsat görüntüsü", type: "photo" }
+    ];
+  }
+  function expenseActivityFieldDefs() {
+    return [
+      { key: "carId", label: "Araç", type: "car" },
+      { key: "category", label: "Kategori", type: "category" },
+      { key: "amount", label: "Tutar", type: "money" },
+      { key: "date", label: "Tarih", type: "date" },
+      { key: "km", label: "Kilometre", type: "number" },
+      { key: "liter", label: "Litre", type: "decimal" },
+      { key: "payerId", label: "Ödeyen", type: "payer" },
+      { key: "note", label: "Not" },
+      { key: "receipt", label: "Fiş / Fatura görseli", type: "photo" }
+    ];
+  }
+  function formatActivityFieldValue(type, value) {
+    if (type === "date") return value ? fmtDateTR(value) : "—";
+    if (type === "number") return (value === null || value === undefined || value === "") ? "—" : groupThousands(String(value));
+    if (type === "decimal") return (value === null || value === undefined || value === "") ? "—" : numberToDisplay(value, true);
+    if (type === "money") return fmtTL(value || 0);
+    if (type === "category") return value ? catById(value).label : "—";
+    if (type === "car") {
+      var c = (state.cars || []).find(function (x) { return x.id === value; });
+      return c ? c.name : "—";
+    }
+    if (type === "payer") {
+      if (!value) return "Ben";
+      var m = (state.familyMembers || []).find(function (x) { return x.id === value; });
+      return m ? m.name : "—";
+    }
+    if (type === "photo") return value ? "Var" : "Yok";
+    return (value === null || value === undefined || value === "") ? "—" : String(value);
+  }
+  // İki obje arasında değişen alanları bulur (düzenleme kayıtları için).
+  function diffActivityFields(oldObj, newObj, fieldDefs) {
+    var changes = [];
+    fieldDefs.forEach(function (f) {
+      var oldVal = oldObj ? oldObj[f.key] : undefined;
+      var newVal = newObj ? newObj[f.key] : undefined;
+      oldVal = oldVal === undefined ? null : oldVal;
+      newVal = newVal === undefined ? null : newVal;
+      var changed = String(oldVal == null ? "" : oldVal) !== String(newVal == null ? "" : newVal);
+      if (!changed) return;
+      changes.push({ label: f.label, from: formatActivityFieldValue(f.type, oldVal), to: formatActivityFieldValue(f.type, newVal) });
+    });
+    return changes;
+  }
+  // Bir objenin doldurulmuş alanlarının anlık görüntüsü (ekleme/silme kayıtları için).
+  function snapshotActivityFields(obj, fieldDefs) {
+    var out = [];
+    fieldDefs.forEach(function (f) {
+      var val = obj ? obj[f.key] : undefined;
+      if (val === null || val === undefined || val === "") return;
+      out.push({ label: f.label, value: formatActivityFieldValue(f.type, val) });
+    });
+    return out;
   }
 
   // --- Push Notifications ---
@@ -1524,6 +1621,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     health: null, healthLoading: false, healthError: null,
     errors: null, errorsLoading: false, errorsError: null
   };
+  // Aktivite geçmişi penceresinde hangi kayıtların detayı açık — sadece
+  // görüntü durumu, kalıcı değil.
+  var expandedActivityIds = {};
 
   function loadHealthData(force) {
     if (!state.currentUser || !isAdminUser(state.currentUser)) return;
@@ -3844,7 +3944,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     var list = state.activityLog || [];
     var html = '<div class="modal-head"><h3>🕒 Aktivite Geçmişi</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>';
-    html += '<p class="field-hint" style="margin-top:-4px">Hanenizde kim, ne zaman araç veya masraf ekledi, düzenledi ya da sildi — son 200 işlem burada listelenir.</p>';
+    html += '<p class="field-hint" style="margin-top:-4px">Hanenizde kim, ne zaman araç veya masraf ekledi, düzenledi ya da sildi. Detayı görmek için bir kayda dokunun.</p>';
 
     if (!list.length) {
       html += '<p class="mon-empty">Henüz bir aktivite kaydı yok.</p>';
@@ -3852,13 +3952,19 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       html += '<ul class="err-list">';
       list.forEach(function (entry) {
         var icon = entry.type === "car" ? "🚗" : "🧾";
-        html += '<li class="err-item">' +
+        var isExpanded = !!expandedActivityIds[entry.id];
+        var hasDetail = (entry.changes && entry.changes.length) || (entry.snapshot && entry.snapshot.length);
+        html += '<li class="err-item act-item' + (isExpanded ? " expanded" : "") + '"' +
+          (hasDetail ? ' data-action="toggle-activity-detail" data-id="' + esc(entry.id) + '"' : '') + '>' +
           '<div class="err-item-head">' +
             '<span class="err-item-time">' + fmtDateTime(entry.at) + '</span>' +
             activityActionBadge(entry.action) +
           '</div>' +
-          '<div class="err-item-msg">' + icon + ' ' + esc(entry.summary || "") + '</div>' +
+          '<div class="err-item-msg">' + icon + ' ' + esc(entry.summary || "") +
+            (hasDetail ? ' <span class="act-item-caret">▶</span>' : '') +
+          '</div>' +
           '<div class="err-item-meta">' + esc(entry.byName || "Bilinmiyor") + (entry.carName ? " · " + esc(entry.carName) : "") + '</div>' +
+          (hasDetail ? buildActivityDetailHTML(entry) : '') +
         '</li>';
       });
       html += '</ul>';
@@ -3866,6 +3972,29 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     modal.innerHTML = html;
     return modal;
+  }
+
+  function buildActivityDetailHTML(entry) {
+    var html = '<div class="act-detail">';
+    if (entry.changes && entry.changes.length) {
+      entry.changes.forEach(function (c) {
+        html += '<div class="act-detail-row">' +
+          '<span class="act-detail-label">' + esc(c.label) + '</span>' +
+          '<span class="act-old">' + esc(c.from) + '</span>' +
+          '<span class="act-arrow">→</span>' +
+          '<span class="act-new">' + esc(c.to) + '</span>' +
+        '</div>';
+      });
+    } else if (entry.snapshot && entry.snapshot.length) {
+      entry.snapshot.forEach(function (s) {
+        html += '<div class="act-detail-row">' +
+          '<span class="act-detail-label">' + esc(s.label) + '</span>' +
+          '<span class="act-snap-value">' + esc(s.value) + '</span>' +
+        '</div>';
+      });
+    }
+    html += '</div>';
+    return html;
   }
 
   function buildHealthModal() {
@@ -4197,12 +4326,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       patch.appointments = appointments;
 
       if (isEdit) {
-        state.cars = state.cars.map(function (c) { return c.id === car.id ? Object.assign({}, c, patch) : c; });
-        logActivity("car", "edit", { carId: car.id, carName: name, summary: "Araç bilgileri güncellendi: " + name });
+        var updatedCar = Object.assign({}, car, patch);
+        var carChanges = diffActivityFields(car, updatedCar, carActivityFieldDefs());
+        state.cars = state.cars.map(function (c) { return c.id === car.id ? updatedCar : c; });
+        logActivity("car", "edit", { carId: car.id, carName: name, summary: "Araç bilgileri güncellendi: " + name, changes: carChanges });
       } else {
         var newCar = Object.assign({ id: uid(), color: CAR_COLORS[(state.cars || []).length % CAR_COLORS.length] }, patch);
         state.cars = (state.cars || []).concat([newCar]);
-        logActivity("car", "add", { carId: newCar.id, carName: name, summary: "Yeni araç eklendi: " + name });
+        logActivity("car", "add", { carId: newCar.id, carName: name, summary: "Yeni araç eklendi: " + name, snapshot: snapshotActivityFields(newCar, carActivityFieldDefs()) });
       }
       persistCars();
       closeModal();
@@ -4399,16 +4530,19 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       var carForLog = (state.cars || []).find(function (c) { return c.id === carId; });
       var carNameForLog = carForLog ? carForLog.name : "";
       if (isEdit) {
-        state.expenses = (state.expenses || []).map(function (e) { return e.id === editingExpense.id ? Object.assign({}, e, payload) : e; });
-        logActivity("expense", "edit", { carId: carId, carName: carNameForLog, summary: catInfo.label + " masrafı düzenlendi (" + fmtTL(amount) + ")" });
+        var updatedExpense = Object.assign({}, editingExpense, payload);
+        var expenseChanges = diffActivityFields(editingExpense, updatedExpense, expenseActivityFieldDefs());
+        state.expenses = (state.expenses || []).map(function (e) { return e.id === editingExpense.id ? updatedExpense : e; });
+        logActivity("expense", "edit", { carId: carId, carName: carNameForLog, summary: catInfo.label + " masrafı düzenlendi (" + fmtTL(amount) + ")", changes: expenseChanges });
       } else {
         // "Ekleyen" etiketi için: masraf ilk kez oluşturulurken hane
         // içindeki hangi kullanıcının eklediğini damgalıyoruz. Sonradan
         // düzenlense bile bu bilgi (kim eklediyse o) değişmiyor.
         payload.addedByUid = state.currentUser ? state.currentUser.id : null;
         payload.addedByName = state.currentUser ? state.currentUser.name : null;
-        state.expenses = [Object.assign({ id: uid() }, payload)].concat(state.expenses || []);
-        logActivity("expense", "add", { carId: carId, carName: carNameForLog, summary: catInfo.label + " masrafı eklendi (" + fmtTL(amount) + ")" });
+        var newExpense = Object.assign({ id: uid() }, payload);
+        state.expenses = [newExpense].concat(state.expenses || []);
+        logActivity("expense", "add", { carId: carId, carName: carNameForLog, summary: catInfo.label + " masrafı eklendi (" + fmtTL(amount) + ")", snapshot: snapshotActivityFields(newExpense, expenseActivityFieldDefs()) });
       }
       persistExpenses();
       recalcCarCurrentKm(carId);
@@ -4504,14 +4638,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
               state.expenses = (state.expenses || []).filter(function (e) { return e.id !== id; });
               persistExpenses();
               if (deleted.carId) recalcCarCurrentKm(deleted.carId);
-              logActivity("expense", "delete", { carId: deleted.carId, carName: deletedCarName, summary: deletedCatInfo.label + " masrafı silindi (" + fmtTL(deleted.amount) + ")" });
+              logActivity("expense", "delete", { carId: deleted.carId, carName: deletedCarName, summary: deletedCatInfo.label + " masrafı silindi (" + fmtTL(deleted.amount) + ")", snapshot: snapshotActivityFields(deleted, expenseActivityFieldDefs()) });
               render();
               toastWithUndo("Masraf silindi.", function () {
                 state.expenses = state.expenses || [];
                 state.expenses.splice(Math.min(deletedIndex, state.expenses.length), 0, deleted);
                 persistExpenses();
                 if (deleted.carId) recalcCarCurrentKm(deleted.carId);
-                logActivity("expense", "restore", { carId: deleted.carId, carName: deletedCarName, summary: deletedCatInfo.label + " masrafı geri alındı (" + fmtTL(deleted.amount) + ")" });
+                logActivity("expense", "restore", { carId: deleted.carId, carName: deletedCarName, summary: deletedCatInfo.label + " masrafı geri alındı (" + fmtTL(deleted.amount) + ")", snapshot: snapshotActivityFields(deleted, expenseActivityFieldDefs()) });
                 render();
                 toast("Masraf geri alındı.");
               });
@@ -4541,7 +4675,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
               if (state.selectedCarId === carId) state.selectedCarId = "all";
               persistCars(); persistExpenses(); render();
               cleanupNotifStateForCar(carId);
-              logActivity("car", "delete", { carId: carId, carName: deletedCar ? deletedCar.name : "", summary: "Araç silindi: " + (deletedCar ? deletedCar.name : "") + " (" + deletedExpenses.length + " masraf kaydıyla birlikte)" });
+              logActivity("car", "delete", { carId: carId, carName: deletedCar ? deletedCar.name : "", summary: "Araç silindi: " + (deletedCar ? deletedCar.name : "") + " (" + deletedExpenses.length + " masraf kaydıyla birlikte)", snapshot: snapshotActivityFields(deletedCar, carActivityFieldDefs()) });
               toastWithUndo("Araç ve " + deletedExpenses.length + " masraf kaydı silindi.", function () {
                 if (deletedCar) {
                   state.cars = state.cars || [];
@@ -4550,7 +4684,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
                 }
                 state.expenses = (state.expenses || []).concat(deletedExpenses);
                 persistCars(); persistExpenses();
-                logActivity("car", "restore", { carId: carId, carName: deletedCar ? deletedCar.name : "", summary: "Araç geri alındı: " + (deletedCar ? deletedCar.name : "") });
+                logActivity("car", "restore", { carId: carId, carName: deletedCar ? deletedCar.name : "", summary: "Araç geri alındı: " + (deletedCar ? deletedCar.name : ""), snapshot: snapshotActivityFields(deletedCar, carActivityFieldDefs()) });
                 render();
                 toast("Araç geri alındı.");
               });
@@ -4593,6 +4727,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           state.modal = { type: "activityLog" };
           state.accountMenuOpen = false;
           markActivityLogSeen();
+          render();
+        }
+        else if (action === "toggle-activity-detail") {
+          var actId = el.getAttribute("data-id");
+          expandedActivityIds[actId] = !expandedActivityIds[actId];
           render();
         }
         else if (action === "open-health") {
