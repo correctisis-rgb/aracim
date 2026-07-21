@@ -511,8 +511,8 @@
   .act-detail-label { color: var(--muted); min-width: 120px; flex-shrink: 0; }
   .faq-answer { display: none; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); font-size: 12.5px; color: var(--text); line-height: 1.6; }
   .act-item.expanded .faq-answer { display: block; }
-  .help-contact-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; font-size: 12.5px; }
-  .help-contact-row a { color: var(--amber); text-decoration: none; font-weight: 600; }
+  .help-contact-row { display: block; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; font-size: 12.5px; line-height: 1.6; }
+  .help-contact-row a { color: var(--amber); text-decoration: none; font-weight: 600; white-space: nowrap; }
   .help-contact-row a:hover { text-decoration: underline; }
   .support-charcount { text-align: right; font-size: 10.5px; color: var(--muted); margin: -8px 0 10px; }
   .act-old { color: var(--red); text-decoration: line-through; opacity: .85; }
@@ -814,7 +814,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.6.6"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.6.7"; // Dynamic Version Tracking
   var APP_UPDATED = "21 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1721,14 +1721,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // --- Yardım & SSS içeriği ---
   function getFaqItems() {
     return [
-      { id: "faq-veri", q: "Verilerim nerede saklanıyor, kaybolur mu?", a: "Araç ve masraf kayıtların hesabına bağlı olarak bulutta (Firebase) saklanır. Farklı bir cihazdan aynı hesapla giriş yaptığında tüm verilerine ulaşabilirsin. Yine de düzenli olarak Hesabım bölümünden 'Verileri Dışa Aktar' ile yedek almanı öneririz." },
+      { id: "faq-veri", q: "Verilerim nerede saklanıyor, kaybolur mu?", a: "Araç ve masraf kayıtların hesabına bağlı olarak bulutta (Firebase) saklanır. Farklı bir cihazdan aynı hesapla giriş yaptığında tüm verilerine ulaşabilirsin. Yine de ana ekranın üst kısmındaki '⬇️ Yedekle' butonuyla düzenli olarak yedek almanı öneririz." },
       { id: "faq-arac-ekle", q: "Nasıl yeni bir araç eklerim?", a: "Üst kısımdaki araç sekmelerinin yanındaki '+' (Araç Ekle) düğmesine dokun, araç bilgilerini gir ve kaydet. Aynı ekrandan mevcut bir aracı düzenleyebilir veya silebilirsin." },
       { id: "faq-masraf-ekle", q: "Masraf nasıl kaydedilir?", a: "Sağ alttaki turuncu '+' düğmesine dokunarak yeni masraf ekleyebilirsin. Kategori, tutar, kilometre ve fiş görseli gibi bilgileri girip kaydettiğinde masraf, ilgili aracın geçmişine işlenir." },
       { id: "faq-hatirlatma", q: "Bildirim/hatırlatma almıyorum, neden?", a: "Bildirimlerin gelebilmesi için tarayıcı/telefon bildirim izninin açık olması ve uygulamanın Hesabım bölümünden bildirimlerin etkinleştirilmiş olması gerekir. İzni verdikten sonra da bildirim gelmiyorsa telefonunun pil optimizasyonu uygulamayı arka planda kapatıyor olabilir; bu ayarlardan uygulamayı istisna listesine ekleyebilirsin." },
       { id: "faq-hane", q: "Eşimle/ailemle aynı verileri nasıl paylaşırım?", a: "Hesabım bölümündeki hane paylaşımı özelliğiyle bir davet kodu veya QR oluşturabilir, bunu paylaşabileceğin kişi kendi hesabından okutarak aynı hanede araç ve masrafları görebilir." },
-      { id: "faq-disa-aktar", q: "Verilerimi dışa aktarabilir miyim?", a: "Evet. Hesabım bölümündeki 'Verileri Dışa Aktar' seçeneğiyle tüm araç ve masraf kayıtlarını cihazına indirebilirsin." },
+      { id: "faq-disa-aktar", q: "Verilerimi dışa aktarabilir miyim?", a: "Evet. Ana ekranın üst kısmındaki '⬇️ Yedekle' butonuyla tüm araç ve masraf kayıtlarını bir dosya olarak cihazına indirebilir, gerektiğinde '⬆️ Geri Yükle' ile aynı dosyadan geri yükleyebilirsin." },
       { id: "faq-tema", q: "Karanlık/aydınlık temayı nasıl değiştiririm?", a: "Üst sağ köşedeki güneş/ay simgesine dokunarak açık ve koyu tema arasında geçiş yapabilirsin." },
-      { id: "faq-hesap-sil", q: "Hesabımı veya bir aracı nasıl silerim?", a: "Bir aracı silmek için ilgili aracın düzenleme ekranındaki 'Sil' seçeneğini kullanabilirsin. Hesap silme gibi kalıcı işlemler için lütfen aşağıdaki 'Sorun Bildir' alanından veya destek e-postasından bizimle iletişime geç." }
+      { id: "faq-hesap-sil", q: "Hesabımı veya bir aracı nasıl silerim?", a: "Bir aracı silmek için ilgili aracın düzenleme ekranındaki 'Sil' seçeneğini kullanabilirsin. Hesabını tamamen ve kalıcı olarak silmek istersen: Hesabım → Hesabı Kapat → '🗑️ Hesabımı ve Tüm Verilerimi Kalıcı Olarak Sil' seçeneğinden kendin gerçekleştirebilirsin." }
     ];
   }
 
