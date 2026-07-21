@@ -816,7 +816,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.6.8"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.6.9"; // Dynamic Version Tracking
   var APP_UPDATED = "21 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1611,6 +1611,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   var SUPPORT_DAILY_LIMIT = 5;               // kullanıcı başına 24 saatte en fazla talep
   var SUPPORT_MIN_LENGTH = 10;               // anlamsız/boş spam mesajları engellemek için
   var SUPPORT_DUPLICATE_WINDOW_MS = 10 * 60 * 1000; // aynı mesajın tekrar gönderilmesini engelleme süresi
+  var SUPPORT_WINDOW_MS = 24 * 60 * 60 * 1000; // günlük sayaç penceresi (firestore.rules ile birebir aynı olmalı)
   function isAdminUser(user) {
     return !!(user && user.email && user.email.toLowerCase() === ADMIN_EMAIL);
   }
@@ -1918,6 +1919,56 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (!last || (last.message || "").trim().toLowerCase() !== message.trim().toLowerCase()) return false;
     var age = Date.now() - supportTimestampMs(last, "createdAt");
     return age >= 0 && age < SUPPORT_DUPLICATE_WINDOW_MS;
+  }
+
+  // Destek talebini gönderir. Bekleme süresi ve günlük limit istemci
+  // tarafında zaten önceden kontrol edilir (hızlı geri bildirim için), ama
+  // ASIL yaptırım burada, sunucu tarafında (firestore.rules) uygulanır:
+  // "supportRequests" ve "supportRateLimits" dokümanları TEK bir Firestore
+  // transaction'ı içinde birlikte yazılır. Kurallar (rules) bu iki yazımı
+  // ayrı ayrı doğrular; biri reddedilirse transaction'ın TAMAMI iptal olur.
+  // Böylece biri tarayıcı konsolundan doğrudan "supportRequests" koleksiyonuna
+  // yazmaya çalışsa bile (istemci kodunu atlayarak), eşlik eden geçerli bir
+  // "supportRateLimits" güncellemesi olmadan istek kurallar tarafından
+  // reddedilir.
+  function submitSupportRequest(message) {
+    if (!db || !state.currentUser) return Promise.reject({ code: "no-user" });
+    var uid = state.currentUser.id;
+    var rateRef = db.collection("supportRateLimits").doc(uid);
+    var reqRef = db.collection("supportRequests").doc();
+    var serverNow = firebase.firestore.FieldValue.serverTimestamp();
+    return db.runTransaction(function (tx) {
+      return tx.get(rateRef).then(function (rateSnap) {
+        var data = rateSnap.exists ? rateSnap.data() : null;
+        var rateDoc;
+        if (!data) {
+          rateDoc = { count: 1, lastSentAt: serverNow, windowStart: serverNow };
+        } else {
+          var windowStartMs = supportTimestampMs(data, "windowStart");
+          var windowExpired = !windowStartMs || (Date.now() - windowStartMs) > SUPPORT_WINDOW_MS;
+          if (windowExpired) {
+            rateDoc = { count: 1, lastSentAt: serverNow, windowStart: serverNow };
+          } else {
+            if ((data.count || 0) >= SUPPORT_DAILY_LIMIT) {
+              throw { code: "support/daily-limit" };
+            }
+            rateDoc = { count: (data.count || 0) + 1, lastSentAt: serverNow, windowStart: data.windowStart };
+          }
+        }
+        tx.set(rateRef, rateDoc);
+        tx.set(reqRef, {
+          message: message.slice(0, 1000),
+          userId: uid,
+          userEmail: state.currentUser.email || null,
+          userName: state.currentUser.name || null,
+          appVersion: APP_VERSION,
+          url: window.location.href,
+          userAgent: navigator.userAgent,
+          status: "open",
+          createdAt: serverNow
+        });
+      });
+    });
   }
 
   // --- İstemci taraflı hata yakalama ---
@@ -4510,24 +4561,20 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       var btn = sendBtn;
       btn.disabled = true; btn.textContent = "Gönderiliyor…";
 
-      db.collection("supportRequests").add({
-        message: message.slice(0, 1000),
-        userId: state.currentUser ? state.currentUser.id : null,
-        userEmail: state.currentUser ? state.currentUser.email : null,
-        userName: state.currentUser ? state.currentUser.name : null,
-        appVersion: APP_VERSION,
-        url: window.location.href,
-        userAgent: navigator.userAgent,
-        status: "open",
-        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-      }).then(function () {
+      submitSupportRequest(message).then(function () {
         if (cooldownInterval) { clearInterval(cooldownInterval); cooldownInterval = null; }
         setLocalData("last_support_send", Date.now());
         toast("Bildirimin için teşekkürler, en kısa sürede inceleyeceğiz.");
         closeModal();
       }).catch(function (err) {
         btn.disabled = false; btn.textContent = "🐞 Sorunu Gönder";
-        toast("Gönderilemedi: " + (err && err.message ? err.message : err));
+        if (err && err.code === "support/daily-limit") {
+          toast("Bugün için destek talebi gönderme sınırına ulaştın. Lütfen yarın tekrar dene ya da " + SUPPORT_EMAIL + " adresine yaz.");
+        } else if (err && err.code === "permission-denied") {
+          toast("Çok sık deneme yaptın ya da günlük sınıra ulaştın. Lütfen biraz sonra tekrar dene.");
+        } else {
+          toast("Gönderilemedi: " + (err && err.message ? err.message : err));
+        }
       });
     });
 
