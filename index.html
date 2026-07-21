@@ -808,7 +808,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.6.1"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.6.2"; // Dynamic Version Tracking
   var APP_UPDATED = "21 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1630,8 +1630,68 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // --- Admin: Sağlık & Hata İzleme ---
   var monitoring = {
     health: null, healthLoading: false, healthError: null,
-    errors: null, errorsLoading: false, errorsError: null
+    errors: null, errorsLoading: false, errorsError: null,
+    loginAudit: null, loginAuditLoading: false, loginAuditError: null,
+    myLogins: null
   };
+
+  // --- Oturum/cihaz denetimi: giriş anında kim, hangi cihazdan bağlandı ---
+  var pendingAuthAction = null; // loginAs() tarafından okunur; sayfa yenilemede (sessiz oturum geri yükleme) log YAZILMAZ.
+  function simpleDeviceLabel() {
+    var ua = navigator.userAgent || "";
+    var os = /Android/i.test(ua) ? "Android" : /iPhone|iPad|iPod/i.test(ua) ? "iOS" : /Windows/i.test(ua) ? "Windows" : /Mac OS/i.test(ua) ? "macOS" : /Linux/i.test(ua) ? "Linux" : "Bilinmeyen cihaz";
+    var browser = /Edg/i.test(ua) ? "Edge" : /OPR|Opera/i.test(ua) ? "Opera" : /Chrome/i.test(ua) ? "Chrome" : /Firefox/i.test(ua) ? "Firefox" : /Safari/i.test(ua) ? "Safari" : "Tarayıcı";
+    return os + " · " + browser;
+  }
+  function logLoginEvent(fbUser, action) {
+    try {
+      db.collection("loginAudit").add({
+        uid: fbUser.uid,
+        name: fbUser.displayName || "",
+        email: fbUser.email || "",
+        action: action || "login",
+        device: simpleDeviceLabel(),
+        userAgent: navigator.userAgent,
+        appVersion: APP_VERSION,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      }).catch(function (err) { console.error(err); });
+    } catch (e) {}
+  }
+  // Kullanıcının kendi son girişlerini ("bu hesaba bağlı cihazlar") göstermek için.
+  function loadMyLogins(force) {
+    if (!state.currentUser) return;
+    if (monitoring.myLogins && !force) return;
+    db.collection("loginAudit").where("uid", "==", state.currentUser.id).orderBy("createdAt", "desc").limit(8).get()
+      .then(function (snap) {
+        var rows = [];
+        snap.forEach(function (d) { rows.push(Object.assign({ id: d.id }, d.data())); });
+        monitoring.myLogins = rows;
+        if (state.modal && state.modal.type === "profile") render();
+      })
+      .catch(function (err) { console.error(err); monitoring.myLogins = []; });
+  }
+  // Admin: tüm kullanıcılara ait giriş denetim kaydı.
+  function loadLoginAuditLogs(force) {
+    if (!state.currentUser || !isAdminUser(state.currentUser)) return;
+    if (monitoring.loginAuditLoading) return;
+    if (monitoring.loginAudit && !force) return;
+    monitoring.loginAuditLoading = true;
+    monitoring.loginAuditError = null;
+    if (state.modal && state.modal.type === "loginAudit") render();
+    db.collection("loginAudit").orderBy("createdAt", "desc").limit(80).get()
+      .then(function (snap) {
+        var rows = [];
+        snap.forEach(function (d) { rows.push(Object.assign({ id: d.id }, d.data())); });
+        monitoring.loginAudit = rows;
+        monitoring.loginAuditLoading = false;
+        if (state.modal && state.modal.type === "loginAudit") render();
+      })
+      .catch(function (err) {
+        monitoring.loginAuditLoading = false;
+        monitoring.loginAuditError = err && err.message ? err.message : String(err);
+        if (state.modal && state.modal.type === "loginAudit") render();
+      });
+  }
   // Aktivite geçmişi penceresinde hangi kayıtların detayı açık — sadece
   // görüntü durumu, kalıcı değil.
   var expandedActivityIds = {};
@@ -1992,6 +2052,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     state.modal = null;
     state.accountMenuOpen = false;
     render();
+
+    if (pendingAuthAction) {
+      logLoginEvent(fbUser, pendingAuthAction);
+      pendingAuthAction = null;
+    }
 
     if (unsubscribeUserDoc) unsubscribeUserDoc();
     if (unsubscribeHouseholdDoc) { unsubscribeHouseholdDoc(); unsubscribeHouseholdDoc = null; }
@@ -2724,7 +2789,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     }
 
     state.authError = null; state.authBusy = true; renderAuth();
+    pendingAuthAction = "register";
     auth.createUserWithEmailAndPassword(email, pass).then(function (cred) {
+      cred.user.sendEmailVerification().catch(function (err) { console.error(err); });
       return cred.user.updateProfile({ displayName: name }).then(function () {
         var patch = buildMemberProfileEntryWithMembers(cred.user.uid, name, email);
         patch.name = name; patch.email = email; patch.avatar = null;
@@ -2756,6 +2823,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (!email || !pass) { state.authError = "E-posta ve şifreni gir."; renderAuth(); return; }
 
     state.authError = null; state.authBusy = true; renderAuth();
+    pendingAuthAction = "login";
     auth.signInWithEmailAndPassword(email, pass).then(function (cred) {
       state.authBusy = false;
       toast("Tekrar hoş geldin, " + (cred.user.displayName || "").split(" ")[0] + "!");
@@ -2843,7 +2911,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
               '<button type="button" class="account-menu-item" data-action="open-announcement">📢 Duyuru / Bakım Mesajı Gönder</button>' +
               '<button type="button" class="account-menu-item" data-action="trigger-reminders">🛠️ Bildirimleri Tetikle</button>' +
               '<button type="button" class="account-menu-item" data-action="open-health">🩺 Sağlık</button>' +
-              '<button type="button" class="account-menu-item" data-action="open-errors">🐞 Hata İzleme</button>'
+              '<button type="button" class="account-menu-item" data-action="open-errors">🐞 Hata İzleme</button>' +
+              '<button type="button" class="account-menu-item" data-action="open-login-audit">🔐 Giriş Kayıtları</button>'
               : '') +
             '<div class="account-menu-divider"></div>' +
             '<button type="button" class="account-menu-item danger" data-action="logout">🚪 Çıkış Yap</button>' +
@@ -3563,6 +3632,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       backdrop.appendChild(buildHealthModal());
     } else if (state.modal.type === "errors") {
       backdrop.appendChild(buildErrorsModal());
+    } else if (state.modal.type === "loginAudit") {
+      backdrop.appendChild(buildLoginAuditModal());
     } else if (state.modal.type === "announcement") {
       backdrop.appendChild(buildAnnouncementModal());
     } else if (state.modal.type === "householdQR") {
@@ -3684,6 +3755,20 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return modal;
   }
 
+  function renderMyLoginsList() {
+    if (!monitoring.myLogins) return '<p class="field-hint" style="margin-top:-4px">Yükleniyor…</p>';
+    if (!monitoring.myLogins.length) return '<p class="field-hint" style="margin-top:-4px">Henüz kayıt yok.</p>';
+    var html = '<ul class="family-list">';
+    monitoring.myLogins.forEach(function (l) {
+      html += '<li class="empty-hint" style="display:flex; justify-content:space-between; gap:8px;">' +
+        '<span>' + esc(l.device || "Bilinmeyen cihaz") + '</span>' +
+        '<span>' + fmtDateTime(l.createdAt) + '</span>' +
+      '</li>';
+    });
+    html += '</ul>';
+    return html;
+  }
+
   function buildProfileModal() {
     var user = state.currentUser;
     var modal = document.createElement("div");
@@ -3730,6 +3815,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       '</div>' +
       '<label class="field"><span>Ad Soyad</span><input id="p-name" value="' + esc(user.name) + '" /></label>' +
       '<label class="field"><span>E-posta</span><input id="p-email" type="email" value="' + esc(user.email) + '" /></label>' +
+      (auth.currentUser && !auth.currentUser.emailVerified ?
+        '<div class="field-hint" style="background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:9px 10px; display:flex; align-items:center; justify-content:space-between; gap:8px; margin:-6px 0 12px;">' +
+          '<span>⚠️ E-posta adresin doğrulanmadı.</span>' +
+          '<button type="button" class="link-btn" id="p-resend-verify">Tekrar Gönder</button>' +
+        '</div>' : '') +
       '<button type="button" class="btn-primary full" id="p-save">Profili Kaydet</button>' +
 
       '<p class="profile-section-title">📲 Uygulama</p>' +
@@ -3765,13 +3855,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       '<label class="field"><span>Yeni şifre (tekrar)</span><input id="p-new-pass2" type="password" autocomplete="new-password" /></label>' +
       '<button type="button" class="btn-secondary full" id="p-pass-save">Şifreyi Güncelle</button>' +
 
+      '<p class="profile-section-title">📱 Bu Hesaba Bağlı Girişler</p>' +
+      renderMyLoginsList() +
+
       '<p class="profile-section-title">📄 Yasal</p>' +
       '<div class="budget-row">' +
         '<a class="btn-secondary full" style="text-align:center; text-decoration:none;" href="gizlilik-politikasi.html" target="_blank" rel="noopener">Gizlilik Politikası / KVKK</a>' +
         '<a class="btn-secondary full" style="text-align:center; text-decoration:none;" href="kullanim-sartlari.html" target="_blank" rel="noopener">Kullanım Şartları</a>' +
       '</div>' +
 
-      '<p class="profile-section-title" style="color:var(--red)">⚠️ Hesabı Kapat</p>' +
+      '<p class="profile-section-title" style="color:var(--red)">Hesabı Kapat</p>' +
       '<div class="danger-zone">' +
         '<p class="field-hint" style="margin-top:0">Hesabını sildiğinde; profilin, tüm araçların, masraf kayıtların ve yüklediğin fotoğraflar (plaka, ruhsat, fatura görselleri dahil) kalıcı olarak silinir. Bu işlem <strong>geri alınamaz</strong>.' + (isOwnHousehold && memberListHtml.indexOf("empty-hint") === -1 ? ' Ortak hanende başka üyeler varsa onların erişimi de sona erer.' : '') + '</p>' +
         '<label class="field"><span>Devam etmek için şifreni gir</span><input id="p-del-pass" type="password" autocomplete="current-password" placeholder="Şifren" /></label>' +
@@ -3780,6 +3873,17 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     var appShareBtn = modal.querySelector("#app-share");
     if (appShareBtn) appShareBtn.addEventListener("click", function () { shareApp(); });
+    var resendVerifyBtn = modal.querySelector("#p-resend-verify");
+    if (resendVerifyBtn) resendVerifyBtn.addEventListener("click", function () {
+      resendVerifyBtn.disabled = true; resendVerifyBtn.textContent = "Gönderiliyor…";
+      auth.currentUser.sendEmailVerification().then(function () {
+        toast("Doğrulama e-postası gönderildi. Gelen kutunu kontrol et.");
+        resendVerifyBtn.textContent = "Tekrar Gönder"; resendVerifyBtn.disabled = false;
+      }).catch(function (err) {
+        toast(authErrorMessage(err));
+        resendVerifyBtn.textContent = "Tekrar Gönder"; resendVerifyBtn.disabled = false;
+      });
+    });
     var appA2hsBtn = modal.querySelector("#app-a2hs");
     if (appA2hsBtn) appA2hsBtn.addEventListener("click", function () { addAppToHomeScreen(); });
 
@@ -4196,7 +4300,41 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return modal;
   }
 
-  function buildAnnouncementModal() {
+  function buildLoginAuditModal() {
+    var modal = document.createElement("div");
+    modal.className = "modal wide";
+    modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
+
+    var html = '<div class="modal-head"><h3>🔐 Giriş Kayıtları</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>';
+    html += '<div class="mon-refresh-row"><button type="button" data-action="refresh-login-audit">↻ Yenile</button></div>';
+
+    if (monitoring.loginAuditLoading && !monitoring.loginAudit) {
+      html += '<p class="mon-loading">Yükleniyor…</p>';
+    } else if (monitoring.loginAuditError) {
+      html += '<p class="mon-empty">Veriler alınamadı: ' + esc(monitoring.loginAuditError) + '</p>';
+    } else {
+      var logs = monitoring.loginAudit || [];
+      if (!logs.length) {
+        html += '<p class="mon-empty">Kayıt bulunamadı.</p>';
+      } else {
+        html += '<ul class="err-list">';
+        logs.forEach(function (l) {
+          html += '<li class="err-item">' +
+            '<div class="err-item-head">' +
+              '<span class="err-item-time">' + fmtDateTime(l.createdAt) + '</span>' +
+              '<span class="err-item-user">' + esc(l.email || l.uid || "bilinmiyor") + '</span>' +
+            '</div>' +
+            '<div class="err-item-msg">' + esc(l.name || "") + ' — ' + (l.action === "register" ? "Yeni hesap oluşturdu" : "Giriş yaptı") + '</div>' +
+            '<div class="err-item-meta">' + esc(l.device || "") + (l.appVersion ? (" · " + esc(l.appVersion)) : "") + '</div>' +
+          '</li>';
+        });
+        html += '</ul>';
+      }
+    }
+
+    modal.innerHTML = html;
+    return modal;
+  }
     var modal = document.createElement("div");
     modal.className = "modal wide";
     modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
@@ -4818,7 +4956,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           state.accountMenuOpen = false;
           render();
         }
-        else if (action === "open-profile") { ev.stopPropagation(); state.modal = { type: "profile" }; state.accountMenuOpen = false; render(); }
+        else if (action === "open-profile") { ev.stopPropagation(); state.modal = { type: "profile" }; state.accountMenuOpen = false; render(); loadMyLogins(); }
         else if (action === "open-notif-history") {
           ev.stopPropagation();
           state.modal = { type: "notifHistory" };
@@ -4854,8 +4992,17 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           render();
           loadErrorLogs();
         }
+        else if (action === "open-login-audit") {
+          ev.stopPropagation();
+          if (!isAdminUser(state.currentUser)) return;
+          state.modal = { type: "loginAudit" };
+          state.accountMenuOpen = false;
+          render();
+          loadLoginAuditLogs();
+        }
         else if (action === "refresh-health") { loadHealthData(true); }
         else if (action === "refresh-errors") { loadErrorLogs(true); }
+        else if (action === "refresh-login-audit") { loadLoginAuditLogs(true); }
         else if (action === "logout") {
           ev.stopPropagation();
           state.accountMenuOpen = false;
