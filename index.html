@@ -610,24 +610,54 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // üyeleri, araç/masraf verileri) sadece bellekte tutulur; sayfa yeniden
   // yüklendiğinde (ör. internetsiz açılışta) hiç veri gelmez ve her şey
   // varsayılan/boş değerlere döner — profil fotoğrafının kaybolmasının
-  // sebebi de tam olarak buydu. enablePersistence, Firestore'un son alınan
-  // tüm belgeleri tarayıcının IndexedDB'sinde saklamasını sağlar; böylece
-  // internet olmasa bile onSnapshot en son bilinen veriyle (avatar dahil)
-  // anında tetiklenir. synchronizeTabs: true, uygulamanın birden fazla
-  // sekme/pencerede açık olabileceği durumlarda "zaten başka sekmede açık"
-  // hatası yerine sekmeler arası senkronize çalışmasını sağlar.
-  db.enablePersistence({ synchronizeTabs: true }).catch(function (err) {
-    if (err && err.code === "failed-precondition") {
-      // Bazı çok eski/aynı anda birden fazla sekme senaryolarında (synchronizeTabs
-      // desteklenmeyen sürümlerde) oluşabilir; uygulama yine de online modda çalışmaya devam eder.
-      console.warn("[Firestore] Offline kalıcılık açılamadı (başka sekme çakışması):", err);
-    } else if (err && err.code === "unimplemented") {
-      // Tarayıcı IndexedDB'yi desteklemiyor (ör. bazı özel/gizli sekme modları).
-      console.warn("[Firestore] Bu tarayıcı offline kalıcılığı desteklemiyor:", err);
-    } else {
-      console.warn("[Firestore] Offline kalıcılık açılamadı:", err);
+  // sebebi de tam olarak buydu. Bu, Firestore'un son alınan tüm belgeleri
+  // tarayıcının IndexedDB'sinde saklamasını sağlar; böylece internet
+  // olmasa bile onSnapshot en son bilinen veriyle (avatar dahil) anında
+  // tetiklenir. Çoklu sekme yönetimi (persistentMultipleTabManager),
+  // uygulamanın birden fazla sekme/pencerede açık olabileceği durumlarda
+  // "zaten başka sekmede açık" hatası yerine sekmeler arası senkronize
+  // çalışmasını sağlar.
+  //
+  // NOT: db.enablePersistence({synchronizeTabs:true}) eski (deprecated) bir
+  // API'dir ve konsolda "will be deprecated in the future, you can use
+  // FirestoreSettings.cache instead" uyarısı verir (bkz. konuşma).
+  // firebase-firestore-compat.js 10.12.5 sürümünde önerilen yeni yol,
+  // db.settings({localCache: ...}) ile persistentLocalCache/
+  // persistentMultipleTabManager kullanmaktır — bu, herhangi bir başka
+  // Firestore işleminden ÖNCE (en başta) çağrılmak zorundadır, tıpkı eski
+  // enablePersistence gibi. Yeni API artık IndexedDB desteklenmeyen
+  // tarayıcılarda/sekme çakışmalarında promise reddetmek yerine sessizce
+  // bellek önbelleğine düşüyor, bu yüzden ayrı bir .catch gerekmiyor.
+  // Eski bir SDK sürümü yüklenmiş ihtimaline karşı (ör. tarayıcı önbelleğinde
+  // takılı kalmış eski bir sw.js/CDN kopyası), yeni API mevcut değilse eski
+  // enablePersistence'a geriye dönük düşülüyor.
+  if (firebase.firestore.persistentLocalCache && firebase.firestore.persistentMultipleTabManager) {
+    try {
+      db.settings({
+        localCache: firebase.firestore.persistentLocalCache({
+          tabManager: firebase.firestore.persistentMultipleTabManager()
+        })
+      });
+    } catch (err) {
+      console.warn("[Firestore] Yeni önbellek API'si ayarlanamadı, eski enablePersistence'a düşülüyor:", err);
+      db.enablePersistence({ synchronizeTabs: true }).catch(function (err2) {
+        console.warn("[Firestore] Offline kalıcılık açılamadı:", err2);
+      });
     }
-  });
+  } else {
+    db.enablePersistence({ synchronizeTabs: true }).catch(function (err) {
+      if (err && err.code === "failed-precondition") {
+        // Bazı çok eski/aynı anda birden fazla sekme senaryolarında (synchronizeTabs
+        // desteklenmeyen sürümlerde) oluşabilir; uygulama yine de online modda çalışmaya devam eder.
+        console.warn("[Firestore] Offline kalıcılık açılamadı (başka sekme çakışması):", err);
+      } else if (err && err.code === "unimplemented") {
+        // Tarayıcı IndexedDB'yi desteklemiyor (ör. bazı özel/gizli sekme modları).
+        console.warn("[Firestore] Bu tarayıcı offline kalıcılığı desteklemiyor:", err);
+      } else {
+        console.warn("[Firestore] Offline kalıcılık açılamadı:", err);
+      }
+    });
+  }
 
   var unsubscribeUserDoc = null;
   var unsubscribeHouseholdDoc = null;
@@ -756,7 +786,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.5.6"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.5.7"; // Dynamic Version Tracking
   var APP_UPDATED = "21 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
