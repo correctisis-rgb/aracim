@@ -808,7 +808,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.6.2"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.6.3"; // Dynamic Version Tracking
   var APP_UPDATED = "21 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -4335,6 +4335,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     modal.innerHTML = html;
     return modal;
   }
+  function buildAnnouncementModal() {
     var modal = document.createElement("div");
     modal.className = "modal wide";
     modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
