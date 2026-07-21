@@ -245,6 +245,16 @@
   .link-btn.danger:hover { color: var(--red); }
   .link-btn:hover { color: var(--text); }
 
+  .consent-row { display: flex; align-items: flex-start; gap: 9px; margin: 4px 0 16px; }
+  .consent-row input[type="checkbox"] { margin-top: 3px; width: 16px; height: 16px; flex-shrink: 0; accent-color: var(--amber); cursor: pointer; }
+  .consent-row label { font-size: 12px; line-height: 1.5; color: var(--muted); cursor: pointer; }
+  .consent-row a { color: var(--amber); text-decoration: underline; }
+  .consent-error .consent-row label { color: var(--red); }
+  .auth-legal-links { text-align: center; margin: 14px 0 0; font-size: 11px; color: var(--muted); }
+  .auth-legal-links a { color: var(--muted); text-decoration: underline; margin: 0 4px; }
+  .auth-legal-links a:hover { color: var(--text); }
+  .danger-zone { border: 1px solid #E2574C40; border-radius: 10px; padding: 12px; margin-top: 4px; }
+
   .car-info-card { display: flex; flex-direction: column; gap: 12px; padding: 16px 18px; }
   .car-info-top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
   .car-info-photo { width: 62px; height: 62px; border-radius: 14px; object-fit: cover; background: var(--surface-2); flex-shrink: 0; cursor: zoom-in; border: 2px solid var(--border); }
@@ -798,8 +808,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.6.0"; // Dynamic Version Tracking
-  var APP_UPDATED = "21 Temmuz 2026";
+  var APP_VERSION = "v1.5.2"; // Dynamic Version Tracking
+  var APP_UPDATED = "20 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -810,6 +820,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   ];
   var CAR_COLORS = ["#F2A93B", "#4FA8D8", "#7BC67E", "#C77DE0", "#E2574C"];
   var MONTHS_TR = ["Oca","Şub","Mar","Nis","May","Haz","Tem","Ağu","Eyl","Eki","Kas","Ara"];
+  var LEGAL_DOC_VERSION = "2026-07-21";
   var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   var PASSWORD_RE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*[^A-Za-z0-9]).{6,}$/;
   var PASSWORD_HINT = "Şifre en az 6 karakter olmalı; en az bir büyük harf, bir küçük harf ve bir sembol (örn. !?%*-) içermeli.";
@@ -2638,6 +2649,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         '<label class="field"><span>Şifre</span><div class="pw-field"><input id="r-pass" type="password" placeholder="Örn. Araba1!" autocomplete="new-password" /><button type="button" class="pw-toggle" data-target="r-pass" aria-label="Şifreyi göster/gizle">👁️</button></div></label>' +
         '<p class="field-hint" style="margin-top:-6px">' + PASSWORD_HINT + '</p>' +
         '<label class="field"><span>Şifre (Tekrar)</span><div class="pw-field"><input id="r-pass2" type="password" placeholder="Şifreni tekrar gir" autocomplete="new-password" /><button type="button" class="pw-toggle" data-target="r-pass2" aria-label="Şifreyi göster/gizle">👁️</button></div></label>' +
+        '<div class="consent-row' + (state.authConsentError ? " consent-error" : "") + '">' +
+          '<input type="checkbox" id="r-consent" ' + (state.authConsentChecked ? "checked" : "") + ' />' +
+          '<label for="r-consent">' +
+            '<a href="gizlilik-politikasi.html" target="_blank" rel="noopener">Gizlilik Politikası ve KVKK Aydınlatma Metni</a>\'ni ve ' +
+            '<a href="kullanim-sartlari.html" target="_blank" rel="noopener">Kullanım Şartları</a>\'nı okudum, kabul ediyorum.' +
+          '</label>' +
+        '</div>' +
         '<button type="button" class="btn-primary full" id="auth-submit" ' + (state.authBusy ? "disabled" : "") + '>' + (state.authBusy ? "Hesap oluşturuluyor…" : "Hesap Oluştur") + '</button>';
     } else {
       html +=
@@ -2646,6 +2664,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         '<button type="button" class="link-btn" id="forgot-pass-link" style="margin:-6px 0 10px;">Şifremi unuttum?</button>' +
         '<button type="button" class="btn-primary full" id="auth-submit" ' + (state.authBusy ? "disabled" : "") + '>' + (state.authBusy ? "Giriş yapılıyor…" : "Giriş Yap") + '</button>';
     }
+    html += '<p class="auth-legal-links"><a href="gizlilik-politikasi.html" target="_blank" rel="noopener">Gizlilik Politikası</a>·<a href="kullanim-sartlari.html" target="_blank" rel="noopener">Kullanım Şartları</a></p>';
     html += '</div></div>';
     app.innerHTML = html;
     bindAuthActions();
@@ -2668,6 +2687,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         input.type = input.type === "password" ? "text" : "password";
         btn.textContent = input.type === "password" ? "👁️" : "🙈";
       });
+    });
+    var consentBox = document.getElementById("r-consent");
+    if (consentBox) consentBox.addEventListener("change", function () {
+      state.authConsentChecked = consentBox.checked;
+      if (consentBox.checked) state.authConsentError = false;
     });
     var submit = document.getElementById("auth-submit");
     if (submit) submit.addEventListener("click", function () {
@@ -2692,6 +2716,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (!EMAIL_RE.test(email)) { state.authError = "Geçerli bir e-posta adresi gir."; renderAuth(); return; }
     if (pass.length < 6 || !PASSWORD_RE.test(pass)) { state.authError = PASSWORD_HINT; renderAuth(); return; }
     if (pass !== pass2) { state.authError = "Şifreler eşleşmiyor."; renderAuth(); return; }
+    if (!state.authConsentChecked) {
+      state.authConsentError = true;
+      state.authError = "Devam etmek için Gizlilik Politikası ve KVKK Aydınlatma Metni ile Kullanım Şartları'nı kabul etmelisin.";
+      renderAuth();
+      return;
+    }
 
     state.authError = null; state.authBusy = true; renderAuth();
     auth.createUserWithEmailAndPassword(email, pass).then(function (cred) {
@@ -2700,6 +2730,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         patch.name = name; patch.email = email; patch.avatar = null;
         patch.cars = []; patch.expenses = []; patch.familyMembers = [];
         patch.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+        // KVKK: açık rıza/onay kaydı — hangi metin sürümünü, ne zaman kabul ettiği
+        patch.consent = {
+          policyVersion: LEGAL_DOC_VERSION,
+          acceptedAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
         // merge:true kullanılır: aynı anda auth durum dinleyicisinin (loginAs)
         // tetiklediği paralel bir belge oluşturma yazımıyla çakışırsa, birbirlerinin
         // memberProfiles/members alanlarını ezmesinler.
@@ -3728,7 +3763,20 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       '<label class="field"><span>Yeni şifre</span><input id="p-new-pass" type="password" placeholder="Örn. Araba1!" autocomplete="new-password" /></label>' +
       '<p class="field-hint" style="margin-top:-6px">' + PASSWORD_HINT + '</p>' +
       '<label class="field"><span>Yeni şifre (tekrar)</span><input id="p-new-pass2" type="password" autocomplete="new-password" /></label>' +
-      '<button type="button" class="btn-secondary full" id="p-pass-save">Şifreyi Güncelle</button>';
+      '<button type="button" class="btn-secondary full" id="p-pass-save">Şifreyi Güncelle</button>' +
+
+      '<p class="profile-section-title">📄 Yasal</p>' +
+      '<div class="budget-row">' +
+        '<a class="btn-secondary full" style="text-align:center; text-decoration:none;" href="gizlilik-politikasi.html" target="_blank" rel="noopener">Gizlilik Politikası / KVKK</a>' +
+        '<a class="btn-secondary full" style="text-align:center; text-decoration:none;" href="kullanim-sartlari.html" target="_blank" rel="noopener">Kullanım Şartları</a>' +
+      '</div>' +
+
+      '<p class="profile-section-title" style="color:var(--red)">⚠️ Hesabı Kapat</p>' +
+      '<div class="danger-zone">' +
+        '<p class="field-hint" style="margin-top:0">Hesabını sildiğinde; profilin, tüm araçların, masraf kayıtların ve yüklediğin fotoğraflar (plaka, ruhsat, fatura görselleri dahil) kalıcı olarak silinir. Bu işlem <strong>geri alınamaz</strong>.' + (isOwnHousehold && memberListHtml.indexOf("empty-hint") === -1 ? ' Ortak hanende başka üyeler varsa onların erişimi de sona erer.' : '') + '</p>' +
+        '<label class="field"><span>Devam etmek için şifreni gir</span><input id="p-del-pass" type="password" autocomplete="current-password" placeholder="Şifren" /></label>' +
+        '<button type="button" class="btn-danger full" id="p-delete-account">🗑️ Hesabımı ve Tüm Verilerimi Kalıcı Olarak Sil</button>' +
+      '</div>';
 
     var appShareBtn = modal.querySelector("#app-share");
     if (appShareBtn) appShareBtn.addEventListener("click", function () { shareApp(); });
@@ -3852,7 +3900,61 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       });
     });
 
+    modal.querySelector("#p-delete-account").addEventListener("click", function () {
+      var pass = modal.querySelector("#p-del-pass").value;
+      if (!pass) { toast("Devam etmek için şifreni gir."); return; }
+      showConfirm({
+        title: "Hesabı Kalıcı Olarak Sil",
+        message: "Bu işlem GERİ ALINAMAZ. Hesabın, araçların, tüm masraf kayıtların, fotoğrafların ve diğer verilerin kalıcı olarak silinecek. Devam etmek istediğine emin misin?",
+        confirmLabel: "Evet, Kalıcı Olarak Sil",
+        danger: true,
+        onConfirm: function () { deleteAccountAndData(pass); }
+      });
+    });
+
     return modal;
+  }
+
+  // KVKK "unutulma hakkı" — hesabı ve tüm ilişkili verileri kalıcı olarak siler.
+  function deleteAccountAndData(currentPassword) {
+    var fbUser = auth.currentUser;
+    if (!fbUser) return;
+    var myUid = fbUser.uid;
+    var wasInOtherHousehold = state.householdId && state.householdId !== myUid;
+    var oldHouseholdId = state.householdId;
+
+    toast("Hesabın siliniyor…");
+    var credential = firebase.auth.EmailAuthProvider.credential(fbUser.email, currentPassword);
+    fbUser.reauthenticateWithCredential(credential).then(function () {
+      // Ortak bir hanenin üyesiyse, önce o haneden kendini çıkar.
+      if (wasInOtherHousehold) {
+        var removePatch = {};
+        removePatch.members = firebase.firestore.FieldValue.arrayRemove(myUid);
+        removePatch["memberProfiles." + myUid] = firebase.firestore.FieldValue.delete();
+        return db.collection("users").doc(oldHouseholdId).update(removePatch).catch(function (err) { console.error(err); });
+      }
+    }).then(function () {
+      // Kendi veri belgesini (araçlar, masraflar, fotoğraflar, aktivite geçmişi vb.) sil.
+      return db.collection("users").doc(myUid).delete();
+    }).then(function () {
+      // Firebase Authentication hesabını sil.
+      return fbUser.delete();
+    }).then(function () {
+      try {
+        ["cars", "expenses", "pending_sync_count", "notif_history", "activity_log_seen", "notif_history_seen"].forEach(function (k) {
+          try { localStorage.removeItem("gd_" + k); } catch (e2) {}
+        });
+      } catch (e) {}
+      closeModal();
+      toast("Hesabın ve tüm verilerin kalıcı olarak silindi.");
+    }).catch(function (err) {
+      console.error(err);
+      if (err && err.code === "auth/wrong-password") {
+        toast("Şifre hatalı. Hesabın silinmedi.");
+      } else {
+        toast("Hesap silinirken bir hata oluştu: " + authErrorMessage(err));
+      }
+    });
   }
 
   function fmtDateTime(ts) {

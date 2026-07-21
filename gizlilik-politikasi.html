@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Gizlilik Politikası ve KVKK Aydınlatma Metni · Garaj Defteri</title>
+<style>
+  :root {
+    --bg: #1B1F24; --surface: #242930; --border: #383F47; --amber: #F2A93B;
+    --text: #EDEEF0; --muted: #8B939D;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: -apple-system, 'Segoe UI', Inter, sans-serif; line-height: 1.65; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 32px 20px 80px; }
+  a { color: var(--amber); }
+  .back-link { display: inline-block; margin-bottom: 18px; color: var(--muted); text-decoration: none; font-size: 13.5px; }
+  .back-link:hover { color: var(--text); }
+  h1 { font-size: 24px; margin: 0 0 6px; }
+  .updated { color: var(--muted); font-size: 12.5px; margin-bottom: 28px; }
+  h2 { font-size: 16.5px; margin: 30px 0 8px; color: var(--amber); }
+  h3 { font-size: 14px; margin: 18px 0 6px; }
+  p, li { font-size: 14px; color: var(--text); }
+  ul, ol { padding-left: 20px; margin: 8px 0; }
+  li { margin-bottom: 6px; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 4px; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--surface); color: var(--amber); font-weight: 600; }
+  .box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin: 14px 0; font-size: 13.5px; color: var(--muted); }
+  .placeholder { color: var(--amber); }
+  footer { margin-top: 40px; color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back-link" href="index.html">← Uygulamaya dön</a>
+  <h1>Gizlilik Politikası ve KVKK Aydınlatma Metni</h1>
+  <p class="updated">Yürürlük tarihi: 21 Temmuz 2026 · Belge sürümü: 2026-07-21</p>
+
+  <div class="box">
+    Bu metin, Garaj Defteri ("Uygulama") üzerinden kişisel verilerinizin 6698 sayılı Kişisel Verilerin Korunması Kanunu ("KVKK") kapsamında hangi amaçlarla, nasıl işlendiğini ve haklarınızı açıklar. Aşağıdaki
+    <span class="placeholder">[köşeli parantez]</span> içindeki alanlar, hizmeti işleten gerçek/tüzel kişi tarafından doldurulmalıdır.
+  </div>
+
+  <h2>1. Veri Sorumlusunun Kimliği</h2>
+  <p>
+    KVKK'nın 10. maddesi uyarınca, işbu Uygulama kapsamında toplanan kişisel verileriniz bakımından veri sorumlusu:
+  </p>
+  <table>
+    <tr><th>Unvan / Ad Soyad</th><td class="placeholder">Emre ALAKUŞ</td></tr>
+    <tr><th>Adres</th><td class="placeholder">TÜRKİYE</td></tr>
+    <tr><th>E-posta</th><td class="placeholder">garaj.defterii@gmail.com</td></tr>
+    <tr><th>MERSİS / Vergi No</th><td class="placeholder">-</td></tr>
+  </table>
+
+  <h2>2. İşlenen Kişisel Veri Kategorileri</h2>
+  <p>Uygulamayı kullanırken aşağıdaki kişisel verileriniz işlenir:</p>
+  <table>
+    <tr><th>Kategori</th><th>Örnekler</th></tr>
+    <tr><td>Kimlik ve iletişim</td><td>Ad soyad, e-posta adresi</td></tr>
+    <tr><td>Hesap güvenliği</td><td>Şifre (Firebase Authentication tarafından şifrelenmiş/hash'lenmiş olarak saklanır, tarafımızca düz metin olarak görülmez)</td></tr>
+    <tr><td>Görsel veri</td><td>Profil fotoğrafı; araca ait fotoğraf, ruhsat görseli; masraf kaydına eklenen fatura/fiş fotoğrafları (bu görsellerde plaka, isim, adres gibi üçüncü kişilere ait veriler bulunabilir)</td></tr>
+    <tr><td>Araç ve masraf verisi</td><td>Araç marka/model, plaka, kilometre, yakıt/bakım/masraf tutarları ve tarihleri, servis notları</td></tr>
+    <tr><td>Paylaşım / ortak hesap</td><td>"Ortak Hane" özelliğini kullanırsanız, davet ettiğiniz veya sizi davet eden kişilerin ad ve e-posta bilgisi, rol bilgisi (düzenleyebilir/görüntüleyebilir)</td></tr>
+    <tr><td>İşlem güvenliği ve kullanım kaydı</td><td>Uygulama içi aktivite geçmişi (kim, ne zaman, hangi kaydı ekledi/değiştirdi/sildi), hata/performans günlükleri</td></tr>
+    <tr><td>Bildirim verisi</td><td>Push bildirim izni verdiyseniz, cihazınıza özel bildirim belirteci (FCM token)</td></tr>
+    <tr><td>Teknik veri</td><td>Uygulama sürümü, çevrimiçi/çevrimdışı durum, senkronizasyon zaman bilgisi</td></tr>
+  </table>
+  <p>Uygulama; konum, kamera görüntüsü (fotoğraf çekimi hariç canlı kamera erişimi QR kod okutma amacıyla sınırlıdır) veya sağlık verisi gibi özel nitelikli kişisel veri toplamaz.</p>
+
+  <h2>3. Kişisel Verilerin İşlenme Amaçları</h2>
+  <ul>
+    <li>Hesabınızı oluşturmak, kimliğinizi doğrulamak ve oturumunuzu güvenli şekilde yönetmek,</li>
+    <li>Araç ve masraf kayıtlarınızı saklamak, listelemek, raporlamak ve cihazlar arasında senkronize etmek,</li>
+    <li>Bakım/vergi/muayene gibi vade tarihleri için hatırlatma bildirimleri göndermek,</li>
+    <li>"Ortak Hane" özelliği ile paylaşım tercihinize bağlı olarak verilerinizi belirlediğiniz kişilerle paylaşmak,</li>
+    <li>Hizmetin güvenliğini sağlamak, kötüye kullanımı önlemek, hataları tespit edip gidermek,</li>
+    <li>Yasal yükümlülüklerimizi yerine getirmek ve talep hâlinde yetkili mercilere bilgi sunmak.</li>
+  </ul>
+
+  <h2>4. İşlemenin Hukuki Sebebi</h2>
+  <p>Kişisel verileriniz KVKK m.5/2 kapsamında; bir sözleşmenin (kullanıcı sözleşmesi/hizmet şartları) kurulması ve ifası için gerekli olması, veri sorumlusunun hukuki yükümlülüğünü yerine getirmesi ve meşru menfaati sebepleriyle işlenir. Zorunlu olmayan işleme faaliyetleri (ör. bildirim gönderimi) için ayrıca açık rızanız alınır. Kayıt sırasında onayladığınız bu metin, açık rızanızın kaydı olarak saklanır.</p>
+
+  <h2>5. Kişisel Verilerin Aktarılması</h2>
+  <p>Uygulama; kimlik doğrulama, veritabanı ve bildirim altyapısı için Google LLC'ye ait Firebase (Authentication, Cloud Firestore, Cloud Messaging) hizmetlerini kullanır. Bu kapsamda verileriniz, Google'ın sunucularında (yurt içi ve/veya yurt dışında bulunabilir) barındırılabilir; bu, KVKK m.9 anlamında yurt dışına aktarım teşkil edebilir ve kayıt olurken onayladığınız açık rızanıza dayanılarak gerçekleştirilir. Verileriniz, yasal zorunluluk olmadıkça reklam/pazarlama amacıyla üçüncü taraflarla paylaşılmaz veya satılmaz.</p>
+
+  <h2>6. Saklama Süresi</h2>
+  <p>Verileriniz, hesabınız aktif olduğu sürece veya işleme amacının gerektirdiği süre boyunca saklanır. Hesabınızı Uygulama içinden kalıcı olarak sildiğinizde, ilişkili tüm veriler (araçlar, masraflar, fotoğraflar, aktivite geçmişi) makul bir süre içinde sistemlerimizden silinir; yalnızca yasal saklama yükümlülüğü doğuran veriler (varsa) mevzuatın öngördüğü süre kadar saklanır.</p>
+
+  <h2>7. Veri Güvenliği</h2>
+  <p>Kişisel verileriniz, yetkisiz erişime ve kayba karşı Firebase'in sağladığı şifreli iletişim (HTTPS/TLS), erişim kontrolü ve kimlik doğrulama mekanizmalarıyla korunur. Buna rağmen internet üzerinden hiçbir aktarımın veya saklamanın %100 güvenli olamayacağını hatırlatırız.</p>
+
+  <h2>8. İlgili Kişi Olarak Haklarınız (KVKK m.11)</h2>
+  <p>KVKK'nın 11. maddesi uyarınca veri sorumlusuna başvurarak:</p>
+  <ul>
+    <li>Kişisel verinizin işlenip işlenmediğini öğrenme,</li>
+    <li>İşlenmişse buna ilişkin bilgi talep etme,</li>
+    <li>İşlenme amacını ve amacına uygun kullanılıp kullanılmadığını öğrenme,</li>
+    <li>Yurt içinde/yurt dışında aktarıldığı üçüncü kişileri bilme,</li>
+    <li>Eksik/yanlış işlenmişse düzeltilmesini isteme,</li>
+    <li>KVKK m.7 şartları oluştuğunda silinmesini/yok edilmesini isteme,</li>
+    <li>Düzeltme/silme işlemlerinin aktarıldığı üçüncü kişilere bildirilmesini isteme,</li>
+    <li>Otomatik sistemlerle analiz sonucu aleyhinize bir sonucun ortaya çıkmasına itiraz etme,</li>
+    <li>Kanuna aykırı işleme nedeniyle zarara uğramanız hâlinde zararın giderilmesini talep etme</li>
+  </ul>
+  <p>haklarına sahipsiniz.</p>
+
+  <h2>9. Başvuru Yöntemi ve Hesap/Veri Silme</h2>
+  <p>Yukarıdaki haklarınızı kullanmak için <span class="placeholder">garaj.defterii@gmail.com</span> adresine kimliğinizi doğrulayan bilgilerle yazılı olarak başvurabilirsiniz. Ayrıca hesabınızı ve tüm verilerinizi dilediğiniz zaman, herhangi bir başvuruya gerek kalmadan, Uygulama içinde <strong>Hesabım → Hesabı Kapat → "Hesabımı ve Tüm Verilerimi Kalıcı Olarak Sil"</strong> adımlarıyla kendiniz kalıcı olarak silebilirsiniz. Bu işlem geri alınamaz.</p>
+
+  <h2>10. Bildirim İzni</h2>
+  <p>Bakım/vade hatırlatmaları gönderebilmemiz için tarayıcınız/cihazınız size ayrıca bildirim izni sorar. Bu izni istediğiniz zaman cihaz ayarlarınızdan veya Uygulama içindeki bildirim ayarından geri alabilirsiniz; bildirimleri kapatmanız Uygulamanın diğer özelliklerini kullanmanızı engellemez.</p>
+
+  <h2>11. Değişiklikler</h2>
+  <p>Bu metin gerektiğinde güncellenebilir. Önemli değişikliklerde Uygulama içinde bilgilendirme yapılır ve gerekirse yeniden onayınız istenir.</p>
+
+  <footer>
+    Sorularınız için: <span class="placeholder">garaj.defterii@gmail.com</span> · Garaj Defteri
+  </footer>
+</div>
+</body>
+</html>
