@@ -127,6 +127,26 @@
   .storage-note { font-size: 11.5px; color: var(--muted); margin-top: 6px; line-height: 1.5; max-width: 640px; }
   .header-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
   .sync-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 600; padding: 5px 10px; border-radius: 999px; border: 1px solid; white-space: nowrap; }
+  .update-banner {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
+    display: flex; align-items: center; justify-content: center; gap: 12px;
+    padding: 10px 16px; background: var(--amber); color: #1B1F24;
+    font-size: 13.5px; font-weight: 700; box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+    animation: update-banner-slide-in 0.25s ease-out;
+  }
+  @keyframes update-banner-slide-in { from { transform: translateY(-100%); } to { transform: translateY(0); } }
+  .update-banner-text { white-space: nowrap; }
+  .update-banner-btn {
+    background: #1B1F24; color: var(--amber); border: none; border-radius: 8px;
+    padding: 6px 14px; font-weight: 700; font-size: 13px; cursor: pointer;
+  }
+  .update-banner-btn:hover { opacity: 0.85; }
+  .update-banner-dismiss {
+    background: transparent; border: none; color: #1B1F24; opacity: 0.65;
+    font-size: 15px; cursor: pointer; padding: 2px 4px; line-height: 1;
+  }
+  .update-banner-dismiss:hover { opacity: 1; }
+  body:has(.update-banner) { padding-top: 40px; }
 
   .car-tabs, .view-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
   .view-tabs { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 4px; width: fit-content; gap: 4px; }
@@ -607,6 +627,87 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         .catch(function (err) { console.warn('Service Worker kaydı başarısız:', err); return null; })
     : Promise.resolve(null);
 
+  // ---------- Sürüm güncelleme bandı ("Yeni sürüm var, yenile") ----------
+  // Şu ana kadar yeni bir SW indirildiğinde sessizce arka planda "waiting"
+  // durumunda bekliyordu; kullanıcı fark etmeden eski sürümü kullanmaya
+  // devam ediyordu. Aşağıdaki kod, yeni bir sürüm indirilip kuruma hazır
+  // olduğunda (mevcut bir controller varken, yani ilk kurulum DEĞİL de asıl
+  // bir GÜNCELLEME olduğunda) ekranın üstünde bir bant gösterir. Kullanıcı
+  // "Yenile" derse, bekleyen worker'a SKIP_WAITING mesajı gönderilir ve o
+  // devreye girince sayfa otomatik yenilenir.
+  // NOT: sw.js dosyasının bu mesajı dinleyip self.skipWaiting() çağırması
+  // gerekir:
+  //   self.addEventListener('message', function (event) {
+  //     if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
+  //   });
+  // sw.js'te bu dinleyici yoksa banner görünür ama "Yenile" tıklandığında
+  // yeni sürüm hemen devreye girmeyebilir; en kötü ihtimalle normal bir
+  // sayfa yenilemesi olur.
+  var updateBannerShown = false;
+  var waitingWorkerRef = null;
+  var reloadingAfterUpdate = false;
+
+  function showUpdateBanner() {
+    if (updateBannerShown) return;
+    updateBannerShown = true;
+    var bar = document.createElement('div');
+    bar.className = 'update-banner';
+    bar.innerHTML =
+      '<span class="update-banner-text">🚀 Yeni bir sürüm hazır.</span>' +
+      '<button type="button" class="update-banner-btn">Yenile</button>' +
+      '<button type="button" class="update-banner-dismiss" aria-label="Kapat">✕</button>';
+    document.body.appendChild(bar);
+    bar.querySelector('.update-banner-btn').addEventListener('click', function () {
+      if (waitingWorkerRef) {
+        waitingWorkerRef.postMessage({ type: 'SKIP_WAITING' });
+      } else {
+        window.location.reload();
+      }
+    });
+    bar.querySelector('.update-banner-dismiss').addEventListener('click', function () {
+      bar.remove();
+      updateBannerShown = false; // sonraki kontrolde tekrar gösterebilelim
+    });
+  }
+
+  function watchForServiceWorkerUpdate(reg) {
+    if (!reg || !('serviceWorker' in navigator)) return;
+    // Sayfa açıldığında zaten bekleyen bir sürüm varsa doğrudan göster.
+    if (reg.waiting && navigator.serviceWorker.controller) {
+      waitingWorkerRef = reg.waiting;
+      showUpdateBanner();
+    }
+    reg.addEventListener('updatefound', function () {
+      var newWorker = reg.installing;
+      if (!newWorker) return;
+      newWorker.addEventListener('statechange', function () {
+        // "installed" + zaten bir controller varsa bu bir GÜNCELLEME'dir
+        // (ilk kurulumda henüz controller yoktur, o yüzden banner çıkmaz).
+        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+          waitingWorkerRef = newWorker;
+          showUpdateBanner();
+        }
+      });
+    });
+    // Sekme uzun süre açık kalabildiği için arada bir manuel güncelleme
+    // kontrolü tetikleriz (tarayıcı zaten navigasyonlarda kontrol eder,
+    // ama tek sayfalık bu uygulamada navigasyon nadiren olur).
+    setInterval(function () { reg.update().catch(function () {}); }, 60 * 60 * 1000);
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') reg.update().catch(function () {});
+    });
+  }
+
+  swRegPromise.then(watchForServiceWorkerUpdate);
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (reloadingAfterUpdate) return;
+      reloadingAfterUpdate = true;
+      window.location.reload();
+    });
+  }
+
   // ---------- "Ana Ekrana Ekle" (PWA install) ----------
   // Chrome/Edge/Android gibi tarayıcılar yükleme koşulları sağlandığında bu
   // olayı tetikler. Olayı yakalayıp saklıyoruz ki kullanıcı kendi butonuna
@@ -654,8 +755,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.5.3"; // Dynamic Version Tracking
-  var APP_UPDATED = "20 Temmuz 2026";
+  var APP_VERSION = "v1.5.4"; // Dynamic Version Tracking
+  var APP_UPDATED = "21 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -907,6 +1008,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     authBusy: false,
     accountMenuOpen: false,
     online: navigator.onLine,
+    pendingSyncCount: getLocalData("pending_sync_count", 0),
     cars: getLocalData("cars", null),
     expenses: getLocalData("expenses", null),
     familyMembers: getLocalData("family", []),
@@ -1107,17 +1209,31 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // --- Offline & Cloud Sync ---
+  // Çevrimdışıyken yapılan her değişiklik burada sayılır; "X kayıt
+  // senkronize edilecek" rozeti bu sayaca göre gösterilir. Bağlantı
+  // dönüp syncOfflineData() başarıyla tamamlanınca sıfırlanır.
+  function markPendingSync() {
+    state.pendingSyncCount = (state.pendingSyncCount || 0) + 1;
+    setLocalData("pending_sync_count", state.pendingSyncCount);
+    render();
+  }
+  function clearPendingSync() {
+    state.pendingSyncCount = 0;
+    setLocalData("pending_sync_count", 0);
+  }
   function persistCars() {
     setLocalData("cars", state.cars);
+    if (!state.online) { markPendingSync(); return; }
     var docId = dataDocId();
-    if (!docId || !state.online) return;
+    if (!docId) return;
     db.collection("users").doc(docId).set({ cars: state.cars }, { merge: true })
       .catch(function (err) { console.error(err); });
   }
   function persistExpenses() {
     setLocalData("expenses", state.expenses);
+    if (!state.online) { markPendingSync(); return; }
     var docId = dataDocId();
-    if (!docId || !state.online) return;
+    if (!docId) return;
     db.collection("users").doc(docId).set({ expenses: state.expenses }, { merge: true })
       .catch(function (err) { console.error(err); });
   }
@@ -1173,15 +1289,17 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   function persistFamily() {
     setLocalData("family", state.familyMembers);
+    if (!state.online) { markPendingSync(); return; }
     var docId = dataDocId();
-    if (!docId || !state.online) return;
+    if (!docId) return;
     db.collection("users").doc(docId).set({ familyMembers: state.familyMembers }, { merge: true })
       .catch(function (err) { console.error(err); });
   }
   function persistBudgets() {
     setLocalData("budgets", state.budgets);
+    if (!state.online) { markPendingSync(); return; }
     var docId = dataDocId();
-    if (!docId || !state.online) return;
+    if (!docId) return;
     db.collection("users").doc(docId).set({ budgets: state.budgets }, { merge: true })
       .catch(function (err) { console.error(err); });
   }
@@ -1383,6 +1501,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   function syncOfflineData() {
     var docId = dataDocId();
+    var pendingCount = state.pendingSyncCount || 0;
     if (docId && state.online) {
       db.collection("users").doc(docId).set({
         cars: state.cars,
@@ -1390,7 +1509,15 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         familyMembers: state.familyMembers,
         budgets: state.budgets
       }, { merge: true }).then(function() {
-        toast("Çevrimdışı yapılan değişiklikler buluta yüklendi!");
+        clearPendingSync();
+        toast(pendingCount > 0
+          ? ("Çevrimdışıyken yapılan " + pendingCount + " değişiklik buluta yüklendi ✅")
+          : "Çevrimdışı yapılan değişiklikler buluta yüklendi!");
+        render();
+      }).catch(function (err) {
+        console.error(err);
+        // Senkron başarısız oldu; rozet kalsın ki kullanıcı hâlâ bekleyen
+        // değişiklik olduğunu görebilsin, bir dahaki bağlantıda tekrar denenir.
       });
     }
   }
@@ -2467,6 +2594,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       '<p class="storage-note">Veriler Firebase üzerinden buluta kaydedilir ve çevrimdışı olsanız dahi tarayıcıda yedeklenerek internet gelince senkronize edilir.</p>' +
       '<div class="header-actions">' +
         (user ? '<span class="sync-badge" style="color:' + (state.online ? "#7BC67E" : "#E2574C") + ';border-color:' + (state.online ? "#7BC67E" : "#E2574C") + '55;background:' + (state.online ? "#7BC67E" : "#E2574C") + '18">' + (state.online ? "🟢 Çevrimiçi" : "🔴 Çevrimdışı (Kaydediliyor)") + '</span>' : '') +
+        (user && state.pendingSyncCount > 0 ? '<span class="sync-badge" title="İnternet gelince otomatik yüklenecek" style="color:#F2A93B;border-color:#F2A93B55;background:#F2A93B18">⏳ ' + state.pendingSyncCount + ' kayıt senkronize edilecek</span>' : '') +
         (user && state.notifStatus !== "unsupported" ?
           (state.notifStatus === "granted"
             ? '<button class="btn-secondary" data-action="disable-notifications">🔔 Bildirimler Açık</button>'
