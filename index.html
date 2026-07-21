@@ -416,6 +416,9 @@
   .family-role-badge { font-size: 11px; color: var(--muted); background: var(--surface-2); padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
   .family-role-toggle { font-size: 11px; color: var(--blue); background: var(--surface-2); padding: 3px 8px; border-radius: 999px; white-space: nowrap; border: 1px solid var(--border); cursor: pointer; }
   .family-role-toggle:hover { border-color: var(--blue); }
+  .family-role-select { font-size: 11px; color: var(--blue); background: var(--surface-2); padding: 3px 22px 3px 8px; border-radius: 999px; white-space: nowrap; border: 1px solid var(--border); cursor: pointer; appearance: none; -webkit-appearance: none; -moz-appearance: none; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M1 3l4 4 4-4' stroke='%234A9EFF' stroke-width='1.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>"); background-repeat: no-repeat; background-position: right 7px center; font-family: inherit; }
+  .family-role-select:hover, .family-role-select:focus { border-color: var(--blue); outline: none; }
+  .family-role-select:disabled { opacity: 0.6; cursor: default; }
 
   /* ---------- "Sadece görüntüleyebilir" rolü: ekleme/düzenleme/silme
      eylemlerini üretecek her düğmeyi (hangi panelde render edildiğine
@@ -816,7 +819,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.6.9"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.7.0"; // Dynamic Version Tracking
   var APP_UPDATED = "21 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -4030,9 +4033,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         if (isOwner) {
           roleBadge = '<span class="family-role-badge" title="Hane sahibi">👑 Hane Sahibi</span>';
         } else if (isOwnHousehold) {
-          // Hane sahibi, kendisi dışındaki üyelerin rolünü buradan değiştirebilir.
-          roleBadge = '<button type="button" class="link-btn family-role-toggle" data-action="toggle-member-role" data-uid="' + esc(m.uid) + '" data-role="' + role + '" title="Rolü değiştirmek için tıkla">' +
-            (role === "view" ? "👁️ Sadece Görüntüler" : "✏️ Düzenleyebilir") + '</button>';
+          // Hane sahibi, kendisi dışındaki üyelerin rolünü buradan bir
+          // listbox (select) ile değiştirebilir.
+          roleBadge = '<select class="family-role-select" data-action="member-role-select" data-uid="' + esc(m.uid) + '" title="Rolü değiştir" aria-label="' + esc(m.name) + ' için yetki seç">' +
+            '<option value="edit"' + (role === "view" ? "" : " selected") + '>✏️ Düzenleyebilir</option>' +
+            '<option value="view"' + (role === "view" ? " selected" : "") + '>👁️ Sadece Görüntüler</option>' +
+            '</select>';
         } else {
           roleBadge = '<span class="family-role-badge">' + (role === "view" ? "👁️ Sadece Görüntüler" : "✏️ Düzenleyebilir") + '</span>';
         }
@@ -4177,11 +4183,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         removeHouseholdMember(btn.getAttribute("data-uid"), btn.getAttribute("data-name"));
       });
     });
-    modal.querySelectorAll('[data-action="toggle-member-role"]').forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        var uid = btn.getAttribute("data-uid");
-        var current = btn.getAttribute("data-role") || "edit";
-        setMemberRole(uid, current === "view" ? "edit" : "view");
+    modal.querySelectorAll('[data-action="member-role-select"]').forEach(function (sel) {
+      sel.addEventListener("change", function () {
+        var uid = sel.getAttribute("data-uid");
+        var newRole = sel.value === "view" ? "view" : "edit";
+        sel.disabled = true; // Firestore güncellemesi/onSnapshot ile modal yeniden çizilene kadar çift tıklamayı önle.
+        setMemberRole(uid, newRole);
       });
     });
 
