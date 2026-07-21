@@ -628,24 +628,25 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     : Promise.resolve(null);
 
   // ---------- Sürüm güncelleme bandı ("Yeni sürüm var, yenile") ----------
-  // Şu ana kadar yeni bir SW indirildiğinde sessizce arka planda "waiting"
-  // durumunda bekliyordu; kullanıcı fark etmeden eski sürümü kullanmaya
-  // devam ediyordu. Aşağıdaki kod, yeni bir sürüm indirilip kuruma hazır
-  // olduğunda (mevcut bir controller varken, yani ilk kurulum DEĞİL de asıl
-  // bir GÜNCELLEME olduğunda) ekranın üstünde bir bant gösterir. Kullanıcı
-  // "Yenile" derse, bekleyen worker'a SKIP_WAITING mesajı gönderilir ve o
-  // devreye girince sayfa otomatik yenilenir.
-  // NOT: sw.js dosyasının bu mesajı dinleyip self.skipWaiting() çağırması
-  // gerekir:
-  //   self.addEventListener('message', function (event) {
-  //     if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
-  //   });
-  // sw.js'te bu dinleyici yoksa banner görünür ama "Yenile" tıklandığında
-  // yeni sürüm hemen devreye girmeyebilir; en kötü ihtimalle normal bir
-  // sayfa yenilemesi olur.
+  // NOT: sw.js bilerek "install" anında koşulsuz self.skipWaiting() +
+  // "activate" anında koşulsuz clients.claim() yapıyor (iOS'ta bildirim
+  // aksiyon düğmelerinin gecikmeden güncellenmesi için). Bu yüzden SW'nin
+  // "waiting" durumuna veya "controllerchange" olayına dayanan bir banner
+  // ya hiç tetiklenmez ya da kullanıcı hiç sormadan aniden sayfası
+  // yenilenir. Ayrıca sw.js dosyası siz normal bir içerik güncellemesi
+  // (index.html değişikliği) yayınladığınızda zaten DEĞİŞMİYOR — index.html
+  // network-first servis edildiği için CACHE_NAME'i her seferinde
+  // artırmanıza gerek yok. Yani SW güncelleme sinyaline dayanan bir banner
+  // sıradan içerik güncellemelerini hiç yakalayamazdı.
+  //
+  // Bunun yerine index.html'in en tepesindeki APP_VERSION sabitini kaynak
+  // olarak kullanıyoruz: arada bir sunucudaki index.html'i (cache: no-store
+  // ile, önbelleği tamamen atlayarak) çekip içindeki APP_VERSION'ı bu
+  // sekmede o an çalışan sürümle karşılaştırıyoruz. Farklıysa banner
+  // gösteriyoruz; "Yenile" ise düz bir sayfa yenilemesi yapıyor (sw.js zaten
+  // index.html'i network-first servis ettiği için taze içerik gelir).
   var updateBannerShown = false;
-  var waitingWorkerRef = null;
-  var reloadingAfterUpdate = false;
+  var updateCheckInFlight = false;
 
   function showUpdateBanner() {
     if (updateBannerShown) return;
@@ -653,16 +654,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var bar = document.createElement('div');
     bar.className = 'update-banner';
     bar.innerHTML =
-      '<span class="update-banner-text">🚀 Yeni bir sürüm hazır.</span>' +
+      '<span class="update-banner-text">🚀 Yeni bir sürüm var.</span>' +
       '<button type="button" class="update-banner-btn">Yenile</button>' +
       '<button type="button" class="update-banner-dismiss" aria-label="Kapat">✕</button>';
     document.body.appendChild(bar);
     bar.querySelector('.update-banner-btn').addEventListener('click', function () {
-      if (waitingWorkerRef) {
-        waitingWorkerRef.postMessage({ type: 'SKIP_WAITING' });
-      } else {
-        window.location.reload();
-      }
+      window.location.reload();
     });
     bar.querySelector('.update-banner-dismiss').addEventListener('click', function () {
       bar.remove();
@@ -670,43 +667,28 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     });
   }
 
-  function watchForServiceWorkerUpdate(reg) {
-    if (!reg || !('serviceWorker' in navigator)) return;
-    // Sayfa açıldığında zaten bekleyen bir sürüm varsa doğrudan göster.
-    if (reg.waiting && navigator.serviceWorker.controller) {
-      waitingWorkerRef = reg.waiting;
-      showUpdateBanner();
-    }
-    reg.addEventListener('updatefound', function () {
-      var newWorker = reg.installing;
-      if (!newWorker) return;
-      newWorker.addEventListener('statechange', function () {
-        // "installed" + zaten bir controller varsa bu bir GÜNCELLEME'dir
-        // (ilk kurulumda henüz controller yoktur, o yüzden banner çıkmaz).
-        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-          waitingWorkerRef = newWorker;
-          showUpdateBanner();
-        }
-      });
-    });
-    // Sekme uzun süre açık kalabildiği için arada bir manuel güncelleme
-    // kontrolü tetikleriz (tarayıcı zaten navigasyonlarda kontrol eder,
-    // ama tek sayfalık bu uygulamada navigasyon nadiren olur).
-    setInterval(function () { reg.update().catch(function () {}); }, 60 * 60 * 1000);
-    document.addEventListener('visibilitychange', function () {
-      if (document.visibilityState === 'visible') reg.update().catch(function () {});
-    });
+  function checkForNewVersion() {
+    if (updateBannerShown || updateCheckInFlight || !navigator.onLine) return;
+    updateCheckInFlight = true;
+    fetch('/aracim/index.html', { cache: 'no-store' })
+      .then(function (res) { return res.ok ? res.text() : null; })
+      .then(function (html) {
+        if (!html) return;
+        var m = html.match(/var\s+APP_VERSION\s*=\s*"([^"]+)"/);
+        if (m && m[1] && m[1] !== APP_VERSION) showUpdateBanner();
+      })
+      .catch(function () { /* ağ hatası: sessizce vazgeç, bir sonraki kontrolde tekrar denenir */ })
+      .finally(function () { updateCheckInFlight = false; });
   }
 
-  swRegPromise.then(watchForServiceWorkerUpdate);
-
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.addEventListener('controllerchange', function () {
-      if (reloadingAfterUpdate) return;
-      reloadingAfterUpdate = true;
-      window.location.reload();
-    });
-  }
+  // Sekme uzun süre açık kalabileceği için arada bir kontrol ederiz; ayrıca
+  // sekme tekrar öne geldiğinde ve bağlantı döndüğünde de kontrol ederiz
+  // (kullanıcı o an tam da yeni sürümü fark edebileceği anlardır).
+  setInterval(checkForNewVersion, 30 * 60 * 1000);
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') checkForNewVersion();
+  });
+  window.addEventListener('online', checkForNewVersion);
 
   // ---------- "Ana Ekrana Ekle" (PWA install) ----------
   // Chrome/Edge/Android gibi tarayıcılar yükleme koşulları sağlandığında bu
@@ -755,8 +737,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.5.4"; // Dynamic Version Tracking
-  var APP_UPDATED = "21 Temmuz 2026";
+  var APP_VERSION = "v1.5.5"; // Dynamic Version Tracking
+  var APP_UPDATED = "20 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
