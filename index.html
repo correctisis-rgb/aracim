@@ -808,7 +808,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.6.3"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.6.4"; // Dynamic Version Tracking
   var APP_UPDATED = "21 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1223,7 +1223,15 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       var patch = buildMemberProfileEntry(myUid, state.currentUser.name, state.currentUser.email);
       patch.members = firebase.firestore.FieldValue.arrayUnion(myUid);
       db.collection("users").doc(householdDocId).set(patch, { merge: true })
-        .catch(function (err) { console.error(err); });
+        .catch(function (err) {
+          console.error(err);
+          // Bu hanede artık üye değilsek (hane sahibi bizi çıkarmış olabilir),
+          // kendimizi tekrar eklemeye çalışmak izin hatası verir ve bu sonsuz
+          // döngüye yol açabilir. Böyle bir durumda kendi (boş) hanemize dönelim.
+          if (err && err.code === "permission-denied" && householdDocId !== myUid) {
+            handleHouseholdAccessRevoked();
+          }
+        });
     }
   }
   // ---------- Üye rolleri: "sadece görüntüleyebilir" / "düzenleyebilir" ----------
@@ -1661,11 +1669,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   function loadMyLogins(force) {
     if (!state.currentUser) return;
     if (monitoring.myLogins && !force) return;
-    db.collection("loginAudit").where("uid", "==", state.currentUser.id).orderBy("createdAt", "desc").limit(8).get()
+    db.collection("loginAudit").where("uid", "==", state.currentUser.id).limit(20).get()
       .then(function (snap) {
         var rows = [];
         snap.forEach(function (d) { rows.push(Object.assign({ id: d.id }, d.data())); });
-        monitoring.myLogins = rows;
+        rows.sort(function (a, b) {
+          var at = a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0;
+          var bt = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0;
+          return bt - at;
+        });
+        monitoring.myLogins = rows.slice(0, 8);
         if (state.modal && state.modal.type === "profile") render();
       })
       .catch(function (err) { console.error(err); monitoring.myLogins = []; });
