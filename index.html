@@ -403,6 +403,25 @@
   .qr-scan-frame { position: absolute; inset: 14%; border: 3px solid var(--amber); border-radius: 16px; box-shadow: 0 0 0 999px rgba(0,0,0,0.4); pointer-events: none; }
   .family-name { font-weight: 500; font-size: 13px; }
   .family-role { font-size: 11px; color: var(--amber); background: rgba(242,169,59,0.1); padding: 2px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; }
+  .family-role-badge { font-size: 11px; color: var(--muted); background: var(--surface-2); padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
+  .family-role-toggle { font-size: 11px; color: var(--blue); background: var(--surface-2); padding: 3px 8px; border-radius: 999px; white-space: nowrap; border: 1px solid var(--border); cursor: pointer; }
+  .family-role-toggle:hover { border-color: var(--blue); }
+
+  /* ---------- "Sadece görüntüleyebilir" rolü: ekleme/düzenleme/silme
+     eylemlerini üretecek her düğmeyi (hangi panelde render edildiğine
+     bakılmaksızın) data-action üzerinden tek noktadan gizler. Programatik
+     tetiklenmelere karşı ikinci savunma katmanı render()'daki
+     bindGlobalActions tıklama işleyicisindedir. ---------- */
+  body.view-only-role [data-action="open-add-expense"],
+  body.view-only-role [data-action="open-edit-expense"],
+  body.view-only-role [data-action="delete-expense"],
+  body.view-only-role [data-action="open-add-car"],
+  body.view-only-role [data-action="open-edit-car"],
+  body.view-only-role [data-action="delete-car"] {
+    display: none !important;
+  }
+
+  .exp-added-by { font-size: 11px; color: var(--muted); }
 
   /* ---------- auth screen ---------- */
   .auth-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
@@ -737,8 +756,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.5.5"; // Dynamic Version Tracking
-  var APP_UPDATED = "20 Temmuz 2026";
+  var APP_VERSION = "v1.5.6"; // Dynamic Version Tracking
+  var APP_UPDATED = "21 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -1108,7 +1127,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     state.budgets = data.budgets || state.budgets || {};
     state.householdMembers = Object.keys(data.memberProfiles || {}).map(function (uidKey) {
       var p = (data.memberProfiles || {})[uidKey] || {};
-      return { uid: uidKey, name: p.name || "Üye", email: p.email || "" };
+      // Rol alanı yoksa (eski üyeler ya da hiç değiştirilmemişse) varsayılan
+      // "edit" (tam yetki) kabul edilir — bkz. firestore.rules.
+      return { uid: uidKey, name: p.name || "Üye", email: p.email || "", role: p.role || "edit" };
     });
     state.notifHistory = data.notifHistory || state.notifHistory || [];
     state.householdInviteToken = data.inviteToken || null;
@@ -1149,6 +1170,39 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         .catch(function (err) { console.error(err); });
     }
   }
+  // ---------- Üye rolleri: "sadece görüntüleyebilir" / "düzenleyebilir" ----------
+  // Hane sahibi her zaman tam yetkilidir. Diğer üyelerin rolü
+  // memberProfiles.{uid}.role alanında tutulur ("edit" ya da "view").
+  // Rol hiç ayarlanmamışsa (bu özellik eklenmeden önce katılmış üyeler
+  // dahil) varsayılan "edit" kabul edilir — bkz. firestore.rules.
+  function myHouseholdRole() {
+    if (!state.currentUser) return "edit";
+    if (state.householdId === state.currentUser.id) return "owner";
+    var mine = (state.householdMembers || []).find(function (m) { return m.uid === state.currentUser.id; });
+    return (mine && mine.role) || "edit";
+  }
+  function canEditHousehold() {
+    return myHouseholdRole() !== "view";
+  }
+  // Hane sahibinin, kendi hanesindeki bir üyenin rolünü değiştirmesi için.
+  // memberProfiles alt-alanına sadece "role" yazıldığı için (leaf-level
+  // merge), üyenin mevcut name/email bilgisi silinmez — bkz.
+  // buildMemberProfileEntry üzerindeki merge notu.
+  function setMemberRole(memberUid, newRole) {
+    if (!state.currentUser || state.householdId !== state.currentUser.id) return;
+    if (memberUid === state.currentUser.id) return; // hane sahibi kendi rolünü değiştiremez
+    var patch = { memberProfiles: {} };
+    patch.memberProfiles[memberUid] = { role: newRole };
+    db.collection("users").doc(state.currentUser.id).set(patch, { merge: true })
+      .then(function () {
+        toast(newRole === "view" ? "Üye artık sadece görüntüleyebilir." : "Üyeye düzenleme yetkisi verildi.");
+      })
+      .catch(function (err) {
+        console.error(err);
+        toast("Rol güncellenemedi: " + (err && err.message ? err.message : err));
+      });
+  }
+
   function subscribeHousehold(householdId) {
     if (unsubscribeHouseholdDoc) { unsubscribeHouseholdDoc(); unsubscribeHouseholdDoc = null; }
     state.householdId = householdId;
@@ -2530,6 +2584,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var carsList = state.cars || [];
     var expensesList = state.expenses || [];
 
+    // Sadece görüntüleyebilen üyeler için ekleme/düzenleme/silme
+    // düğmelerini (nerede render edilirlerse edilsinler) tek bir CSS
+    // kuralıyla gizlemek için body'e bir class ekleniyor. Ayrıca
+    // bindGlobalActions() içindeki tıklama işleyicisi de bunu (programatik
+    // tetiklenmelere karşı) ikinci bir savunma katmanı olarak kontrol eder.
+    document.body.classList.toggle("view-only-role", !canEditHousehold());
+
     // Filtre girdileri gibi input alanlarında her tuşta tüm sayfa yeniden çizildiği için
     // odağı (ve imleç konumunu) render sonrasında geri yüklüyoruz.
     var activeEl = document.activeElement;
@@ -3194,6 +3255,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         : '<p class="empty-hint">Kayıt yok. İlk masrafını eklediğinde defter burada dolmaya başlar.</p>';
     } else {
       html += '<ul class="expense-list">';
+      // "Ekleyen" etiketi sadece ortak hanede birden fazla üye varken
+      // anlamlı olduğu için tek kişilik hanelerde gösterilmiyor.
+      var showAddedBy = (state.householdMembers || []).length > 1;
       visible.forEach(function (e) {
         var cat = catById(e.category);
         var car = (state.cars || []).find(function (c) { return c.id === e.carId; });
@@ -3203,6 +3267,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         if (e.liter != null) noteBits.push(String(e.liter).replace(".", ",") + " L");
         var payer = e.payerId ? (state.familyMembers || []).find(function (f) { return f.id === e.payerId; }) : null;
         if (payer) noteBits.push("Ödeyen: " + esc(payer.name));
+        if (showAddedBy && e.addedByName) noteBits.push('<span class="exp-added-by">Ekleyen: ' + esc(e.addedByName) + '</span>');
         var noteText = noteBits.length ? noteBits.join(" · ") : "—";
         var receiptBadge = e.receipt ? '<button type="button" class="receipt-badge" data-action="open-lightbox" data-src="' + e.receipt + '" data-caption="Fiş / Fatura" title="Fişi gör" aria-label="Fişi gör">📎</button>' : "";
         html += '<li class="expense-row">' +
@@ -3410,10 +3475,22 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var memberListHtml;
     if (state.householdMembers && state.householdMembers.length) {
       memberListHtml = state.householdMembers.map(function (m) {
+        var isOwner = m.uid === state.householdId;
+        var role = m.role || "edit";
         var kickBtn = (isOwnHousehold && m.uid !== user.id)
           ? '<button type="button" class="icon-btn" data-action="household-kick" data-uid="' + esc(m.uid) + '" data-name="' + esc(m.name) + '" aria-label="Üyeyi haneden çıkar" title="Üyeyi haneden çıkar">🗑️</button>'
           : '';
-        return '<li class="family-item"><span class="family-name">👤 ' + esc(m.name) + (m.uid === user.id ? " (sen)" : "") + '</span><span class="family-role">' + esc(m.email || "") + '</span>' + kickBtn + '</li>';
+        var roleBadge;
+        if (isOwner) {
+          roleBadge = '<span class="family-role-badge" title="Hane sahibi">👑 Hane Sahibi</span>';
+        } else if (isOwnHousehold) {
+          // Hane sahibi, kendisi dışındaki üyelerin rolünü buradan değiştirebilir.
+          roleBadge = '<button type="button" class="link-btn family-role-toggle" data-action="toggle-member-role" data-uid="' + esc(m.uid) + '" data-role="' + role + '" title="Rolü değiştirmek için tıkla">' +
+            (role === "view" ? "👁️ Sadece Görüntüler" : "✏️ Düzenleyebilir") + '</button>';
+        } else {
+          roleBadge = '<span class="family-role-badge">' + (role === "view" ? "👁️ Sadece Görüntüler" : "✏️ Düzenleyebilir") + '</span>';
+        }
+        return '<li class="family-item"><span class="family-name">👤 ' + esc(m.name) + (m.uid === user.id ? " (sen)" : "") + '</span><span class="family-role">' + esc(m.email || "") + '</span>' + roleBadge + kickBtn + '</li>';
       }).join("");
     } else if (!state.householdDataLoaded) {
       memberListHtml = '<li class="empty-hint">Üye bilgisi yükleniyor…</li>';
@@ -3442,7 +3519,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       '</div>' +
 
       '<p class="profile-section-title">🏠 Ortak Hesap</p>' +
-      '<p class="field-hint" style="margin-top:-4px">Aynı araçları eşin/ailenle ortak yönetmek için davet kodunu paylaş, ya da sana verilen bir kodla katıl. Ortak hanedeki herkes araç ve masrafları birlikte düzenleyebilir.</p>' +
+      '<p class="field-hint" style="margin-top:-4px">Aynı araçları eşin/ailenle ortak yönetmek için davet kodunu paylaş, ya da sana verilen bir kodla katıl. Katılan üyenin rolünü (düzenleyebilir / sadece görüntüleyebilir) aşağıdaki listeden ayarlayabilirsin.</p>' +
       (isOwnHousehold ? '' : '<p class="field-hint" style="color:var(--amber)">Şu an başka bir kullanıcının ortak hanesindesin.</p>') +
       '<div class="budget-row">' +
         '<input id="household-code-display" readonly value="' + esc((isOwnHousehold && state.householdInviteToken) ? buildInviteCode(state.householdId, state.householdInviteToken) : (state.householdId || "")) + '" style="flex:1" />' +
@@ -3520,6 +3597,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     modal.querySelectorAll('[data-action="household-kick"]').forEach(function (btn) {
       btn.addEventListener("click", function () {
         removeHouseholdMember(btn.getAttribute("data-uid"), btn.getAttribute("data-name"));
+      });
+    });
+    modal.querySelectorAll('[data-action="toggle-member-role"]').forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var uid = btn.getAttribute("data-uid");
+        var current = btn.getAttribute("data-role") || "edit";
+        setMemberRole(uid, current === "view" ? "edit" : "view");
       });
     });
 
@@ -4195,6 +4279,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if (isEdit) {
         state.expenses = (state.expenses || []).map(function (e) { return e.id === editingExpense.id ? Object.assign({}, e, payload) : e; });
       } else {
+        // "Ekleyen" etiketi için: masraf ilk kez oluşturulurken hane
+        // içindeki hangi kullanıcının eklediğini damgalıyoruz. Sonradan
+        // düzenlense bile bu bilgi (kim eklediyse o) değişmiyor.
+        payload.addedByUid = state.currentUser ? state.currentUser.id : null;
+        payload.addedByName = state.currentUser ? state.currentUser.name : null;
         state.expenses = [Object.assign({ id: uid() }, payload)].concat(state.expenses || []);
       }
       persistExpenses();
@@ -4245,6 +4334,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       }
       el.addEventListener("click", function (ev) {
         var action = el.getAttribute("data-action");
+        // Sadece görüntüleyebilen üyeler bu eylemleri tetikleyemez (ilgili
+        // düğmeler CSS ile zaten gizleniyor; bu, programatik/eski DOM
+        // durumlarına karşı ikinci bir savunma katmanı).
+        var EDIT_ONLY_ACTIONS = ["open-add-car", "open-edit-car", "delete-car", "open-add-expense", "open-edit-expense", "delete-expense"];
+        if (EDIT_ONLY_ACTIONS.indexOf(action) !== -1 && !canEditHousehold()) {
+          toast("Bu hanede sadece görüntüleme yetkin var, düzenleme yapamazsın.");
+          return;
+        }
         if (action === "select-car") { state.selectedCarId = el.getAttribute("data-car"); render(); }
         else if (action === "set-view") { state.view = el.getAttribute("data-view"); render(); }
         else if (action === "dismiss-onboarding") { state.onboardingDismissed = true; setLocalData("onboarding_dismissed", true); render(); }
