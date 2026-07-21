@@ -808,7 +808,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.6.4"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.6.5"; // Dynamic Version Tracking
   var APP_UPDATED = "21 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -3827,7 +3827,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         '<p class="avatar-upload-hint">Profil fotoğrafı ekle veya değiştir. Fotoğraflar otomatik küçültülerek saklanır.</p>' +
       '</div>' +
       '<label class="field"><span>Ad Soyad</span><input id="p-name" value="' + esc(user.name) + '" /></label>' +
-      '<label class="field"><span>E-posta</span><input id="p-email" type="email" value="' + esc(user.email) + '" /></label>' +
+      '<label class="field"><span>E-posta' + (auth.currentUser && auth.currentUser.emailVerified ? ' <span style="color:var(--green); font-weight:600;">✓ Doğrulandı</span>' : '') + '</span><input id="p-email" type="email" value="' + esc(user.email) + '" /></label>' +
       (auth.currentUser && !auth.currentUser.emailVerified ?
         '<div class="field-hint" style="background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:9px 10px; display:flex; align-items:center; justify-content:space-between; gap:8px; margin:-6px 0 12px;">' +
           '<span>⚠️ E-posta adresin doğrulanmadı.</span>' +
