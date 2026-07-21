@@ -1603,6 +1603,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // istemciye gönderilmez). Tetikleme artık ANINDA (birkaç saniye içinde)
   // gerçekleşir, ~10 dakikalık bekleme yoktur.
   var ADMIN_EMAIL = "emre121856031@gmail.com";
+  var SUPPORT_EMAIL = "garaj.defteri@gmail.com";
   function isAdminUser(user) {
     return !!(user && user.email && user.email.toLowerCase() === ADMIN_EMAIL);
   }
@@ -4299,7 +4300,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     });
     html += '</ul>';
 
-    html += '<div class="help-contact-row">📧 Sorularının cevabını bulamadın mı? Bize doğrudan yazabilirsin: <a href="mailto:garaj.defterii@gmail.com</a></div>';
+    html += '<div class="help-contact-row">📧 Sorularının cevabını bulamadın mı? Bize doğrudan yazabilirsin: <a href="mailto:' + esc(SUPPORT_EMAIL) + '">' + esc(SUPPORT_EMAIL) + '</a></div>';
 
     html += '<p class="profile-section-title">Sorun Bildir</p>';
     html += '<p class="field-hint" style="margin-top:-4px">Karşılaştığın hatayı veya isteğini kısaca anlat; ekibimize iletilecek.</p>';
