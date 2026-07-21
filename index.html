@@ -509,6 +509,12 @@
   .act-item.expanded .act-detail { display: flex; }
   .act-detail-row { font-size: 11.5px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; }
   .act-detail-label { color: var(--muted); min-width: 120px; flex-shrink: 0; }
+  .faq-answer { display: none; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); font-size: 12.5px; color: var(--text); line-height: 1.6; }
+  .act-item.expanded .faq-answer { display: block; }
+  .help-contact-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; font-size: 12.5px; }
+  .help-contact-row a { color: var(--amber); text-decoration: none; font-weight: 600; }
+  .help-contact-row a:hover { text-decoration: underline; }
+  .support-charcount { text-align: right; font-size: 10.5px; color: var(--muted); margin: -8px 0 10px; }
   .act-old { color: var(--red); text-decoration: line-through; opacity: .85; }
   .act-arrow { color: var(--muted); }
   .act-new { color: var(--green); font-weight: 600; }
@@ -808,7 +814,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.6.5"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.6.6"; // Dynamic Version Tracking
   var APP_UPDATED = "21 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1640,6 +1646,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     health: null, healthLoading: false, healthError: null,
     errors: null, errorsLoading: false, errorsError: null,
     loginAudit: null, loginAuditLoading: false, loginAuditError: null,
+    supportRequests: null, supportRequestsLoading: false, supportRequestsError: null,
     myLogins: null
   };
 
@@ -1708,6 +1715,21 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // Aktivite geçmişi penceresinde hangi kayıtların detayı açık — sadece
   // görüntü durumu, kalıcı değil.
   var expandedActivityIds = {};
+  var expandedFaqIds = {};
+
+  // --- Yardım & SSS içeriği ---
+  function getFaqItems() {
+    return [
+      { id: "faq-veri", q: "Verilerim nerede saklanıyor, kaybolur mu?", a: "Araç ve masraf kayıtların hesabına bağlı olarak bulutta (Firebase) saklanır. Farklı bir cihazdan aynı hesapla giriş yaptığında tüm verilerine ulaşabilirsin. Yine de düzenli olarak Hesabım bölümünden 'Verileri Dışa Aktar' ile yedek almanı öneririz." },
+      { id: "faq-arac-ekle", q: "Nasıl yeni bir araç eklerim?", a: "Üst kısımdaki araç sekmelerinin yanındaki '+' (Araç Ekle) düğmesine dokun, araç bilgilerini gir ve kaydet. Aynı ekrandan mevcut bir aracı düzenleyebilir veya silebilirsin." },
+      { id: "faq-masraf-ekle", q: "Masraf nasıl kaydedilir?", a: "Sağ alttaki turuncu '+' düğmesine dokunarak yeni masraf ekleyebilirsin. Kategori, tutar, kilometre ve fiş görseli gibi bilgileri girip kaydettiğinde masraf, ilgili aracın geçmişine işlenir." },
+      { id: "faq-hatirlatma", q: "Bildirim/hatırlatma almıyorum, neden?", a: "Bildirimlerin gelebilmesi için tarayıcı/telefon bildirim izninin açık olması ve uygulamanın Hesabım bölümünden bildirimlerin etkinleştirilmiş olması gerekir. İzni verdikten sonra da bildirim gelmiyorsa telefonunun pil optimizasyonu uygulamayı arka planda kapatıyor olabilir; bu ayarlardan uygulamayı istisna listesine ekleyebilirsin." },
+      { id: "faq-hane", q: "Eşimle/ailemle aynı verileri nasıl paylaşırım?", a: "Hesabım bölümündeki hane paylaşımı özelliğiyle bir davet kodu veya QR oluşturabilir, bunu paylaşabileceğin kişi kendi hesabından okutarak aynı hanede araç ve masrafları görebilir." },
+      { id: "faq-disa-aktar", q: "Verilerimi dışa aktarabilir miyim?", a: "Evet. Hesabım bölümündeki 'Verileri Dışa Aktar' seçeneğiyle tüm araç ve masraf kayıtlarını cihazına indirebilirsin." },
+      { id: "faq-tema", q: "Karanlık/aydınlık temayı nasıl değiştiririm?", a: "Üst sağ köşedeki güneş/ay simgesine dokunarak açık ve koyu tema arasında geçiş yapabilirsin." },
+      { id: "faq-hesap-sil", q: "Hesabımı veya bir aracı nasıl silerim?", a: "Bir aracı silmek için ilgili aracın düzenleme ekranındaki 'Sil' seçeneğini kullanabilirsin. Hesap silme gibi kalıcı işlemler için lütfen aşağıdaki 'Sorun Bildir' alanından veya destek e-postasından bizimle iletişime geç." }
+    ];
+  }
 
   function loadHealthData(force) {
     if (!state.currentUser || !isAdminUser(state.currentUser)) return;
@@ -1761,6 +1783,42 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         monitoring.errorsError = err && err.message ? err.message : String(err);
         if (state.modal && state.modal.type === "errors") render();
       });
+  }
+
+  function loadSupportRequests(force) {
+    if (!state.currentUser || !isAdminUser(state.currentUser)) return;
+    if (monitoring.supportRequestsLoading) return;
+    if (monitoring.supportRequests && !force) return;
+    monitoring.supportRequestsLoading = true;
+    monitoring.supportRequestsError = null;
+    if (state.modal && state.modal.type === "supportRequests") render();
+
+    db.collection("supportRequests").orderBy("createdAt", "desc").limit(50).get()
+      .then(function (snap) {
+        var rows = [];
+        snap.forEach(function (d) { rows.push(Object.assign({ id: d.id }, d.data())); });
+        monitoring.supportRequests = rows;
+        monitoring.supportRequestsLoading = false;
+        if (state.modal && state.modal.type === "supportRequests") render();
+      })
+      .catch(function (err) {
+        monitoring.supportRequestsLoading = false;
+        monitoring.supportRequestsError = err && err.message ? err.message : String(err);
+        if (state.modal && state.modal.type === "supportRequests") render();
+      });
+  }
+
+  function setSupportRequestStatus(id, status) {
+    if (!state.currentUser || !isAdminUser(state.currentUser)) return;
+    db.collection("supportRequests").doc(id).set({ status: status }, { merge: true })
+      .then(function () {
+        if (monitoring.supportRequests) {
+          var row = monitoring.supportRequests.find(function (r) { return r.id === id; });
+          if (row) row.status = status;
+        }
+        if (state.modal && state.modal.type === "supportRequests") render();
+      })
+      .catch(function (err) { toast("Güncellenemedi: " + (err && err.message ? err.message : err)); });
   }
 
   // --- İstemci taraflı hata yakalama ---
@@ -2919,12 +2977,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             '<button type="button" class="account-menu-item" data-action="open-profile">👤 Hesabım</button>' +
             '<button type="button" class="account-menu-item" data-action="open-notif-history">🔔 Geçmiş Hatırlatmalar' + (hasUnseenNotifHistory() ? ' <span class="account-chip-dot" aria-hidden="true"></span>' : '') + '</button>' +
             '<button type="button" class="account-menu-item" data-action="open-activity-log">🕒 Aktivite Geçmişi' + (hasUnseenActivityLog() ? ' <span class="account-chip-dot" aria-hidden="true"></span>' : '') + '</button>' +
+            '<button type="button" class="account-menu-item" data-action="open-help">🆘 Yardım &amp; Destek</button>' +
             (isAdminUser(user) ?
               '<div class="account-menu-divider"></div>' +
               '<button type="button" class="account-menu-item" data-action="open-announcement">📢 Duyuru / Bakım Mesajı Gönder</button>' +
               '<button type="button" class="account-menu-item" data-action="trigger-reminders">🛠️ Bildirimleri Tetikle</button>' +
               '<button type="button" class="account-menu-item" data-action="open-health">🩺 Sağlık</button>' +
               '<button type="button" class="account-menu-item" data-action="open-errors">🐞 Hata İzleme</button>' +
+              '<button type="button" class="account-menu-item" data-action="open-support-requests">📮 Destek Talepleri</button>' +
               '<button type="button" class="account-menu-item" data-action="open-login-audit">🔐 Giriş Kayıtları</button>'
               : '') +
             '<div class="account-menu-divider"></div>' +
@@ -3641,10 +3701,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       backdrop.appendChild(buildNotifHistoryModal());
     } else if (state.modal.type === "activityLog") {
       backdrop.appendChild(buildActivityLogModal());
+    } else if (state.modal.type === "help") {
+      backdrop.appendChild(buildHelpModal());
     } else if (state.modal.type === "health") {
       backdrop.appendChild(buildHealthModal());
     } else if (state.modal.type === "errors") {
       backdrop.appendChild(buildErrorsModal());
+    } else if (state.modal.type === "supportRequests") {
+      backdrop.appendChild(buildSupportRequestsModal());
     } else if (state.modal.type === "loginAudit") {
       backdrop.appendChild(buildLoginAuditModal());
     } else if (state.modal.type === "announcement") {
@@ -4216,6 +4280,71 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return html;
   }
 
+  function buildHelpModal() {
+    var modal = document.createElement("div");
+    modal.className = "modal wide";
+    modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
+
+    var html = '<div class="modal-head"><h3>🆘 Yardım &amp; Destek</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>';
+    html += '<p class="field-hint" style="margin-top:-4px">Sık sorulan sorulara göz atabilir ya da yaşadığın bir sorunu doğrudan bize bildirebilirsin.</p>';
+
+    html += '<p class="profile-section-title">Sıkça Sorulan Sorular</p>';
+    html += '<ul class="err-list">';
+    getFaqItems().forEach(function (item) {
+      var isExpanded = !!expandedFaqIds[item.id];
+      html += '<li class="err-item act-item' + (isExpanded ? " expanded" : "") + '" data-action="toggle-faq" data-id="' + esc(item.id) + '">' +
+        '<div class="err-item-msg">' + esc(item.q) + ' <span class="act-item-caret">▶</span></div>' +
+        '<div class="faq-answer">' + esc(item.a) + '</div>' +
+      '</li>';
+    });
+    html += '</ul>';
+
+    html += '<div class="help-contact-row">📧 Sorularının cevabını bulamadın mı? Bize doğrudan yazabilirsin: <a href="mailto:' + esc(ADMIN_EMAIL) + '">' + esc(ADMIN_EMAIL) + '</a></div>';
+
+    html += '<p class="profile-section-title">Sorun Bildir</p>';
+    html += '<p class="field-hint" style="margin-top:-4px">Karşılaştığın hatayı veya isteğini kısaca anlat; ekibimize iletilecek.</p>';
+    html += '<label class="field"><span>Açıklama</span><textarea id="support-msg" maxlength="1000" rows="4" placeholder="Örn. Masraf eklerken fotoğraf yüklenmiyor..." style="width:100%; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:10px; font-size:14px; font-family:inherit; resize:vertical;"></textarea></label>';
+    html += '<p class="support-charcount" id="support-charcount">0 / 1000</p>';
+    html += '<button type="button" class="btn-primary full" id="support-send">🐞 Sorunu Gönder</button>';
+
+    modal.innerHTML = html;
+
+    var msgEl = modal.querySelector("#support-msg");
+    var countEl = modal.querySelector("#support-charcount");
+    msgEl.addEventListener("input", function () {
+      countEl.textContent = msgEl.value.length + " / 1000";
+    });
+
+    modal.querySelector("#support-send").addEventListener("click", function () {
+      var message = msgEl.value.trim();
+      if (!message) { toast("Lütfen sorununu kısaca açıkla."); return; }
+      if (!db) { toast("Bağlantı kurulamadı, tekrar dene."); return; }
+
+      var btn = modal.querySelector("#support-send");
+      btn.disabled = true; btn.textContent = "Gönderiliyor…";
+
+      db.collection("supportRequests").add({
+        message: message.slice(0, 1000),
+        userId: state.currentUser ? state.currentUser.id : null,
+        userEmail: state.currentUser ? state.currentUser.email : null,
+        userName: state.currentUser ? state.currentUser.name : null,
+        appVersion: APP_VERSION,
+        url: window.location.href,
+        userAgent: navigator.userAgent,
+        status: "open",
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      }).then(function () {
+        toast("Bildirimin için teşekkürler, en kısa sürede inceleyeceğiz.");
+        closeModal();
+      }).catch(function (err) {
+        btn.disabled = false; btn.textContent = "🐞 Sorunu Gönder";
+        toast("Gönderilemedi: " + (err && err.message ? err.message : err));
+      });
+    });
+
+    return modal;
+  }
+
   function buildHealthModal() {
     var modal = document.createElement("div");
     modal.className = "modal wide";
@@ -4303,6 +4432,48 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             '</div>' +
             '<div class="err-item-msg">' + esc(e.message || "Bilinmeyen hata") + '</div>' +
             '<div class="err-item-meta">' + esc((e.source || "") + (e.line ? (":" + e.line) : "")) + (e.appVersion ? (" · " + esc(e.appVersion)) : "") + '</div>' +
+          '</li>';
+        });
+        html += '</ul>';
+      }
+    }
+
+    modal.innerHTML = html;
+    return modal;
+  }
+
+  function buildSupportRequestsModal() {
+    var modal = document.createElement("div");
+    modal.className = "modal wide";
+    modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
+
+    var html = '<div class="modal-head"><h3>📮 Destek Talepleri</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>';
+    html += '<div class="mon-refresh-row"><button type="button" data-action="refresh-support-requests">↻ Yenile</button></div>';
+
+    if (monitoring.supportRequestsLoading && !monitoring.supportRequests) {
+      html += '<p class="mon-loading">Yükleniyor…</p>';
+    } else if (monitoring.supportRequestsError) {
+      html += '<p class="mon-empty">Veriler alınamadı: ' + esc(monitoring.supportRequestsError) + '</p>';
+    } else {
+      var rows = monitoring.supportRequests || [];
+      if (!rows.length) {
+        html += '<p class="mon-empty">Henüz bir destek talebi yok. 🎉</p>';
+      } else {
+        html += '<ul class="err-list">';
+        rows.forEach(function (r) {
+          var isResolved = r.status === "resolved";
+          html += '<li class="err-item">' +
+            '<div class="err-item-head">' +
+              '<span class="err-item-time">' + fmtDateTime(r.createdAt) + '</span>' +
+              (isResolved ? '<span class="mon-badge ok">✓ Çözüldü</span>' : '<span class="mon-badge warn">⏳ Açık</span>') +
+            '</div>' +
+            '<div class="err-item-msg">' + esc(r.message || "") + '</div>' +
+            '<div class="err-item-meta">' + esc(r.userName || r.userEmail || "Bilinmiyor") + (r.appVersion ? (" · " + esc(r.appVersion)) : "") + '</div>' +
+            '<div class="mon-refresh-row" style="margin:8px 0 0">' +
+              (isResolved
+                ? '<button type="button" data-action="support-mark-open" data-id="' + esc(r.id) + '">↺ Tekrar Aç</button>'
+                : '<button type="button" data-action="support-mark-resolved" data-id="' + esc(r.id) + '">✓ Çözüldü İşaretle</button>') +
+            '</div>' +
           '</li>';
         });
         html += '</ul>';
@@ -4985,6 +5156,17 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           markActivityLogSeen();
           render();
         }
+        else if (action === "open-help") {
+          ev.stopPropagation();
+          state.modal = { type: "help" };
+          state.accountMenuOpen = false;
+          render();
+        }
+        else if (action === "toggle-faq") {
+          var faqId = el.getAttribute("data-id");
+          expandedFaqIds[faqId] = !expandedFaqIds[faqId];
+          render();
+        }
         else if (action === "toggle-activity-detail") {
           var actId = el.getAttribute("data-id");
           expandedActivityIds[actId] = !expandedActivityIds[actId];
@@ -5006,6 +5188,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           render();
           loadErrorLogs();
         }
+        else if (action === "open-support-requests") {
+          ev.stopPropagation();
+          if (!isAdminUser(state.currentUser)) return;
+          state.modal = { type: "supportRequests" };
+          state.accountMenuOpen = false;
+          render();
+          loadSupportRequests();
+        }
         else if (action === "open-login-audit") {
           ev.stopPropagation();
           if (!isAdminUser(state.currentUser)) return;
@@ -5016,6 +5206,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         }
         else if (action === "refresh-health") { loadHealthData(true); }
         else if (action === "refresh-errors") { loadErrorLogs(true); }
+        else if (action === "refresh-support-requests") { loadSupportRequests(true); }
+        else if (action === "support-mark-resolved") { setSupportRequestStatus(el.getAttribute("data-id"), "resolved"); }
+        else if (action === "support-mark-open") { setSupportRequestStatus(el.getAttribute("data-id"), "open"); }
         else if (action === "refresh-login-audit") { loadLoginAuditLogs(true); }
         else if (action === "logout") {
           ev.stopPropagation();
