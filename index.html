@@ -786,7 +786,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.5.7"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.5.8"; // Dynamic Version Tracking
   var APP_UPDATED = "21 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1057,6 +1057,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     householdMembers: [],
     householdDataLoaded: false,
     notifHistory: getLocalData("notif_history", []),
+    activityLog: getLocalData("activity_log", []),
     theme: getLocalData("theme", "dark")
   };
   document.documentElement.setAttribute("data-theme", state.theme === "light" ? "light" : "dark");
@@ -1162,12 +1163,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       return { uid: uidKey, name: p.name || "Üye", email: p.email || "", role: p.role || "edit" };
     });
     state.notifHistory = data.notifHistory || state.notifHistory || [];
+    state.activityLog = data.activityLog || state.activityLog || [];
     state.householdInviteToken = data.inviteToken || null;
     setLocalData("cars", state.cars);
     setLocalData("expenses", state.expenses);
     setLocalData("family", state.familyMembers);
     setLocalData("budgets", state.budgets);
     setLocalData("notif_history", state.notifHistory);
+    setLocalData("activity_log", state.activityLog);
     tryOpenPendingDeepLink();
     ensureInviteToken(dataDocId(), data);
   }
@@ -1368,6 +1371,55 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (!docId) return;
     db.collection("users").doc(docId).set({ budgets: state.budgets }, { merge: true })
       .catch(function (err) { console.error(err); });
+  }
+
+  // ---------- Aktivite geçmişi (kim ne değiştirdi/sildi) ----------
+  // Hane içindeki araç/masraf ekleme, düzenleme, silme (ve geri alma)
+  // işlemlerinin kısa bir izini tutar. En yeni kayıt başta olacak şekilde
+  // saklanır; liste sınırsız büyümesin diye en fazla 200 kayıt tutulur.
+  function persistActivityLog() {
+    setLocalData("activity_log", state.activityLog);
+    if (!state.online) { markPendingSync(); return; }
+    var docId = dataDocId();
+    if (!docId) return;
+    db.collection("users").doc(docId).set({ activityLog: state.activityLog }, { merge: true })
+      .catch(function (err) { console.error(err); });
+  }
+  function logActivity(type, action, meta) {
+    meta = meta || {};
+    var entry = {
+      id: uid(),
+      type: type, // "car" | "expense"
+      action: action, // "add" | "edit" | "delete" | "restore"
+      carId: meta.carId || null,
+      carName: meta.carName || "",
+      summary: meta.summary || "",
+      byUid: state.currentUser ? state.currentUser.id : null,
+      byName: state.currentUser ? state.currentUser.name : "Bilinmiyor",
+      at: new Date().toISOString()
+    };
+    state.activityLog = [entry].concat(state.activityLog || []).slice(0, 200);
+    persistActivityLog();
+  }
+  function activityActionBadge(action) {
+    if (action === "add") return '<span class="mon-badge ok">➕ Eklendi</span>';
+    if (action === "edit") return '<span class="mon-badge warn">✏️ Düzenlendi</span>';
+    if (action === "delete") return '<span class="mon-badge bad">🗑️ Silindi</span>';
+    if (action === "restore") return '<span class="mon-badge ok">↩️ Geri Alındı</span>';
+    return "";
+  }
+  function hasUnseenActivityLog() {
+    var list = state.activityLog || [];
+    if (!list.length) return false;
+    var lastSeen = getLocalData("activity_log_seen", 0);
+    var latestMs = new Date(list[0].at).getTime();
+    return !isNaN(latestMs) && latestMs > lastSeen;
+  }
+  function markActivityLogSeen() {
+    var list = state.activityLog || [];
+    if (!list.length) return;
+    var latestMs = new Date(list[0].at).getTime();
+    setLocalData("activity_log_seen", isNaN(latestMs) ? Date.now() : latestMs);
   }
 
   // --- Push Notifications ---
@@ -2650,6 +2702,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           (state.accountMenuOpen ? '<div class="account-menu">' +
             '<button type="button" class="account-menu-item" data-action="open-profile">👤 Hesabım</button>' +
             '<button type="button" class="account-menu-item" data-action="open-notif-history">🔔 Geçmiş Hatırlatmalar' + (hasUnseenNotifHistory() ? ' <span class="account-chip-dot" aria-hidden="true"></span>' : '') + '</button>' +
+            '<button type="button" class="account-menu-item" data-action="open-activity-log">🕒 Aktivite Geçmişi' + (hasUnseenActivityLog() ? ' <span class="account-chip-dot" aria-hidden="true"></span>' : '') + '</button>' +
             (isAdminUser(user) ?
               '<div class="account-menu-divider"></div>' +
               '<button type="button" class="account-menu-item" data-action="open-announcement">📢 Duyuru / Bakım Mesajı Gönder</button>' +
@@ -3369,6 +3422,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       backdrop.appendChild(buildReminderPickerModal());
     } else if (state.modal.type === "notifHistory") {
       backdrop.appendChild(buildNotifHistoryModal());
+    } else if (state.modal.type === "activityLog") {
+      backdrop.appendChild(buildActivityLogModal());
     } else if (state.modal.type === "health") {
       backdrop.appendChild(buildHealthModal());
     } else if (state.modal.type === "errors") {
@@ -3782,6 +3837,37 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return modal;
   }
 
+  function buildActivityLogModal() {
+    var modal = document.createElement("div");
+    modal.className = "modal wide";
+    modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
+
+    var list = state.activityLog || [];
+    var html = '<div class="modal-head"><h3>🕒 Aktivite Geçmişi</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>';
+    html += '<p class="field-hint" style="margin-top:-4px">Hanenizde kim, ne zaman araç veya masraf ekledi, düzenledi ya da sildi — son 200 işlem burada listelenir.</p>';
+
+    if (!list.length) {
+      html += '<p class="mon-empty">Henüz bir aktivite kaydı yok.</p>';
+    } else {
+      html += '<ul class="err-list">';
+      list.forEach(function (entry) {
+        var icon = entry.type === "car" ? "🚗" : "🧾";
+        html += '<li class="err-item">' +
+          '<div class="err-item-head">' +
+            '<span class="err-item-time">' + fmtDateTime(entry.at) + '</span>' +
+            activityActionBadge(entry.action) +
+          '</div>' +
+          '<div class="err-item-msg">' + icon + ' ' + esc(entry.summary || "") + '</div>' +
+          '<div class="err-item-meta">' + esc(entry.byName || "Bilinmiyor") + (entry.carName ? " · " + esc(entry.carName) : "") + '</div>' +
+        '</li>';
+      });
+      html += '</ul>';
+    }
+
+    modal.innerHTML = html;
+    return modal;
+  }
+
   function buildHealthModal() {
     var modal = document.createElement("div");
     modal.className = "modal wide";
@@ -4112,8 +4198,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
       if (isEdit) {
         state.cars = state.cars.map(function (c) { return c.id === car.id ? Object.assign({}, c, patch) : c; });
+        logActivity("car", "edit", { carId: car.id, carName: name, summary: "Araç bilgileri güncellendi: " + name });
       } else {
-        state.cars = (state.cars || []).concat([Object.assign({ id: uid(), color: CAR_COLORS[(state.cars || []).length % CAR_COLORS.length] }, patch)]);
+        var newCar = Object.assign({ id: uid(), color: CAR_COLORS[(state.cars || []).length % CAR_COLORS.length] }, patch);
+        state.cars = (state.cars || []).concat([newCar]);
+        logActivity("car", "add", { carId: newCar.id, carName: name, summary: "Yeni araç eklendi: " + name });
       }
       persistCars();
       closeModal();
@@ -4306,8 +4395,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         carId: carId, category: selectedCat, amount: amount, date: date, note: note,
         km: km, liter: liter, payerId: payerId, receipt: modal.__photos.receiptPhoto || null
       };
+      var catInfo = catById(selectedCat);
+      var carForLog = (state.cars || []).find(function (c) { return c.id === carId; });
+      var carNameForLog = carForLog ? carForLog.name : "";
       if (isEdit) {
         state.expenses = (state.expenses || []).map(function (e) { return e.id === editingExpense.id ? Object.assign({}, e, payload) : e; });
+        logActivity("expense", "edit", { carId: carId, carName: carNameForLog, summary: catInfo.label + " masrafı düzenlendi (" + fmtTL(amount) + ")" });
       } else {
         // "Ekleyen" etiketi için: masraf ilk kez oluşturulurken hane
         // içindeki hangi kullanıcının eklediğini damgalıyoruz. Sonradan
@@ -4315,6 +4408,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         payload.addedByUid = state.currentUser ? state.currentUser.id : null;
         payload.addedByName = state.currentUser ? state.currentUser.name : null;
         state.expenses = [Object.assign({ id: uid() }, payload)].concat(state.expenses || []);
+        logActivity("expense", "add", { carId: carId, carName: carNameForLog, summary: catInfo.label + " masrafı eklendi (" + fmtTL(amount) + ")" });
       }
       persistExpenses();
       recalcCarCurrentKm(carId);
@@ -4404,15 +4498,20 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
               var deleted = (state.expenses || []).find(function (e) { return e.id === id; });
               if (!deleted) return;
               var deletedIndex = (state.expenses || []).indexOf(deleted);
+              var deletedCatInfo = catById(deleted.category);
+              var deletedCar = (state.cars || []).find(function (c) { return c.id === deleted.carId; });
+              var deletedCarName = deletedCar ? deletedCar.name : "";
               state.expenses = (state.expenses || []).filter(function (e) { return e.id !== id; });
               persistExpenses();
               if (deleted.carId) recalcCarCurrentKm(deleted.carId);
+              logActivity("expense", "delete", { carId: deleted.carId, carName: deletedCarName, summary: deletedCatInfo.label + " masrafı silindi (" + fmtTL(deleted.amount) + ")" });
               render();
               toastWithUndo("Masraf silindi.", function () {
                 state.expenses = state.expenses || [];
                 state.expenses.splice(Math.min(deletedIndex, state.expenses.length), 0, deleted);
                 persistExpenses();
                 if (deleted.carId) recalcCarCurrentKm(deleted.carId);
+                logActivity("expense", "restore", { carId: deleted.carId, carName: deletedCarName, summary: deletedCatInfo.label + " masrafı geri alındı (" + fmtTL(deleted.amount) + ")" });
                 render();
                 toast("Masraf geri alındı.");
               });
@@ -4442,6 +4541,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
               if (state.selectedCarId === carId) state.selectedCarId = "all";
               persistCars(); persistExpenses(); render();
               cleanupNotifStateForCar(carId);
+              logActivity("car", "delete", { carId: carId, carName: deletedCar ? deletedCar.name : "", summary: "Araç silindi: " + (deletedCar ? deletedCar.name : "") + " (" + deletedExpenses.length + " masraf kaydıyla birlikte)" });
               toastWithUndo("Araç ve " + deletedExpenses.length + " masraf kaydı silindi.", function () {
                 if (deletedCar) {
                   state.cars = state.cars || [];
@@ -4450,6 +4550,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
                 }
                 state.expenses = (state.expenses || []).concat(deletedExpenses);
                 persistCars(); persistExpenses();
+                logActivity("car", "restore", { carId: carId, carName: deletedCar ? deletedCar.name : "", summary: "Araç geri alındı: " + (deletedCar ? deletedCar.name : "") });
                 render();
                 toast("Araç geri alındı.");
               });
@@ -4485,6 +4586,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           state.modal = { type: "notifHistory" };
           state.accountMenuOpen = false;
           markNotifHistorySeen();
+          render();
+        }
+        else if (action === "open-activity-log") {
+          ev.stopPropagation();
+          state.modal = { type: "activityLog" };
+          state.accountMenuOpen = false;
+          markActivityLogSeen();
           render();
         }
         else if (action === "open-health") {
