@@ -689,6 +689,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   var unsubscribeUserDoc = null;
   var unsubscribeHouseholdDoc = null;
+  var unsubscribeAdminSupportBadge = null;
+  var unsubscribeMySupportRequests = null;
   var qrScanStream = null;
   var qrScanRAF = null;
 
@@ -814,7 +816,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.6.7"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.6.8"; // Dynamic Version Tracking
   var APP_UPDATED = "21 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1604,6 +1606,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // gerçekleşir, ~10 dakikalık bekleme yoktur.
   var ADMIN_EMAIL = "emre121856031@gmail.com";
   var SUPPORT_EMAIL = "garaj.defteri@gmail.com";
+  // --- Sorun Bildir formu için spam önlemleri ---
+  var SUPPORT_COOLDOWN_MS = 60 * 1000;       // art arda göndermeler arası zorunlu bekleme
+  var SUPPORT_DAILY_LIMIT = 5;               // kullanıcı başına 24 saatte en fazla talep
+  var SUPPORT_MIN_LENGTH = 10;               // anlamsız/boş spam mesajları engellemek için
+  var SUPPORT_DUPLICATE_WINDOW_MS = 10 * 60 * 1000; // aynı mesajın tekrar gönderilmesini engelleme süresi
   function isAdminUser(user) {
     return !!(user && user.email && user.email.toLowerCase() === ADMIN_EMAIL);
   }
@@ -1648,6 +1655,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     errors: null, errorsLoading: false, errorsError: null,
     loginAudit: null, loginAuditLoading: false, loginAuditError: null,
     supportRequests: null, supportRequestsLoading: false, supportRequestsError: null,
+    openSupportCount: 0,
+    mySupportRequests: null, mySupportRequestsError: null,
     myLogins: null
   };
 
@@ -1811,7 +1820,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   function setSupportRequestStatus(id, status) {
     if (!state.currentUser || !isAdminUser(state.currentUser)) return;
-    db.collection("supportRequests").doc(id).set({ status: status }, { merge: true })
+    db.collection("supportRequests").doc(id).set({ status: status, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true })
       .then(function () {
         if (monitoring.supportRequests) {
           var row = monitoring.supportRequests.find(function (r) { return r.id === id; });
@@ -1820,6 +1829,95 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         if (state.modal && state.modal.type === "supportRequests") render();
       })
       .catch(function (err) { toast("Güncellenemedi: " + (err && err.message ? err.message : err)); });
+  }
+
+  // --- Admin: açık destek talepleri rozeti (hesap menüsünde canlı sayaç) ---
+  // "status" alanı üzerinde tek eşitlik filtresi kullandığından ek bir
+  // Firestore bileşik indeksi gerektirmez; yeni bir talep geldiği veya bir
+  // talep tekrar açıldığı anda sayaç canlı olarak güncellenir.
+  function subscribeAdminSupportBadge() {
+    if (unsubscribeAdminSupportBadge) { unsubscribeAdminSupportBadge(); unsubscribeAdminSupportBadge = null; }
+    if (!db) return;
+    unsubscribeAdminSupportBadge = db.collection("supportRequests").where("status", "==", "open")
+      .onSnapshot(function (snap) {
+        monitoring.openSupportCount = snap.size;
+        render();
+      }, function (err) { console.error(err); });
+  }
+
+  // --- Kullanıcı: kendi gönderdiği destek taleplerinin durumunu canlı takip etmesi için ---
+  function subscribeMySupportRequests(uidVal) {
+    if (unsubscribeMySupportRequests) { unsubscribeMySupportRequests(); unsubscribeMySupportRequests = null; }
+    if (!db || !uidVal) return;
+    unsubscribeMySupportRequests = db.collection("supportRequests").where("userId", "==", uidVal)
+      .onSnapshot(function (snap) {
+        var rows = [];
+        snap.forEach(function (d) { rows.push(Object.assign({ id: d.id }, d.data())); });
+        rows.sort(function (a, b) { return supportTimestampMs(b, "createdAt") - supportTimestampMs(a, "createdAt"); });
+        monitoring.mySupportRequests = rows;
+        monitoring.mySupportRequestsError = null;
+        render();
+      }, function (err) {
+        monitoring.mySupportRequestsError = err && err.message ? err.message : String(err);
+        if (state.modal && state.modal.type === "help") render();
+      });
+  }
+  function supportTimestampMs(entry, field) {
+    var ts = entry && entry[field];
+    if (!ts) return 0;
+    if (typeof ts.toDate === "function") return ts.toDate().getTime();
+    if (typeof ts.seconds === "number") return ts.seconds * 1000;
+    var d = new Date(ts);
+    return isNaN(d.getTime()) ? 0 : d.getTime();
+  }
+  // Kullanıcının kendi taleplerinden "çözüldü" olarak işaretlenmiş en
+  // yenisinin zaman damgası, en son görülenden daha yeniyse hesap menüsünde
+  // küçük bir nokta gösterilir (bkz. hasUnseenNotifHistory ile aynı desen).
+  function hasUnseenSupportUpdate() {
+    var list = monitoring.mySupportRequests || [];
+    var resolved = list.filter(function (r) { return r.status === "resolved"; });
+    if (!resolved.length) return false;
+    var lastSeen = getLocalData("support_seen", 0);
+    var latest = 0;
+    resolved.forEach(function (r) {
+      var t = supportTimestampMs(r, "updatedAt") || supportTimestampMs(r, "createdAt");
+      if (t > latest) latest = t;
+    });
+    return latest > lastSeen;
+  }
+  function markSupportSeen() {
+    var list = monitoring.mySupportRequests || [];
+    if (!list.length) return;
+    var latest = 0;
+    list.forEach(function (r) {
+      var t = supportTimestampMs(r, "updatedAt") || supportTimestampMs(r, "createdAt");
+      if (t > latest) latest = t;
+    });
+    setLocalData("support_seen", latest || Date.now());
+  }
+  // Art arda gönderme denemeleri (ör. spam amaçlı çift/hızlı tıklama)
+  // arasında bekletmek için basit bir istemci taraflı bekleme süresi.
+  function supportCooldownRemainingMs() {
+    var last = getLocalData("last_support_send", 0);
+    var remaining = SUPPORT_COOLDOWN_MS - (Date.now() - last);
+    return remaining > 0 ? remaining : 0;
+  }
+  // Kullanıcının kendi (canlı senkronize edilen) talep listesinden son 24
+  // saatteki gönderim sayısını çıkarır; ek bir Firestore sorgusu gerekmez.
+  function supportSendsLast24h() {
+    var list = monitoring.mySupportRequests || [];
+    var since = Date.now() - 24 * 60 * 60 * 1000;
+    return list.filter(function (r) { return supportTimestampMs(r, "createdAt") >= since; }).length;
+  }
+  // Aynı mesajın kısa süre içinde tekrar gönderilmesini (yanlışlıkla ya da
+  // bilinçli spam amaçlı) engellemek için son talebiyle karşılaştırır.
+  function isDuplicateSupportMessage(message) {
+    var list = monitoring.mySupportRequests || [];
+    if (!list.length) return false;
+    var last = list[0]; // en yeni kayıt en başta (bkz. subscribeMySupportRequests sıralaması)
+    if (!last || (last.message || "").trim().toLowerCase() !== message.trim().toLowerCase()) return false;
+    var age = Date.now() - supportTimestampMs(last, "createdAt");
+    return age >= 0 && age < SUPPORT_DUPLICATE_WINDOW_MS;
   }
 
   // --- İstemci taraflı hata yakalama ---
@@ -2129,6 +2227,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       logLoginEvent(fbUser, pendingAuthAction);
       pendingAuthAction = null;
     }
+
+    // Destek talepleri: kullanıcı kendi taleplerini canlı takip edebilsin diye,
+    // admin ise yeni/açık taleplerin sayısını hesap menüsünde rozet olarak
+    // görebilsin diye, giriş anında ilgili dinleyiciler kurulur.
+    subscribeMySupportRequests(fbUser.uid);
+    if (isAdminUser({ email: fbUser.email })) subscribeAdminSupportBadge();
 
     if (unsubscribeUserDoc) unsubscribeUserDoc();
     if (unsubscribeHouseholdDoc) { unsubscribeHouseholdDoc(); unsubscribeHouseholdDoc = null; }
@@ -2511,6 +2615,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   function logout() {
     if (unsubscribeUserDoc) { unsubscribeUserDoc(); unsubscribeUserDoc = null; }
     if (unsubscribeHouseholdDoc) { unsubscribeHouseholdDoc(); unsubscribeHouseholdDoc = null; }
+    if (unsubscribeAdminSupportBadge) { unsubscribeAdminSupportBadge(); unsubscribeAdminSupportBadge = null; }
+    if (unsubscribeMySupportRequests) { unsubscribeMySupportRequests(); unsubscribeMySupportRequests = null; }
+    monitoring.openSupportCount = 0;
+    monitoring.mySupportRequests = null;
     auth.signOut().then(function () {
       state.currentUser = null;
       state.cars = null;
@@ -2547,6 +2655,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       } else {
         if (unsubscribeUserDoc) { unsubscribeUserDoc(); unsubscribeUserDoc = null; }
         if (unsubscribeHouseholdDoc) { unsubscribeHouseholdDoc(); unsubscribeHouseholdDoc = null; }
+        if (unsubscribeAdminSupportBadge) { unsubscribeAdminSupportBadge(); unsubscribeAdminSupportBadge = null; }
+        if (unsubscribeMySupportRequests) { unsubscribeMySupportRequests(); unsubscribeMySupportRequests = null; }
+        monitoring.openSupportCount = 0;
+        monitoring.mySupportRequests = null;
         state.currentUser = null;
         renderAuth();
       }
@@ -2972,20 +3084,20 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         '</div>' +
         '<div style="display:flex; align-items:center; margin-left:auto;">' +
         (user ? '<div class="account-chip" data-action="toggle-account-menu" role="button" tabindex="0" aria-haspopup="true" aria-expanded="' + (state.accountMenuOpen ? "true" : "false") + '" aria-label="Hesap menüsü">' + userAvatarHTML(user, 28) +
-          (hasUnseenNotifHistory() ? '<span class="account-chip-dot" aria-hidden="true"></span>' : '') +
+          (hasUnseenNotifHistory() || hasUnseenSupportUpdate() || (isAdminUser(user) && monitoring.openSupportCount > 0) ? '<span class="account-chip-dot" aria-hidden="true"></span>' : '') +
           '<span class="account-name">' + esc(user.name) + '</span><span class="account-chevron">▾</span>' +
           (state.accountMenuOpen ? '<div class="account-menu">' +
             '<button type="button" class="account-menu-item" data-action="open-profile">👤 Hesabım</button>' +
             '<button type="button" class="account-menu-item" data-action="open-notif-history">🔔 Geçmiş Hatırlatmalar' + (hasUnseenNotifHistory() ? ' <span class="account-chip-dot" aria-hidden="true"></span>' : '') + '</button>' +
             '<button type="button" class="account-menu-item" data-action="open-activity-log">🕒 Aktivite Geçmişi' + (hasUnseenActivityLog() ? ' <span class="account-chip-dot" aria-hidden="true"></span>' : '') + '</button>' +
-            '<button type="button" class="account-menu-item" data-action="open-help">🆘 Yardım &amp; Destek</button>' +
+            '<button type="button" class="account-menu-item" data-action="open-help">🆘 Yardım &amp; Destek' + (hasUnseenSupportUpdate() ? ' <span class="account-chip-dot" aria-hidden="true"></span>' : '') + '</button>' +
             (isAdminUser(user) ?
               '<div class="account-menu-divider"></div>' +
               '<button type="button" class="account-menu-item" data-action="open-announcement">📢 Duyuru / Bakım Mesajı Gönder</button>' +
               '<button type="button" class="account-menu-item" data-action="trigger-reminders">🛠️ Bildirimleri Tetikle</button>' +
               '<button type="button" class="account-menu-item" data-action="open-health">🩺 Sağlık</button>' +
               '<button type="button" class="account-menu-item" data-action="open-errors">🐞 Hata İzleme</button>' +
-              '<button type="button" class="account-menu-item" data-action="open-support-requests">📮 Destek Talepleri</button>' +
+              '<button type="button" class="account-menu-item" data-action="open-support-requests">📮 Destek Talepleri' + (monitoring.openSupportCount > 0 ? ' <span class="mon-badge warn" style="margin-left:4px">' + monitoring.openSupportCount + '</span>' : '') + '</button>' +
               '<button type="button" class="account-menu-item" data-action="open-login-audit">🔐 Giriş Kayıtları</button>'
               : '') +
             '<div class="account-menu-divider"></div>' +
@@ -4306,22 +4418,96 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     html += '<p class="field-hint" style="margin-top:-4px">Karşılaştığın hatayı veya isteğini kısaca anlat; ekibimize iletilecek.</p>';
     html += '<label class="field"><span>Açıklama</span><textarea id="support-msg" maxlength="1000" rows="4" placeholder="Örn. Masraf eklerken fotoğraf yüklenmiyor..." style="width:100%; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:10px; font-size:14px; font-family:inherit; resize:vertical;"></textarea></label>';
     html += '<p class="support-charcount" id="support-charcount">0 / 1000</p>';
-    html += '<button type="button" class="btn-primary full" id="support-send">🐞 Sorunu Gönder</button>';
+    // Basit "honeypot" alanı: gerçek kullanıcılara görünmez/erişilmez, ama
+    // formu otomatik dolduran botlar genelde bunu da doldurur. Dolu gelirse
+    // gönderim sessizce yok sayılır.
+    html += '<div style="position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden;" aria-hidden="true">' +
+      '<label>Web sitesi<input type="text" id="support-hp" name="website" tabindex="-1" autocomplete="off"></label>' +
+    '</div>';
+    var sentToday = supportSendsLast24h();
+    var cooldownRemaining = supportCooldownRemainingMs();
+    var limitReached = sentToday >= SUPPORT_DAILY_LIMIT;
+    html += '<p class="field-hint" id="support-limit-hint" style="margin-top:-2px">Bugün ' + sentToday + ' / ' + SUPPORT_DAILY_LIMIT + ' talep gönderdin.' +
+      (limitReached ? ' Günlük sınıra ulaştın, lütfen yarın tekrar dene ya da bize e-posta ile ulaş.' : '') + '</p>';
+    html += '<button type="button" class="btn-primary full" id="support-send"' + (limitReached ? ' disabled' : '') + '>' +
+      (limitReached ? '🚫 Günlük Sınıra Ulaşıldı' : (cooldownRemaining > 0 ? '⏳ Az Önce Gönderdin' : '🐞 Sorunu Gönder')) + '</button>';
+
+    html += '<p class="profile-section-title">Taleplerim</p>';
+    var myRows = monitoring.mySupportRequests;
+    if (myRows === null) {
+      html += '<p class="mon-loading">Yükleniyor…</p>';
+    } else if (monitoring.mySupportRequestsError) {
+      html += '<p class="mon-empty">Talepler alınamadı: ' + esc(monitoring.mySupportRequestsError) + '</p>';
+    } else if (!myRows.length) {
+      html += '<p class="mon-empty">Henüz gönderdiğin bir destek talebi yok.</p>';
+    } else {
+      html += '<ul class="err-list">';
+      myRows.forEach(function (r) {
+        var isResolved = r.status === "resolved";
+        html += '<li class="err-item">' +
+          '<div class="err-item-head">' +
+            '<span class="err-item-time">' + fmtDateTime(r.createdAt) + '</span>' +
+            (isResolved ? '<span class="mon-badge ok">✓ Çözüldü</span>' : '<span class="mon-badge warn">⏳ İnceleniyor</span>') +
+          '</div>' +
+          '<div class="err-item-msg">' + esc(r.message || "") + '</div>' +
+        '</li>';
+      });
+      html += '</ul>';
+    }
 
     modal.innerHTML = html;
 
     var msgEl = modal.querySelector("#support-msg");
     var countEl = modal.querySelector("#support-charcount");
+    var hpEl = modal.querySelector("#support-hp");
+    var sendBtn = modal.querySelector("#support-send");
     msgEl.addEventListener("input", function () {
       countEl.textContent = msgEl.value.length + " / 1000";
     });
 
-    modal.querySelector("#support-send").addEventListener("click", function () {
+    // Bekleme süresi dolana kadar butonu kilitli tutup geri sayımı gösterir.
+    var cooldownInterval = null;
+    function tickCooldown() {
+      var remaining = supportCooldownRemainingMs();
+      if (sentToday >= SUPPORT_DAILY_LIMIT) { return; } // günlük sınır zaten devrede, dokunma
+      if (remaining <= 0) {
+        sendBtn.disabled = false;
+        sendBtn.textContent = "🐞 Sorunu Gönder";
+        if (cooldownInterval) { clearInterval(cooldownInterval); cooldownInterval = null; }
+        return;
+      }
+      sendBtn.disabled = true;
+      sendBtn.textContent = "⏳ " + Math.ceil(remaining / 1000) + " sn sonra tekrar dene";
+    }
+    if (!limitReached && cooldownRemaining > 0) {
+      tickCooldown();
+      cooldownInterval = setInterval(tickCooldown, 1000);
+    }
+
+    sendBtn.addEventListener("click", function () {
+      // Honeypot doluysa büyük olasılıkla bot: kullanıcıya normalmiş gibi
+      // davranıp sessizce hiçbir şey göndermeden çık.
+      if (hpEl && hpEl.value) {
+        toast("Bildirimin için teşekkürler, en kısa sürede inceleyeceğiz.");
+        closeModal();
+        return;
+      }
+      if (supportSendsLast24h() >= SUPPORT_DAILY_LIMIT) {
+        toast("Bugün için destek talebi gönderme sınırına ulaştın. Lütfen yarın tekrar dene ya da " + SUPPORT_EMAIL + " adresine yaz.");
+        return;
+      }
+      var remaining = supportCooldownRemainingMs();
+      if (remaining > 0) {
+        toast("Çok sık deneme yapıyorsun, " + Math.ceil(remaining / 1000) + " saniye sonra tekrar dene.");
+        return;
+      }
       var message = msgEl.value.trim();
       if (!message) { toast("Lütfen sorununu kısaca açıkla."); return; }
+      if (message.length < SUPPORT_MIN_LENGTH) { toast("Lütfen sorununu biraz daha ayrıntılı yaz (en az " + SUPPORT_MIN_LENGTH + " karakter)."); return; }
+      if (isDuplicateSupportMessage(message)) { toast("Bu talebi zaten gönderdin, ekibimiz inceliyor."); return; }
       if (!db) { toast("Bağlantı kurulamadı, tekrar dene."); return; }
 
-      var btn = modal.querySelector("#support-send");
+      var btn = sendBtn;
       btn.disabled = true; btn.textContent = "Gönderiliyor…";
 
       db.collection("supportRequests").add({
@@ -4335,6 +4521,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         status: "open",
         createdAt: firebase.firestore.FieldValue.serverTimestamp()
       }).then(function () {
+        if (cooldownInterval) { clearInterval(cooldownInterval); cooldownInterval = null; }
+        setLocalData("last_support_send", Date.now());
         toast("Bildirimin için teşekkürler, en kısa sürede inceleyeceğiz.");
         closeModal();
       }).catch(function (err) {
@@ -5161,6 +5349,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           ev.stopPropagation();
           state.modal = { type: "help" };
           state.accountMenuOpen = false;
+          markSupportSeen();
           render();
         }
         else if (action === "toggle-faq") {
