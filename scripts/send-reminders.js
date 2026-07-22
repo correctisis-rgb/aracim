@@ -232,6 +232,15 @@ const DATE_FIELDS = [
   { key: "tireDate", label: "Lastik Değişimi", emoji: "🛞" }
 ];
 
+// Şoförlerin (worksAbroad === true olanların) pasaport/vize bitiş tarihleri.
+// Araç vade tarihleriyle AYNI kademeli (30/15/7-2/1-0 gün) hatırlatma
+// akışını ve aynı bildirime dahil edilmeyi kullanır — ayrıca burada
+// randevu (appointments) kavramı yok, sadece düz vade hatırlatması var.
+const DRIVER_DATE_FIELDS = [
+  { key: "passportExpiry", label: "Pasaport", emoji: "🛂" },
+  { key: "visaExpiry", label: "Vize", emoji: "🌍" }
+];
+
 // 7 gün ve altında kalan gün sayısı düştüğü andan itibaren -tarih
 // güncellenene ya da bugüne (0. gün) kadar- HER GÜN en az bir kez bildirim
 // gönderiliyor. 8-30 gün aralığında ise artık her gün DEĞİL, sadece tam
@@ -459,6 +468,46 @@ async function main() {
           }
         }
       }
+    });
+
+    // ---------- Şoför pasaport / vize hatırlatmaları ----------
+    // Yurtdışına çıkacak (worksAbroad === true) şoförlerin pasaport ve vize
+    // bitiş tarihleri, araç vade tarihleriyle AYNI kademeli (30/15 gün tek
+    // seferlik — 7-2 gün her gün 09+20 — 1-0 gün her gün 09+14+20) akışı ve
+    // AYNI notifState dedup mekanizmasını kullanır, aynı bildirime dahil
+    // edilir. Randevu (appointments) kavramı yoktur, actionable: false
+    // olduğundan sw.js'in "Evet/Hayır" aksiyon düğmeleri eklenmez (bu
+    // düğmeler sadece araç randevu akışına özgüdür).
+    const drivers = user.drivers || [];
+    drivers.forEach((driver) => {
+      if (!driver.worksAbroad) return;
+      DRIVER_DATE_FIELDS.forEach((f) => {
+        const dateVal = driver[f.key];
+        if (!dateVal) return;
+
+        const stateKey = "driver_" + driver.id + "_" + f.key;
+        const slot = matchedHourSlot();
+        const driverName = driver.name || "Şoför";
+
+        const days = daysUntil(dateVal);
+        if (days == null) return;
+        if (days > DAYS_LEFT_ALERT_THRESHOLD || days < 0) return;
+
+        if (!bypassDedup) {
+          if (slot == null) return; // şu an 09/14/20 dilimlerinden birinde değiliz
+          if (!requiredSlotsForDays(days).includes(slot)) return; // bu gün sayısı için bu dilim gerekli değil
+          const sentMarker = todayDateStrTR() + ":" + slot;
+          if (newNotifState[stateKey] === sentMarker) return; // bu dilimde bugün zaten gönderildi
+          newNotifState[stateKey] = sentMarker;
+        } else {
+          // Admin panelinden elle tetiklendi: saat/dedup kısıtlaması yok, hemen gönder.
+          newNotifState[stateKey] = todayDateStrTR() + ":" + (slot != null ? slot : "manual");
+        }
+
+        const dayText = days === 0 ? "bugün" : days + " gün içinde";
+        const extra = f.key === "visaExpiry" && driver.visaCountry ? ` (${driver.visaCountry})` : "";
+        triggered.push({ text: `${f.emoji} ${driverName}: ${f.label}${extra} süresi ${dayText} doluyor`, carId: null, fieldKey: null, actionable: false });
+      });
     });
 
     if (!triggered.length) continue;
