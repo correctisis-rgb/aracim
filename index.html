@@ -5958,8 +5958,21 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     // Türkçe karakterler (ç, ğ, ı, ö, ş, ü) için varsayılan Helvetica yerine
     // DejaVu Sans kullanılıyor. Font, dejavu-sans-jspdf.js dosyasıyla eklendi.
     doc.setFont("DejaVuSans", "normal");
-    var margin = 40;
+    var margin = 18;
     var dateLabel = fmtDateTR(todayStr());
+    var pdfLabelOverrides = {
+      "Araç adı": "Araç", "Araç türü": "Tür", "Marka / Model": "Marka/Model", "Model yılı": "Yıl",
+      "Yakıt tipi": "Yakıt", "Depo hacmi (lt)": "Depo (lt)", "Muayene tarihi": "Muayene",
+      "Sonraki bakım tarihi": "Bakım Tarihi", "Trafik sigortası bitiş": "Trafik Sig.", "Kasko bitiş": "Kasko",
+      "Sigorta şirketi": "Sigorta Şrk.", "Poliçe no": "Poliçe No", "Vergi (MTV) ödeme tarihi": "MTV Tarihi",
+      "Lastik değişimi": "Lastik", "Şasi no / VIN": "VIN", "Güncel kilometre": "Km", "Sonraki bakım km": "Bakım Km",
+      "Atanan araç(lar)": "Araç(lar)", "Ehliyet sınıfı": "Ehliyet", "Ehliyet geçerlilik tarihi": "Ehliyet Bitiş",
+      "SRC belgesi türü": "SRC Türü", "SRC belgesi geçerlilik tarihi": "SRC Bitiş",
+      "Psikoteknik belgesi geçerlilik tarihi": "Psikoteknik", "Sağlık raporu geçerlilik tarihi": "Sağlık Rap.",
+      "Yurtdışında çalışıyor": "Yurtdışı", "Pasaport no": "Pasaport No", "Pasaport geçerlilik tarihi": "Pasaport Bitiş",
+      "Vize ülkesi": "Vize Ülke", "Vize no": "Vize No", "Vize geçerlilik tarihi": "Vize Bitiş"
+    };
+    function pdfLabel(l) { return pdfLabelOverrides[l] || l; }
 
     var carTotals = {};
     (state.expenses || []).forEach(function (e) { carTotals[e.carId] = (carTotals[e.carId] || 0) + (e.amount || 0); });
@@ -5977,10 +5990,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var carFields = carActivityFieldDefs().filter(function (f) { return f.type !== "photo"; });
     doc.autoTable({
       startY: kpiY + kpiH + 18,
-      head: [carFields.map(function (f) { return f.label; })],
+      head: [carFields.map(function (f) { return pdfLabel(f.label); })],
       body: (state.cars || []).map(function (c) { return carFields.map(function (f) { return String(excelCellValue(f.type, c[f.key]) || "—"); }); }),
-      styles: { fontSize: 7, font: "DejaVuSans", fontStyle: "normal" },
-      headStyles: { fillColor: pdfTint("#F2A93B", 0.78), textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold", lineWidth: 0 },
+      styles: { fontSize: 7.5, font: "DejaVuSans", fontStyle: "normal", cellPadding: { top: 4, right: 3, bottom: 4, left: 3 }, overflow: "linebreak", valign: "middle" },
+      headStyles: { fillColor: pdfTint("#F2A93B", 0.78), textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold", fontSize: 7.5, lineWidth: 0 },
       alternateRowStyles: { fillColor: [245, 246, 248] },
       margin: { left: margin, right: margin }
     });
@@ -5991,10 +6004,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var driverFields = driverActivityFieldDefs();
     doc.autoTable({
       startY: 54,
-      head: [driverFields.map(function (f) { return f.label; })],
+      head: [driverFields.map(function (f) { return pdfLabel(f.label); })],
       body: (state.drivers || []).map(function (d) { return driverFields.map(function (f) { return String(excelCellValue(f.type, d[f.key]) || "—"); }); }),
-      styles: { fontSize: 7, font: "DejaVuSans", fontStyle: "normal" },
-      headStyles: { fillColor: pdfTint("#4FA8D8", 0.78), textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold", lineWidth: 0 },
+      styles: { fontSize: 7.5, font: "DejaVuSans", fontStyle: "normal", cellPadding: { top: 4, right: 3, bottom: 4, left: 3 }, overflow: "linebreak", valign: "middle" },
+      headStyles: { fillColor: pdfTint("#4FA8D8", 0.78), textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold", fontSize: 7.5, lineWidth: 0 },
       alternateRowStyles: { fillColor: [245, 246, 248] },
       margin: { left: margin, right: margin }
     });
@@ -6037,8 +6050,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       startY: tableStartY,
       head: [["Araç", "Toplam Masraf"]],
       body: summaryBody,
-      styles: { fontSize: 9, font: "DejaVuSans", fontStyle: "normal" },
-      headStyles: { fillColor: pdfTint("#7BC67E", 0.75), textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold", lineWidth: 0 },
+      styles: { fontSize: 9.5, font: "DejaVuSans", fontStyle: "normal", cellPadding: { top: 5, right: 5, bottom: 5, left: 5 } },
+      headStyles: { fillColor: pdfTint("#7BC67E", 0.75), textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold", fontSize: 9.5, lineWidth: 0 },
       alternateRowStyles: { fillColor: [245, 246, 248] },
       didParseCell: function (data) {
         if (data.row.section === "body" && data.row.index === summaryBody.length - 1) {
