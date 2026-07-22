@@ -149,6 +149,14 @@ const DATE_FIELDS = [
   { key: "tireDate", label: "Lastik Değişimi", emoji: "🛞" }
 ];
 
+// Şoförlerin (worksAbroad === true olanların) pasaport/vize bitiş tarihleri.
+// send-reminders.js (asıl GitHub Actions script'i) ile aynı alanlar; bu
+// dosyada araç DAY_THRESHOLDS mantığıyla aynı basit eşik/dedup kullanılır.
+const DRIVER_DATE_FIELDS = [
+  { key: "passportExpiry", label: "Pasaport", emoji: "🛂" },
+  { key: "visaExpiry", label: "Vize", emoji: "🌍" }
+];
+
 const DAY_THRESHOLDS = [7, 3, 1, 0];
 const KM_THRESHOLDS = [3000, 1000, 0];
 
@@ -225,6 +233,31 @@ async function runFullScan(db, bypassDedup, triggerSource) {
           }
         }
       }
+    });
+
+    // ---------- Şoför pasaport / vize hatırlatmaları ----------
+    // Yurtdışına çıkacak (worksAbroad === true) şoförlerin pasaport ve vize
+    // bitiş tarihleri, araç vade tarihleriyle AYNI eşik (7/3/1/0 gün) ve AYNI
+    // notifState dedup mekanizmasını kullanır, aynı bildirime dahil edilir.
+    const drivers = user.drivers || [];
+    drivers.forEach((driver) => {
+      if (!driver.worksAbroad) return;
+      DRIVER_DATE_FIELDS.forEach((f) => {
+        const dateVal = driver[f.key];
+        if (!dateVal) return;
+        const days = daysUntil(dateVal);
+        if (days == null) return;
+        if (!DAY_THRESHOLDS.includes(days)) return;
+
+        const stateKey = "driver_" + driver.id + "_" + f.key;
+        if (!bypassDedup && newNotifState[stateKey] === days) return;
+
+        newNotifState[stateKey] = days;
+        const driverName = driver.name || "Şoför";
+        const dayText = days === 0 ? "bugün" : days + " gün içinde";
+        const extra = f.key === "visaExpiry" && driver.visaCountry ? ` (${driver.visaCountry})` : "";
+        triggered.push({ text: `${f.emoji} ${driverName}: ${f.label}${extra} süresi ${dayText} doluyor`, carId: null, fieldKey: null, actionable: false });
+      });
     });
 
     if (!triggered.length) continue;
