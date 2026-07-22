@@ -854,7 +854,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.8.2"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.8.3"; // Dynamic Version Tracking
   var APP_UPDATED = "22 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -5861,6 +5861,21 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (value === null || value === undefined) return "";
     return value;
   }
+  // Sütun genişliğini sadece başlığa göre değil, en uzun hücre içeriğine
+  // göre hesaplar; böylece VIN, tarih aralığı gibi uzun değerler taşmaz.
+  function autoColWidths(headers, rows, minW, maxW) {
+    minW = minW || 10;
+    maxW = maxW || 40;
+    return headers.map(function (h, i) {
+      var longest = String(h || "").length;
+      rows.forEach(function (r) {
+        var v = r[i];
+        var len = (v === null || v === undefined) ? 0 : String(v).length;
+        if (len > longest) longest = len;
+      });
+      return { wch: Math.min(maxW, Math.max(minW, longest + 2)) };
+    });
+  }
   function buildExcelReport() {
     var wb = XLSX.utils.book_new();
 
@@ -5868,14 +5883,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var carHeaders = carFields.map(function (f) { return f.label; });
     var carRows = (state.cars || []).map(function (c) { return carFields.map(function (f) { return excelCellValue(f.type, c[f.key]); }); });
     var carWs = XLSX.utils.aoa_to_sheet([carHeaders].concat(carRows));
-    carWs["!cols"] = carHeaders.map(function (h) { return { wch: Math.max(12, h.length + 2) }; });
+    carWs["!cols"] = autoColWidths(carHeaders, carRows);
     XLSX.utils.book_append_sheet(wb, carWs, "Araçlar");
 
     var driverFields = driverActivityFieldDefs();
     var driverHeaders = driverFields.map(function (f) { return f.label; });
     var driverRows = (state.drivers || []).map(function (d) { return driverFields.map(function (f) { return excelCellValue(f.type, d[f.key]); }); });
     var driverWs = XLSX.utils.aoa_to_sheet([driverHeaders].concat(driverRows));
-    driverWs["!cols"] = driverHeaders.map(function (h) { return { wch: Math.max(12, h.length + 2) }; });
+    driverWs["!cols"] = autoColWidths(driverHeaders, driverRows);
     XLSX.utils.book_append_sheet(wb, driverWs, "Şoförler");
 
     var expHeaders = ["Araç", "Kategori", "Tutar (TL)", "Tarih", "Kilometre", "Litre", "Ödeyen", "Not"];
@@ -5885,7 +5900,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       return [car ? car.name : "—", catById(e.category).label, e.amount || 0, e.date ? fmtDateTR(e.date) : "", e.km || "", e.liter || "", payer || "—", e.note || ""];
     });
     var expWs = XLSX.utils.aoa_to_sheet([expHeaders].concat(expRows));
-    expWs["!cols"] = expHeaders.map(function (h) { return { wch: Math.max(12, h.length + 2) }; });
+    expWs["!cols"] = autoColWidths(expHeaders, expRows, 10, 40);
     XLSX.utils.book_append_sheet(wb, expWs, "Masraflar");
 
     var carTotals = {};
@@ -5894,6 +5909,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var grandTotal = Object.keys(carTotals).reduce(function (sum, k) { return sum + carTotals[k]; }, 0);
     summaryRows.push(["TOPLAM", grandTotal]);
     var summaryWs = XLSX.utils.aoa_to_sheet([["Araç", "Toplam Masraf (TL)"]].concat(summaryRows));
+    summaryWs["!cols"] = autoColWidths(["Araç", "Toplam Masraf (TL)"], summaryRows);
     XLSX.utils.book_append_sheet(wb, summaryWs, "Özet");
 
     XLSX.writeFile(wb, "garaj-defteri-rapor-" + todayStr() + ".xlsx");
@@ -5988,28 +6004,50 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     pdfKpiCard(doc, margin + 2 * (kpiW + kpiGap), kpiY, kpiW, kpiH, "#7BC67E", "Toplam Masraf", fmtTL(grandTotal));
 
     var carFields = carActivityFieldDefs().filter(function (f) { return f.type !== "photo"; });
+    var carPageMeta = { title: "Garaj Defteri — Filo Raporu", subtitle: "Araçlar", color: "#F2A93B" };
     doc.autoTable({
       startY: kpiY + kpiH + 18,
       head: [carFields.map(function (f) { return pdfLabel(f.label); })],
       body: (state.cars || []).map(function (c) { return carFields.map(function (f) { return String(excelCellValue(f.type, c[f.key]) || "—"); }); }),
-      styles: { fontSize: 7.5, font: "DejaVuSans", fontStyle: "normal", cellPadding: { top: 4, right: 3, bottom: 4, left: 3 }, overflow: "linebreak", valign: "middle" },
-      headStyles: { fillColor: pdfTint("#F2A93B", 0.78), textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold", fontSize: 7.5, lineWidth: 0 },
+      styles: { fontSize: 8.5, font: "DejaVuSans", fontStyle: "normal", cellPadding: { top: 5, right: 4, bottom: 5, left: 4 }, overflow: "linebreak", valign: "middle", minCellWidth: 24 },
+      headStyles: { fillColor: pdfTint("#F2A93B", 0.78), textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold", fontSize: 8.5, lineWidth: 0, halign: "left" },
       alternateRowStyles: { fillColor: [245, 246, 248] },
-      margin: { left: margin, right: margin }
+      columnStyles: { 0: { fontStyle: "bold", minCellWidth: 30 } },
+      margin: { top: 40, left: margin, right: margin, bottom: 24 },
+      tableWidth: "auto",
+      horizontalPageBreak: true,
+      horizontalPageBreakRepeat: 0,
+      showHead: "everyPage",
+      didDrawPage: function (data) {
+        if (data.pageNumber > 1) {
+          pdfAddBanner(doc, { title: carPageMeta.title, subtitle: carPageMeta.subtitle + " (devamı)", right: "Oluşturulma tarihi: " + dateLabel, color: carPageMeta.color, margin: margin });
+        }
+      }
     });
 
     // ---- Sayfa 2: Şoförler ----
     doc.addPage();
     pdfAddBanner(doc, { title: "Şoförler", subtitle: (state.drivers || []).length + " şoför kayıtlı", right: dateLabel, color: "#4FA8D8", margin: margin });
     var driverFields = driverActivityFieldDefs();
+    var driverPageMeta = { title: "Şoförler", subtitle: (state.drivers || []).length + " şoför kayıtlı", color: "#4FA8D8" };
     doc.autoTable({
       startY: 54,
       head: [driverFields.map(function (f) { return pdfLabel(f.label); })],
       body: (state.drivers || []).map(function (d) { return driverFields.map(function (f) { return String(excelCellValue(f.type, d[f.key]) || "—"); }); }),
-      styles: { fontSize: 7.5, font: "DejaVuSans", fontStyle: "normal", cellPadding: { top: 4, right: 3, bottom: 4, left: 3 }, overflow: "linebreak", valign: "middle" },
-      headStyles: { fillColor: pdfTint("#4FA8D8", 0.78), textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold", fontSize: 7.5, lineWidth: 0 },
+      styles: { fontSize: 8.5, font: "DejaVuSans", fontStyle: "normal", cellPadding: { top: 5, right: 4, bottom: 5, left: 4 }, overflow: "linebreak", valign: "middle", minCellWidth: 24 },
+      headStyles: { fillColor: pdfTint("#4FA8D8", 0.78), textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold", fontSize: 8.5, lineWidth: 0, halign: "left" },
       alternateRowStyles: { fillColor: [245, 246, 248] },
-      margin: { left: margin, right: margin }
+      columnStyles: { 0: { fontStyle: "bold", minCellWidth: 32 } },
+      margin: { top: 40, left: margin, right: margin, bottom: 24 },
+      tableWidth: "auto",
+      horizontalPageBreak: true,
+      horizontalPageBreakRepeat: 0,
+      showHead: "everyPage",
+      didDrawPage: function (data) {
+        if (data.pageNumber > 1) {
+          pdfAddBanner(doc, { title: driverPageMeta.title, subtitle: driverPageMeta.subtitle + " (devamı)", right: dateLabel, color: driverPageMeta.color, margin: margin });
+        }
+      }
     });
 
     // ---- Sayfa 3: Masraf Özeti (çubuk grafik + tablo) ----
