@@ -2980,7 +2980,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Lastik Değişimi", emoji: "🛞", date: c.tireDate || null, apptKey: "tireDate", apptDate: (c.appointments && c.appointments.tireDate) || null });
     });
     items.forEach(function (it) {
-      it.days = daysUntil(it.date);
+      // Randevu tarihi girilmişse artık hatırlatma o tarihe göre çalışır:
+      // geri sayım (gün kaldı, renk, aciliyet sırası) randevu gününe göre
+      // yapılır — bkz. buildQuickApptModal üzerindeki açıklama.
+      it.days = daysUntil(it.apptDate || it.date);
       it.status = urgency(it.days);
       it.dateLabel = it.date ? fmtDateTR(it.date) : "Tarih girilmedi";
       if (it.apptDate) it.dateLabel += " · 📅 Randevu: " + fmtDateTR(it.apptDate);
@@ -3052,7 +3055,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       items.push({ kind: "car", carId: c.id, carName: c.name, carPhoto: c.photo, type: "Lastik Değişimi", emoji: "🛞", date: c.tireDate || null, apptKey: "tireDate", apptDate: (c.appointments && c.appointments.tireDate) || null });
     });
     items.forEach(function (it) {
-      it.days = daysUntil(it.date);
+      // Randevu tarihi girilmişse artık hatırlatma o tarihe göre çalışır:
+      // geri sayım (gün kaldı, renk, aciliyet sırası) randevu gününe göre
+      // yapılır — bkz. buildQuickApptModal üzerindeki açıklama.
+      it.days = daysUntil(it.apptDate || it.date);
       it.status = urgency(it.days);
       it.dateLabel = it.date ? fmtDateTR(it.date) : "Tarih girilmedi";
       if (it.apptDate) it.dateLabel += " · 📅 Randevu: " + fmtDateTR(it.apptDate);
@@ -3658,6 +3664,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   function appointmentCTAHTML(it) {
     if (it.type !== "Muayene") return "";
+    if (it.apptDate) return ""; // randevu zaten alınmış, tekrar hatırlatmaya gerek yok
     if (it.days == null || it.days > 30) return "";
     return '<div class="appt-cta">⚠️ Randevu almak için tıklayın' +
       '<a class="btn-primary" href="https://www.tuvturk.com.tr" target="_blank" rel="noopener noreferrer">Randevu Al</a></div>';
