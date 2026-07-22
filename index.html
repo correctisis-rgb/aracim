@@ -854,7 +854,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.8.1"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.8.2"; // Dynamic Version Tracking
   var APP_UPDATED = "22 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -5905,6 +5905,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var num = parseInt(hex, 16);
     return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
   }
+  function pdfTint(hex, amount) {
+    var rgb = pdfHexToRgb(hex);
+    return rgb.map(function (c) { return Math.round(c + (255 - c) * amount); });
+  }
   function pdfAddBanner(doc, opts) {
     var pageW = doc.internal.pageSize.getWidth();
     var rgb = pdfHexToRgb(opts.color);
@@ -5972,11 +5976,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     var carFields = carActivityFieldDefs().filter(function (f) { return f.type !== "photo"; });
     doc.autoTable({
-      startY: kpiY + kpiH + 14,
+      startY: kpiY + kpiH + 18,
       head: [carFields.map(function (f) { return f.label; })],
       body: (state.cars || []).map(function (c) { return carFields.map(function (f) { return String(excelCellValue(f.type, c[f.key]) || "—"); }); }),
       styles: { fontSize: 7, font: "DejaVuSans", fontStyle: "normal" },
-      headStyles: { fillColor: [242, 169, 59], textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold" },
+      headStyles: { fillColor: pdfTint("#F2A93B", 0.78), textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold", lineWidth: 0 },
       alternateRowStyles: { fillColor: [245, 246, 248] },
       margin: { left: margin, right: margin }
     });
@@ -5986,11 +5990,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     pdfAddBanner(doc, { title: "Şoförler", subtitle: (state.drivers || []).length + " şoför kayıtlı", right: dateLabel, color: "#4FA8D8", margin: margin });
     var driverFields = driverActivityFieldDefs();
     doc.autoTable({
-      startY: 46,
+      startY: 54,
       head: [driverFields.map(function (f) { return f.label; })],
       body: (state.drivers || []).map(function (d) { return driverFields.map(function (f) { return String(excelCellValue(f.type, d[f.key]) || "—"); }); }),
       styles: { fontSize: 7, font: "DejaVuSans", fontStyle: "normal" },
-      headStyles: { fillColor: [79, 168, 216], textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold" },
+      headStyles: { fillColor: pdfTint("#4FA8D8", 0.78), textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold", lineWidth: 0 },
       alternateRowStyles: { fillColor: [245, 246, 248] },
       margin: { left: margin, right: margin }
     });
@@ -6006,7 +6010,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var barAreaW = pageW - margin - labelW - valueW - margin;
     var maxVal = Math.max.apply(null, chartCars.map(function (c) { return carTotals[c.id] || 0; }).concat([1]));
     var barH = 12, barGap = 7;
-    var chartY = 50;
+    var chartY = 54;
 
     doc.setFont("DejaVuSans", "normal");
     chartCars.forEach(function (c, i) {
@@ -6026,7 +6030,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       doc.text(fmtTL(val), barAreaX + barAreaW + 8, y + barH - 3);
     });
 
-    var tableStartY = chartY + chartCars.length * (barH + barGap) + 16;
+    var tableStartY = chartY + chartCars.length * (barH + barGap) + 20;
     var summaryBody = chartCars.map(function (c) { return [c.name, fmtTL(carTotals[c.id] || 0)]; });
     summaryBody.push(["TOPLAM", fmtTL(grandTotal)]);
     doc.autoTable({
@@ -6034,7 +6038,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       head: [["Araç", "Toplam Masraf"]],
       body: summaryBody,
       styles: { fontSize: 9, font: "DejaVuSans", fontStyle: "normal" },
-      headStyles: { fillColor: [123, 198, 126], textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold" },
+      headStyles: { fillColor: pdfTint("#7BC67E", 0.75), textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold", lineWidth: 0 },
       alternateRowStyles: { fillColor: [245, 246, 248] },
       didParseCell: function (data) {
         if (data.row.section === "body" && data.row.index === summaryBody.length - 1) {
