@@ -503,6 +503,18 @@
   .err-item-user { font-size: 10.5px; color: var(--amber); font-family: 'JetBrains Mono', monospace; }
   .err-item-msg { font-size: 12.5px; color: var(--text); line-height: 1.45; word-break: break-word; }
   .err-item-meta { font-size: 10.5px; color: var(--muted); margin-top: 4px; word-break: break-word; }
+
+  .driver-item-name { font-size: 13.5px; font-weight: 600; color: var(--text); }
+  .driver-item-actions { display: flex; align-items: center; gap: 2px; }
+  .driver-abroad-badge { display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px; color: var(--blue); background: #4FA8D81A; border: 1px solid #4FA8D840; border-radius: 999px; padding: 2px 8px; margin-left: 6px; }
+  .car-checklist { display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin-bottom: 4px; }
+  .car-checklist-item { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text); cursor: pointer; }
+  .car-checklist-item input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--amber); cursor: pointer; flex-shrink: 0; }
+  .car-checklist-empty { font-size: 12px; color: var(--muted); }
+  .toggle-row { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; cursor: pointer; font-size: 13px; color: var(--text); }
+  .toggle-row input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--amber); cursor: pointer; flex-shrink: 0; }
+  .abroad-fields { border-top: 1px dashed var(--border); padding-top: 10px; margin-top: -4px; margin-bottom: 12px; }
+  .abroad-fields[hidden] { display: none; }
   .mon-refresh-row { display: flex; justify-content: flex-end; margin-bottom: 10px; }
   .act-item { cursor: pointer; }
   .act-item:hover { border-color: var(--amber); }
@@ -819,8 +831,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.7.0"; // Dynamic Version Tracking
-  var APP_UPDATED = "21 Temmuz 2026";
+  var APP_VERSION = "v1.7.1"; // Dynamic Version Tracking
+  var APP_UPDATED = "22 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -830,6 +842,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     { id: "diger", label: "Diğer", emoji: "•••", color: "#8B939D" }
   ];
   var CAR_COLORS = ["#F2A93B", "#4FA8D8", "#7BC67E", "#C77DE0", "#E2574C"];
+  var VEHICLE_TYPES = ["Otomobil", "Ticari (Kamyonet/Panelvan)", "Kamyon", "Minibüs", "Otobüs", "Çekici / Tır", "Motosiklet", "İş Makinesi", "Diğer"];
   var MONTHS_TR = ["Oca","Şub","Mar","Nis","May","Haz","Tem","Ağu","Eyl","Eki","Kas","Ara"];
   var LEGAL_DOC_VERSION = "2026-07-21";
   var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -1077,6 +1090,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     cars: getLocalData("cars", null),
     expenses: getLocalData("expenses", null),
     familyMembers: getLocalData("family", []),
+    drivers: getLocalData("drivers", []),
     selectedCarId: "all",
     view: "panel",
     modal: null,
@@ -1190,6 +1204,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     state.expenses = data.expenses || state.expenses || [];
     state.familyMembers = data.familyMembers || state.familyMembers || [];
     state.budgets = data.budgets || state.budgets || {};
+    state.drivers = data.drivers || state.drivers || [];
     state.householdMembers = Object.keys(data.memberProfiles || {}).map(function (uidKey) {
       var p = (data.memberProfiles || {})[uidKey] || {};
       // Rol alanı yoksa (eski üyeler ya da hiç değiştirilmemişse) varsayılan
@@ -1414,6 +1429,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     db.collection("users").doc(docId).set({ budgets: state.budgets }, { merge: true })
       .catch(function (err) { console.error(err); });
   }
+  function persistDrivers() {
+    setLocalData("drivers", state.drivers);
+    if (!state.online) { markPendingSync(); return; }
+    var docId = dataDocId();
+    if (!docId) return;
+    db.collection("users").doc(docId).set({ drivers: state.drivers }, { merge: true })
+      .catch(function (err) { console.error(err); });
+  }
 
   // ---------- Aktivite geçmişi (kim ne değiştirdi/sildi) ----------
   // Hane içindeki araç/masraf ekleme, düzenleme, silme (ve geri alma)
@@ -1472,6 +1495,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   function carActivityFieldDefs() {
     return [
       { key: "name", label: "Araç adı" },
+      { key: "vehicleType", label: "Araç türü" },
       { key: "plate", label: "Plaka" },
       { key: "brand", label: "Marka / Model" },
       { key: "year", label: "Model yılı" },
@@ -1506,6 +1530,18 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       { key: "receipt", label: "Fiş / Fatura görseli", type: "photo" }
     ];
   }
+  function driverActivityFieldDefs() {
+    return [
+      { key: "name", label: "Ad Soyad" },
+      { key: "phone", label: "Telefon" },
+      { key: "worksAbroad", label: "Yurtdışında çalışıyor", type: "bool" },
+      { key: "passportNo", label: "Pasaport no" },
+      { key: "passportExpiry", label: "Pasaport geçerlilik tarihi", type: "date" },
+      { key: "visaCountry", label: "Vize ülkesi" },
+      { key: "visaNo", label: "Vize no" },
+      { key: "visaExpiry", label: "Vize geçerlilik tarihi", type: "date" }
+    ];
+  }
   function formatActivityFieldValue(type, value) {
     if (type === "date") return value ? fmtDateTR(value) : "—";
     if (type === "number") return (value === null || value === undefined || value === "") ? "—" : groupThousands(String(value));
@@ -1522,6 +1558,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       return m ? m.name : "—";
     }
     if (type === "photo") return value ? "Var" : "Yok";
+    if (type === "bool") return value ? "Evet" : "Hayır";
     return (value === null || value === undefined || value === "") ? "—" : String(value);
   }
   // İki obje arasında değişen alanları bulur (düzenleme kayıtları için).
@@ -2214,7 +2251,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   function exportData() {
-    var payload = { cars: state.cars, expenses: state.expenses, family: state.familyMembers, budgets: state.budgets, exportedAt: new Date().toISOString() };
+    var payload = { cars: state.cars, expenses: state.expenses, family: state.familyMembers, budgets: state.budgets, drivers: state.drivers, exportedAt: new Date().toISOString() };
     var blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     var url = URL.createObjectURL(blob);
     var a = document.createElement("a");
@@ -2244,7 +2281,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             state.expenses = data.expenses;
             state.familyMembers = data.family || [];
             state.budgets = data.budgets || {};
-            persistCars(); persistExpenses(); persistFamily(); persistBudgets();
+            state.drivers = Array.isArray(data.drivers) ? data.drivers : [];
+            persistCars(); persistExpenses(); persistFamily(); persistBudgets(); persistDrivers();
             toast("Yedek geri yüklendi.");
             render();
           }
@@ -2302,6 +2340,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         createPatch.expenses = state.expenses || [];
         createPatch.familyMembers = state.familyMembers || [];
         createPatch.budgets = state.budgets || {};
+        createPatch.drivers = state.drivers || [];
         createPatch.createdAt = firebase.firestore.FieldValue.serverTimestamp();
         docRef.set(createPatch, { merge: true }).catch(function (err) { console.error(err); });
         return;
@@ -2337,6 +2376,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         state.expenses = getLocalData("expenses", []);
         state.familyMembers = getLocalData("family", []);
         state.budgets = getLocalData("budgets", {});
+        state.drivers = getLocalData("drivers", []);
         render();
         tryOpenPendingDeepLink();
       }
@@ -2679,6 +2719,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       state.expenses = null;
       state.familyMembers = [];
       state.budgets = {};
+      state.drivers = [];
       state.householdId = null;
       state.householdInviteToken = null;
       state.householdMembers = [];
@@ -3144,6 +3185,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             '<button type="button" class="account-menu-item" data-action="open-profile">👤 Hesabım</button>' +
             '<button type="button" class="account-menu-item" data-action="open-notif-history">🔔 Geçmiş Hatırlatmalar' + (hasUnseenNotifHistory() ? ' <span class="account-chip-dot" aria-hidden="true"></span>' : '') + '</button>' +
             '<button type="button" class="account-menu-item" data-action="open-activity-log">🕒 Aktivite Geçmişi' + (hasUnseenActivityLog() ? ' <span class="account-chip-dot" aria-hidden="true"></span>' : '') + '</button>' +
+            '<button type="button" class="account-menu-item" data-action="open-drivers">🧑‍✈️ Şoförler</button>' +
             '<button type="button" class="account-menu-item" data-action="open-help">🆘 Yardım &amp; Destek' + (hasUnseenSupportUpdate() ? ' <span class="account-chip-dot" aria-hidden="true"></span>' : '') + '</button>' +
             (isAdminUser(user) ?
               '<div class="account-menu-divider"></div>' +
@@ -3884,6 +3926,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       backdrop.appendChild(buildHouseholdQRModal());
     } else if (state.modal.type === "householdScan") {
       backdrop.appendChild(buildHouseholdScanModal());
+    } else if (state.modal.type === "drivers") {
+      backdrop.appendChild(buildDriversModal());
+    } else if (state.modal.type === "addDriver" || state.modal.type === "editDriver") {
+      backdrop.appendChild(buildDriverModal());
     }
     document.body.appendChild(backdrop);
   }
@@ -4405,7 +4451,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     } else {
       html += '<ul class="err-list">';
       list.forEach(function (entry) {
-        var icon = entry.type === "car" ? "🚗" : "🧾";
+        var icon = entry.type === "car" ? "🚗" : (entry.type === "driver" ? "🧑‍✈️" : "🧾");
         var isExpanded = !!expandedActivityIds[entry.id];
         var hasDetail = (entry.changes && entry.changes.length) || (entry.snapshot && entry.snapshot.length);
         html += '<li class="err-item act-item' + (isExpanded ? " expanded" : "") + '"' +
@@ -4847,7 +4893,20 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         photoUploadHTML("ruhsatPhoto", "Ruhsat görüntüsü", car ? car.ruhsat : null) +
       '</div>' +
       '<label class="field"><span>Araç adı</span><input id="f-name" value="' + (car ? esc(car.name) : "") + '" placeholder="Örn. Egea, İş Arabası" /></label>' +
-      '<label class="field"><span>Plaka (opsiyonel)</span><input id="f-plate" value="' + (car ? esc(car.plate || "") : "") + '" placeholder="34 XX 000" /></label>' +
+      '<div class="field-row">' +
+        '<label class="field"><span>Araç türü</span><select id="f-vtype">' +
+          [""].concat(VEHICLE_TYPES).map(function (o) { return '<option value="' + esc(o) + '"' + (car && car.vehicleType === o ? " selected" : "") + '>' + (o || "Seçilmedi") + '</option>'; }).join("") +
+        '</select></label>' +
+        '<label class="field"><span>Plaka (opsiyonel)</span><input id="f-plate" value="' + (car ? esc(car.plate || "") : "") + '" placeholder="34 XX 000" /></label>' +
+      '</div>' +
+      '<label class="field"><span>Şoför (opsiyonel)</span><select id="f-driver">' +
+        '<option value="">Şoför atanmadı</option>' +
+        (state.drivers || []).map(function (d) {
+          var assigned = car ? ((d.carIds || []).indexOf(car.id) !== -1) : false;
+          return '<option value="' + d.id + '"' + (assigned ? " selected" : "") + '>' + esc(d.name) + '</option>';
+        }).join("") +
+      '</select></label>' +
+      '<p class="field-hint" style="margin-top:-8px">Şoförleri buradan da atayabilirsin; yeni bir şoför eklemek için hesap menüsündeki "Şoförler" bölümünü kullan.</p>' +
       '<div class="field-row">' +
         '<label class="field"><span>Marka / Model (opsiyonel)</span><input id="f-brand" value="' + (car ? esc(car.brand || "") : "") + '" placeholder="Örn. Fiat Egea 1.4" /></label>' +
         '<label class="field"><span>Model yılı (opsiyonel)</span><input id="f-year" value="' + (car ? esc(car.year || "") : "") + '" placeholder="Örn. 2021" inputmode="numeric" maxlength="4" /></label>' +
@@ -4938,8 +4997,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     modal.querySelector("#f-save").addEventListener("click", function () {
       var name = modal.querySelector("#f-name").value.trim();
       if (!name) { toast("Araç adı gerekli."); return; }
+      var selectedDriverId = modal.querySelector("#f-driver").value || null;
       var patch = {
         name: name,
+        vehicleType: modal.querySelector("#f-vtype").value,
         plate: modal.querySelector("#f-plate").value.trim(),
         brand: modal.querySelector("#f-brand").value.trim(),
         year: modal.querySelector("#f-year").value.trim(),
@@ -4993,20 +5054,174 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       });
       patch.appointments = appointments;
 
+      var savedCarId;
       if (isEdit) {
         var updatedCar = Object.assign({}, car, patch);
         var carChanges = diffActivityFields(car, updatedCar, carActivityFieldDefs());
         state.cars = state.cars.map(function (c) { return c.id === car.id ? updatedCar : c; });
         logActivity("car", "edit", { carId: car.id, carName: name, summary: "Araç bilgileri güncellendi: " + name, changes: carChanges });
+        savedCarId = car.id;
       } else {
         var newCar = Object.assign({ id: uid(), color: CAR_COLORS[(state.cars || []).length % CAR_COLORS.length] }, patch);
         state.cars = (state.cars || []).concat([newCar]);
         logActivity("car", "add", { carId: newCar.id, carName: name, summary: "Yeni araç eklendi: " + name, snapshot: snapshotActivityFields(newCar, carActivityFieldDefs()) });
+        savedCarId = newCar.id;
+      }
+      // Şoför ataması: bu aracı önce tüm şoförlerin araç listesinden çıkar,
+      // sonra (seçildiyse) yeni şoförün araç listesine ekle. Böylece bir araca
+      // aynı anda en fazla bir şoför atanmış olur.
+      if (state.drivers && state.drivers.length) {
+        var driversChanged = false;
+        state.drivers = state.drivers.map(function (d) {
+          var hasCar = (d.carIds || []).indexOf(savedCarId) !== -1;
+          var shouldHave = selectedDriverId === d.id;
+          if (hasCar === shouldHave) return d;
+          driversChanged = true;
+          var newCarIds = shouldHave
+            ? (d.carIds || []).concat([savedCarId])
+            : (d.carIds || []).filter(function (cid) { return cid !== savedCarId; });
+          return Object.assign({}, d, { carIds: newCarIds });
+        });
+        if (driversChanged) persistDrivers();
       }
       persistCars();
       closeModal();
       render();
       toast(isEdit ? "Araç bilgileri kaydedildi." : "Araç eklendi.");
+    });
+
+    return modal;
+  }
+
+
+  function buildDriversModal() {
+    var modal = document.createElement("div");
+    modal.className = "modal wide";
+    modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
+
+    var list = state.drivers || [];
+    var html = '<div class="modal-head"><h3>🧑‍✈️ Şoförler</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>';
+    html += '<p class="field-hint" style="margin-top:-4px">Şoförlerini ekle, hangi araç(lar)ı kullandıklarını belirle. Yurtdışına çıkacak şoförler için pasaport ve vize bilgilerini de burada tutabilirsin.</p>';
+    html += '<button type="button" class="btn-primary full" data-action="open-add-driver" style="margin-bottom:14px">+ Şoför Ekle</button>';
+
+    if (!list.length) {
+      html += '<p class="mon-empty">Henüz şoför eklenmedi.</p>';
+    } else {
+      html += '<ul class="err-list">';
+      list.forEach(function (d) {
+        var carNames = (d.carIds || []).map(function (cid) {
+          var c = (state.cars || []).find(function (x) { return x.id === cid; });
+          return c ? c.name : null;
+        }).filter(Boolean);
+        html += '<li class="err-item">' +
+          '<div class="err-item-head">' +
+            '<span class="driver-item-name">' + esc(d.name) + (d.worksAbroad ? '<span class="driver-abroad-badge">🛂 Yurtdışı</span>' : '') + '</span>' +
+            '<span class="driver-item-actions">' +
+              '<button type="button" class="exp-del" data-action="open-edit-driver" data-id="' + d.id + '" title="Düzenle" aria-label="Düzenle">✏️</button>' +
+              '<button type="button" class="exp-del" data-action="delete-driver" data-id="' + d.id + '" title="Sil" aria-label="Sil">🗑️</button>' +
+            '</span>' +
+          '</div>' +
+          (d.phone ? '<div class="err-item-meta">📞 ' + esc(d.phone) + '</div>' : '') +
+          '<div class="err-item-meta">🚗 ' + (carNames.length ? esc(carNames.join(", ")) : "Araç atanmadı") + '</div>' +
+        '</li>';
+      });
+      html += '</ul>';
+    }
+
+    modal.innerHTML = html;
+    return modal;
+  }
+
+  function buildDriverModal() {
+    var isEdit = state.modal.type === "editDriver";
+    var driversList = state.drivers || [];
+    var driver = isEdit ? driversList.find(function (d) { return d.id === state.modal.driverId; }) : null;
+    var carsList = state.cars || [];
+
+    var modal = document.createElement("div");
+    modal.className = "modal wide";
+    modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
+
+    var selectedCarIds = driver ? (driver.carIds || []) : [];
+    var worksAbroad = driver ? !!driver.worksAbroad : false;
+
+    modal.innerHTML =
+      '<div class="modal-head"><h3>' + (isEdit ? "Şoförü Düzenle" : "Şoför Ekle") + '</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>' +
+      '<label class="field"><span>Ad Soyad</span><input id="f-dname" value="' + (driver ? esc(driver.name) : "") + '" placeholder="Örn. Ahmet Yılmaz" /></label>' +
+      '<label class="field"><span>Telefon (opsiyonel)</span><input id="f-dphone" value="' + (driver ? esc(driver.phone || "") : "") + '" placeholder="05XX XXX XX XX" inputmode="tel" /></label>' +
+      '<label class="field"><span>Araç(lar)</span></label>' +
+      '<div class="car-checklist" id="f-dcars">' +
+        (carsList.length
+          ? carsList.map(function (c) {
+              var checked = selectedCarIds.indexOf(c.id) !== -1;
+              return '<label class="car-checklist-item"><input type="checkbox" value="' + c.id + '"' + (checked ? " checked" : "") + ' />' + esc(c.name) + (c.plate ? ' <span style="color:var(--muted)">(' + esc(c.plate) + ')</span>' : '') + '</label>';
+            }).join("")
+          : '<span class="car-checklist-empty">Önce bir araç eklemen gerekiyor.</span>') +
+      '</div>' +
+      '<p class="field-hint">Bir şoföre en az bir araç atanmalıdır.</p>' +
+      '<label class="toggle-row" id="f-dabroad-row"><input type="checkbox" id="f-dabroad"' + (worksAbroad ? " checked" : "") + ' /><span>Yurtdışında çalışacak (pasaport / vize gerekli)</span></label>' +
+      '<div class="abroad-fields" id="f-dabroad-fields"' + (worksAbroad ? "" : " hidden") + '>' +
+        '<div class="field-row">' +
+          '<label class="field"><span>Pasaport no</span><input id="f-dpassno" value="' + (driver ? esc(driver.passportNo || "") : "") + '" placeholder="Pasaport numarası" /></label>' +
+          '<label class="field"><span>Pasaport geçerlilik tarihi</span><input id="f-dpassexp" type="date" value="' + (driver && driver.passportExpiry ? driver.passportExpiry : "") + '" /></label>' +
+        '</div>' +
+        '<div class="field-row">' +
+          '<label class="field"><span>Vize ülkesi</span><input id="f-dvisacountry" value="' + (driver ? esc(driver.visaCountry || "") : "") + '" placeholder="Örn. Almanya" /></label>' +
+          '<label class="field"><span>Vize no</span><input id="f-dvisano" value="' + (driver ? esc(driver.visaNo || "") : "") + '" placeholder="Vize numarası" /></label>' +
+        '</div>' +
+        '<label class="field"><span>Vize geçerlilik tarihi</span><input id="f-dvisaexp" type="date" value="' + (driver && driver.visaExpiry ? driver.visaExpiry : "") + '" /></label>' +
+      '</div>' +
+      '<button class="btn-primary full" id="f-dsave">Kaydet</button>';
+
+    var abroadCheckbox = modal.querySelector("#f-dabroad");
+    var abroadFields = modal.querySelector("#f-dabroad-fields");
+    abroadCheckbox.addEventListener("change", function () {
+      abroadFields.hidden = !abroadCheckbox.checked;
+    });
+
+    modal.querySelector("#f-dsave").addEventListener("click", function () {
+      var name = modal.querySelector("#f-dname").value.trim();
+      if (!name) { toast("Şoförün adı soyadı gerekli."); return; }
+      var checkedCarIds = Array.prototype.map.call(modal.querySelectorAll('#f-dcars input[type="checkbox"]:checked'), function (cb) { return cb.value; });
+      if (!checkedCarIds.length) { toast("Şoföre en az bir araç atamalısın."); return; }
+      var abroad = abroadCheckbox.checked;
+
+      var patch = {
+        name: name,
+        phone: modal.querySelector("#f-dphone").value.trim(),
+        carIds: checkedCarIds,
+        worksAbroad: abroad,
+        passportNo: abroad ? modal.querySelector("#f-dpassno").value.trim() : "",
+        passportExpiry: abroad ? (modal.querySelector("#f-dpassexp").value || null) : null,
+        visaCountry: abroad ? modal.querySelector("#f-dvisacountry").value.trim() : "",
+        visaNo: abroad ? modal.querySelector("#f-dvisano").value.trim() : "",
+        visaExpiry: abroad ? (modal.querySelector("#f-dvisaexp").value || null) : null
+      };
+
+      // Bir aracın en fazla bir şoförü olabilir: bu şoföre yeni atanan
+      // araçları, önceden başka bir şoföre atanmışsa oradan çıkar.
+      var thisDriverId = isEdit ? driver.id : null;
+      state.drivers = (state.drivers || []).map(function (d) {
+        if (thisDriverId && d.id === thisDriverId) return d; // aşağıda ayrıca güncellenecek
+        var overlap = (d.carIds || []).filter(function (cid) { return checkedCarIds.indexOf(cid) !== -1; });
+        if (!overlap.length) return d;
+        return Object.assign({}, d, { carIds: (d.carIds || []).filter(function (cid) { return checkedCarIds.indexOf(cid) === -1; }) });
+      });
+
+      if (isEdit) {
+        var updatedDriver = Object.assign({}, driver, patch);
+        var driverChanges = diffActivityFields(driver, updatedDriver, driverActivityFieldDefs());
+        state.drivers = state.drivers.map(function (d) { return d.id === driver.id ? updatedDriver : d; });
+        logActivity("driver", "edit", { summary: "Şoför bilgileri güncellendi: " + name, changes: driverChanges });
+      } else {
+        var newDriver = Object.assign({ id: uid() }, patch);
+        state.drivers = (state.drivers || []).concat([newDriver]);
+        logActivity("driver", "add", { summary: "Yeni şoför eklendi: " + name, snapshot: snapshotActivityFields(newDriver, driverActivityFieldDefs()) });
+      }
+      persistDrivers();
+      state.modal = { type: "drivers" };
+      render();
+      toast(isEdit ? "Şoför bilgileri kaydedildi." : "Şoför eklendi.");
     });
 
     return modal;
@@ -5265,7 +5480,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         // Sadece görüntüleyebilen üyeler bu eylemleri tetikleyemez (ilgili
         // düğmeler CSS ile zaten gizleniyor; bu, programatik/eski DOM
         // durumlarına karşı ikinci bir savunma katmanı).
-        var EDIT_ONLY_ACTIONS = ["open-add-car", "open-edit-car", "delete-car", "open-add-expense", "open-edit-expense", "delete-expense"];
+        var EDIT_ONLY_ACTIONS = ["open-add-car", "open-edit-car", "delete-car", "open-add-expense", "open-edit-expense", "delete-expense", "open-add-driver", "open-edit-driver", "delete-driver"];
         if (EDIT_ONLY_ACTIONS.indexOf(action) !== -1 && !canEditHousehold()) {
           toast("Bu hanede sadece görüntüleme yetkin var, düzenleme yapamazsın.");
           return;
@@ -5339,9 +5554,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
               var deletedCar = (state.cars || []).find(function (c) { return c.id === carId; });
               var deletedCarIndex = (state.cars || []).indexOf(deletedCar);
               var deletedExpenses = (state.expenses || []).filter(function (e) { return e.carId === carId; });
+              var driversWithCar = (state.drivers || []).filter(function (d) { return (d.carIds || []).indexOf(carId) !== -1; }).map(function (d) { return d.id; });
               var prevSelectedCarId = state.selectedCarId;
               state.cars = (state.cars || []).filter(function (c) { return c.id !== carId; });
               state.expenses = (state.expenses || []).filter(function (e) { return e.carId !== carId; });
+              if (driversWithCar.length) {
+                state.drivers = (state.drivers || []).map(function (d) {
+                  return driversWithCar.indexOf(d.id) !== -1 ? Object.assign({}, d, { carIds: (d.carIds || []).filter(function (cid) { return cid !== carId; }) }) : d;
+                });
+                persistDrivers();
+              }
               if (state.selectedCarId === carId) state.selectedCarId = "all";
               persistCars(); persistExpenses(); render();
               cleanupNotifStateForCar(carId);
@@ -5353,6 +5575,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
                   state.selectedCarId = prevSelectedCarId;
                 }
                 state.expenses = (state.expenses || []).concat(deletedExpenses);
+                if (driversWithCar.length) {
+                  state.drivers = (state.drivers || []).map(function (d) {
+                    return driversWithCar.indexOf(d.id) !== -1 ? Object.assign({}, d, { carIds: (d.carIds || []).concat([carId]) }) : d;
+                  });
+                  persistDrivers();
+                }
                 persistCars(); persistExpenses();
                 logActivity("car", "restore", { carId: carId, carName: deletedCar ? deletedCar.name : "", summary: "Araç geri alındı: " + (deletedCar ? deletedCar.name : ""), snapshot: snapshotActivityFields(deletedCar, carActivityFieldDefs()) });
                 render();
@@ -5398,6 +5626,41 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           state.accountMenuOpen = false;
           markActivityLogSeen();
           render();
+        }
+        else if (action === "open-drivers") {
+          ev.stopPropagation();
+          state.modal = { type: "drivers" };
+          state.accountMenuOpen = false;
+          render();
+        }
+        else if (action === "open-add-driver") { state.modal = { type: "addDriver" }; render(); }
+        else if (action === "open-edit-driver") { state.modal = { type: "editDriver", driverId: el.getAttribute("data-id") }; render(); }
+        else if (action === "delete-driver") {
+          var driverId = el.getAttribute("data-id");
+          showConfirm({
+            title: "Şoförü Sil",
+            message: "Bu şoförü silmek istediğine emin misin?",
+            confirmLabel: "Sil",
+            danger: true,
+            onConfirm: function () {
+              var deletedDriver = (state.drivers || []).find(function (d) { return d.id === driverId; });
+              var deletedDriverIndex = (state.drivers || []).indexOf(deletedDriver);
+              state.drivers = (state.drivers || []).filter(function (d) { return d.id !== driverId; });
+              persistDrivers();
+              logActivity("driver", "delete", { summary: "Şoför silindi: " + (deletedDriver ? deletedDriver.name : ""), snapshot: deletedDriver ? snapshotActivityFields(deletedDriver, driverActivityFieldDefs()) : null });
+              render();
+              toastWithUndo("Şoför silindi.", function () {
+                if (deletedDriver) {
+                  state.drivers = state.drivers || [];
+                  state.drivers.splice(Math.min(deletedDriverIndex, state.drivers.length), 0, deletedDriver);
+                  persistDrivers();
+                  logActivity("driver", "restore", { summary: "Şoför geri alındı: " + deletedDriver.name });
+                  render();
+                }
+                toast("Şoför geri alındı.");
+              });
+            }
+          });
         }
         else if (action === "open-help") {
           ev.stopPropagation();
