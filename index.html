@@ -854,7 +854,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.8.3"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.8.4"; // Dynamic Version Tracking
   var APP_UPDATED = "22 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -5969,7 +5969,24 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     doc.text(label, x + 10, y + h - 8);
     doc.setTextColor(27, 31, 36);
   }
-  function buildPdfReport() {
+  function filterExpensesByRange(list, dateFrom, dateTo) {
+    return (list || []).filter(function (e) {
+      if (dateFrom && (!e.date || e.date < dateFrom)) return false;
+      if (dateTo && (!e.date || e.date > dateTo)) return false;
+      return true;
+    });
+  }
+  function pdfRangeLabel(dateFrom, dateTo) {
+    if (!dateFrom && !dateTo) return "Tüm zamanlar";
+    if (dateFrom && dateTo) return fmtDateTR(dateFrom) + " – " + fmtDateTR(dateTo);
+    if (dateFrom) return fmtDateTR(dateFrom) + " – günümüz";
+    return "Başlangıç – " + fmtDateTR(dateTo);
+  }
+  function pdfRangeSuffix(dateFrom, dateTo) {
+    if (!dateFrom && !dateTo) return "";
+    return "-" + (dateFrom || "bas") + "_" + (dateTo || "gunumuz");
+  }
+  function buildPdfGenelReport(dateFrom, dateTo) {
     var doc = new jspdf.jsPDF({ orientation: "landscape" });
     // Türkçe karakterler (ç, ğ, ı, ö, ş, ü) için varsayılan Helvetica yerine
     // DejaVu Sans kullanılıyor. Font, dejavu-sans-jspdf.js dosyasıyla eklendi.
@@ -5990,12 +6007,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     };
     function pdfLabel(l) { return pdfLabelOverrides[l] || l; }
 
+    var rangeLabel = pdfRangeLabel(dateFrom, dateTo);
+    var rangedExpenses = filterExpensesByRange(state.expenses, dateFrom, dateTo);
     var carTotals = {};
-    (state.expenses || []).forEach(function (e) { carTotals[e.carId] = (carTotals[e.carId] || 0) + (e.amount || 0); });
+    rangedExpenses.forEach(function (e) { carTotals[e.carId] = (carTotals[e.carId] || 0) + (e.amount || 0); });
     var grandTotal = Object.keys(carTotals).reduce(function (sum, k) { return sum + carTotals[k]; }, 0);
 
     // ---- Sayfa 1: Araçlar ----
-    pdfAddBanner(doc, { title: "Garaj Defteri — Filo Raporu", subtitle: "Araçlar", right: "Oluşturulma tarihi: " + dateLabel, color: "#F2A93B", margin: margin });
+    pdfAddBanner(doc, { title: "Garaj Defteri — Genel Rapor", subtitle: "Araçlar · Masraf dönemi: " + rangeLabel, right: "Oluşturulma tarihi: " + dateLabel, color: "#F2A93B", margin: margin });
 
     var kpiY = 46, kpiH = 34, kpiGap = 10;
     var kpiW = (doc.internal.pageSize.getWidth() - 2 * margin - 2 * kpiGap) / 3;
@@ -6004,7 +6023,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     pdfKpiCard(doc, margin + 2 * (kpiW + kpiGap), kpiY, kpiW, kpiH, "#7BC67E", "Toplam Masraf", fmtTL(grandTotal));
 
     var carFields = carActivityFieldDefs().filter(function (f) { return f.type !== "photo"; });
-    var carPageMeta = { title: "Garaj Defteri — Filo Raporu", subtitle: "Araçlar", color: "#F2A93B" };
+    var carPageMeta = { title: "Garaj Defteri — Genel Rapor", subtitle: "Araçlar", color: "#F2A93B" };
     doc.autoTable({
       startY: kpiY + kpiH + 18,
       head: [carFields.map(function (f) { return pdfLabel(f.label); })],
@@ -6052,7 +6071,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     // ---- Sayfa 3: Masraf Özeti (çubuk grafik + tablo) ----
     doc.addPage();
-    pdfAddBanner(doc, { title: "Masraf Özeti", subtitle: "Araç başına toplam masraf dağılımı", right: dateLabel, color: "#7BC67E", margin: margin });
+    pdfAddBanner(doc, { title: "Masraf Özeti", subtitle: "Araç başına toplam masraf dağılımı · " + rangeLabel, right: dateLabel, color: "#7BC67E", margin: margin });
 
     var chartCars = (state.cars || []).slice().sort(function (a, b) { return (carTotals[b.id] || 0) - (carTotals[a.id] || 0); });
     var pageW = doc.internal.pageSize.getWidth();
@@ -6101,8 +6120,178 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     });
 
     pdfAddFooter(doc, margin);
-    doc.save("garaj-defteri-rapor-" + todayStr() + ".pdf");
-    toast("PDF raporu indirildi.");
+    doc.save("garaj-defteri-genel-rapor-" + todayStr() + pdfRangeSuffix(dateFrom, dateTo) + ".pdf");
+    toast("Genel PDF raporu indirildi.");
+  }
+  function buildPdfAracReport() {
+    var doc = new jspdf.jsPDF({ orientation: "landscape" });
+    doc.setFont("DejaVuSans", "normal");
+    var margin = 18;
+    var dateLabel = fmtDateTR(todayStr());
+    var carFields = carActivityFieldDefs().filter(function (f) { return f.type !== "photo"; });
+    pdfAddBanner(doc, { title: "Garaj Defteri — Araçlar Raporu", subtitle: (state.cars || []).length + " araç kayıtlı", right: "Oluşturulma tarihi: " + dateLabel, color: "#F2A93B", margin: margin });
+    doc.autoTable({
+      startY: 40,
+      head: [carFields.map(function (f) { return f.label; })],
+      body: (state.cars || []).map(function (c) { return carFields.map(function (f) { return String(excelCellValue(f.type, c[f.key]) || "—"); }); }),
+      styles: { fontSize: 8.5, font: "DejaVuSans", fontStyle: "normal", cellPadding: { top: 5, right: 4, bottom: 5, left: 4 }, overflow: "linebreak", valign: "middle", minCellWidth: 24 },
+      headStyles: { fillColor: pdfTint("#F2A93B", 0.78), textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold", fontSize: 8.5, lineWidth: 0, halign: "left" },
+      alternateRowStyles: { fillColor: [245, 246, 248] },
+      columnStyles: { 0: { fontStyle: "bold", minCellWidth: 30 } },
+      margin: { top: 40, left: margin, right: margin, bottom: 24 },
+      tableWidth: "auto",
+      horizontalPageBreak: true,
+      horizontalPageBreakRepeat: 0,
+      showHead: "everyPage",
+      didDrawPage: function (data) {
+        if (data.pageNumber > 1) {
+          pdfAddBanner(doc, { title: "Garaj Defteri — Araçlar Raporu", subtitle: "Araçlar (devamı)", right: "Oluşturulma tarihi: " + dateLabel, color: "#F2A93B", margin: margin });
+        }
+      }
+    });
+    pdfAddFooter(doc, margin);
+    doc.save("garaj-defteri-araclar-raporu-" + todayStr() + ".pdf");
+    toast("Araçlar PDF raporu indirildi.");
+  }
+  function buildPdfSoforReport() {
+    var doc = new jspdf.jsPDF({ orientation: "landscape" });
+    doc.setFont("DejaVuSans", "normal");
+    var margin = 18;
+    var dateLabel = fmtDateTR(todayStr());
+    var driverFields = driverActivityFieldDefs();
+    pdfAddBanner(doc, { title: "Garaj Defteri — Şoförler Raporu", subtitle: (state.drivers || []).length + " şoför kayıtlı", right: "Oluşturulma tarihi: " + dateLabel, color: "#4FA8D8", margin: margin });
+    doc.autoTable({
+      startY: 40,
+      head: [driverFields.map(function (f) { return f.label; })],
+      body: (state.drivers || []).map(function (d) { return driverFields.map(function (f) { return String(excelCellValue(f.type, d[f.key]) || "—"); }); }),
+      styles: { fontSize: 8.5, font: "DejaVuSans", fontStyle: "normal", cellPadding: { top: 5, right: 4, bottom: 5, left: 4 }, overflow: "linebreak", valign: "middle", minCellWidth: 24 },
+      headStyles: { fillColor: pdfTint("#4FA8D8", 0.78), textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold", fontSize: 8.5, lineWidth: 0, halign: "left" },
+      alternateRowStyles: { fillColor: [245, 246, 248] },
+      columnStyles: { 0: { fontStyle: "bold", minCellWidth: 32 } },
+      margin: { top: 40, left: margin, right: margin, bottom: 24 },
+      tableWidth: "auto",
+      horizontalPageBreak: true,
+      horizontalPageBreakRepeat: 0,
+      showHead: "everyPage",
+      didDrawPage: function (data) {
+        if (data.pageNumber > 1) {
+          pdfAddBanner(doc, { title: "Garaj Defteri — Şoförler Raporu", subtitle: "Şoförler (devamı)", right: "Oluşturulma tarihi: " + dateLabel, color: "#4FA8D8", margin: margin });
+        }
+      }
+    });
+    pdfAddFooter(doc, margin);
+    doc.save("garaj-defteri-soforler-raporu-" + todayStr() + ".pdf");
+    toast("Şoförler PDF raporu indirildi.");
+  }
+  function buildPdfExpenseStyleReport(opts) {
+    // opts: { title, filename, filterFn, color }
+    var doc = new jspdf.jsPDF({ orientation: "landscape" });
+    doc.setFont("DejaVuSans", "normal");
+    var margin = 18;
+    var dateLabel = fmtDateTR(todayStr());
+    var rangeLabel = pdfRangeLabel(opts.dateFrom, opts.dateTo);
+    var color = opts.color || "#7BC67E";
+
+    var ranged = filterExpensesByRange(state.expenses, opts.dateFrom, opts.dateTo);
+    var list = opts.filterFn ? ranged.filter(opts.filterFn) : ranged;
+    list = list.slice().sort(function (a, b) { return new Date(a.date) - new Date(b.date); });
+
+    var carTotals = {};
+    list.forEach(function (e) { carTotals[e.carId] = (carTotals[e.carId] || 0) + (e.amount || 0); });
+    var grandTotal = Object.keys(carTotals).reduce(function (sum, k) { return sum + carTotals[k]; }, 0);
+
+    // ---- Sayfa 1: Detay tablosu ----
+    pdfAddBanner(doc, { title: "Garaj Defteri — " + opts.title, subtitle: list.length + " kayıt · Dönem: " + rangeLabel, right: "Oluşturulma tarihi: " + dateLabel, color: color, margin: margin });
+    var kpiY = 46, kpiH = 34, kpiGap = 10;
+    var kpiW = (doc.internal.pageSize.getWidth() - 2 * margin - 2 * kpiGap) / 2;
+    pdfKpiCard(doc, margin, kpiY, kpiW, kpiH, color, "Kayıt Sayısı", list.length);
+    pdfKpiCard(doc, margin + kpiW + kpiGap, kpiY, kpiW, kpiH, color, "Toplam Tutar", fmtTL(grandTotal));
+
+    var expHeaders = ["Araç", "Kategori", "Tutar", "Tarih", "Km", "Litre", "Ödeyen", "Not"];
+    var expBody = list.map(function (e) {
+      var car = (state.cars || []).find(function (c) { return c.id === e.carId; });
+      var payer = e.payerId ? (((state.familyMembers || []).find(function (m) { return m.id === e.payerId; }) || {}).name) : "Ben";
+      return [car ? car.name : "—", catById(e.category).label, fmtTL(e.amount || 0), e.date ? fmtDateTR(e.date) : "—", e.km || "—", e.liter || "—", payer || "—", e.note || "—"];
+    });
+    doc.autoTable({
+      startY: kpiY + kpiH + 18,
+      head: [expHeaders],
+      body: expBody.length ? expBody : [["—", "—", "—", "—", "—", "—", "—", "Kayıt bulunamadı"]],
+      styles: { fontSize: 8.5, font: "DejaVuSans", fontStyle: "normal", cellPadding: { top: 5, right: 4, bottom: 5, left: 4 }, overflow: "linebreak", valign: "middle" },
+      headStyles: { fillColor: pdfTint(color, 0.78), textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold", fontSize: 8.5, lineWidth: 0, halign: "left" },
+      alternateRowStyles: { fillColor: [245, 246, 248] },
+      margin: { top: 40, left: margin, right: margin, bottom: 24 },
+      tableWidth: "auto",
+      showHead: "everyPage",
+      didDrawPage: function (data) {
+        if (data.pageNumber > 1) {
+          pdfAddBanner(doc, { title: "Garaj Defteri — " + opts.title, subtitle: "Detay (devamı) · Dönem: " + rangeLabel, right: "Oluşturulma tarihi: " + dateLabel, color: color, margin: margin });
+        }
+      }
+    });
+
+    // ---- Sayfa 2: Araç bazlı özet ----
+    if ((state.cars || []).length) {
+      doc.addPage();
+      pdfAddBanner(doc, { title: opts.title + " — Özet", subtitle: "Araç başına toplam · Dönem: " + rangeLabel, right: dateLabel, color: color, margin: margin });
+      var chartCars = (state.cars || []).slice().filter(function (c) { return (carTotals[c.id] || 0) > 0; }).sort(function (a, b) { return (carTotals[b.id] || 0) - (carTotals[a.id] || 0); });
+      var pageW = doc.internal.pageSize.getWidth();
+      var labelW = 75, valueW = 60;
+      var barAreaX = margin + labelW;
+      var barAreaW = pageW - margin - labelW - valueW - margin;
+      var maxVal = Math.max.apply(null, chartCars.map(function (c) { return carTotals[c.id] || 0; }).concat([1]));
+      var barH = 12, barGap = 7;
+      var chartY = 54;
+      doc.setFont("DejaVuSans", "normal");
+      chartCars.forEach(function (c, i) {
+        var y = chartY + i * (barH + barGap);
+        var val = carTotals[c.id] || 0;
+        doc.setFontSize(8.5);
+        doc.setTextColor(27, 31, 36);
+        var carName = c.name.length > 14 ? c.name.slice(0, 13) + "…" : c.name;
+        doc.text(carName, margin, y + barH - 3);
+        var rgb = pdfHexToRgb(c.color);
+        doc.setFillColor(238, 240, 243);
+        doc.roundedRect(barAreaX, y, barAreaW, barH, 2, 2, "F");
+        var w = Math.max(val > 0 ? 4 : 0, (val / maxVal) * barAreaW);
+        doc.setFillColor(rgb[0], rgb[1], rgb[2]);
+        doc.roundedRect(barAreaX, y, w, barH, 2, 2, "F");
+        doc.setFontSize(8.5);
+        doc.text(fmtTL(val), barAreaX + barAreaW + 8, y + barH - 3);
+      });
+      var tableStartY = chartY + chartCars.length * (barH + barGap) + 20;
+      var summaryBody = chartCars.map(function (c) { return [c.name, fmtTL(carTotals[c.id] || 0)]; });
+      summaryBody.push(["TOPLAM", fmtTL(grandTotal)]);
+      doc.autoTable({
+        startY: tableStartY,
+        head: [["Araç", "Toplam"]],
+        body: summaryBody,
+        styles: { fontSize: 9.5, font: "DejaVuSans", fontStyle: "normal", cellPadding: { top: 5, right: 5, bottom: 5, left: 5 } },
+        headStyles: { fillColor: pdfTint(color, 0.75), textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold", fontSize: 9.5, lineWidth: 0 },
+        alternateRowStyles: { fillColor: [245, 246, 248] },
+        didParseCell: function (data) {
+          if (data.row.section === "body" && data.row.index === summaryBody.length - 1) {
+            data.cell.styles.fontStyle = "bold";
+            data.cell.styles.fillColor = [230, 234, 238];
+          }
+        },
+        margin: { left: margin, right: margin }
+      });
+    }
+
+    pdfAddFooter(doc, margin);
+    doc.save(opts.filename + "-" + todayStr() + pdfRangeSuffix(opts.dateFrom, opts.dateTo) + ".pdf");
+    toast(opts.title + " PDF raporu indirildi.");
+  }
+  function buildPdfMasrafReport(dateFrom, dateTo) {
+    buildPdfExpenseStyleReport({ title: "Masraflar Raporu", filename: "garaj-defteri-masraflar-raporu", color: "#7BC67E", dateFrom: dateFrom, dateTo: dateTo });
+  }
+  function buildPdfBakimReport(dateFrom, dateTo) {
+    buildPdfExpenseStyleReport({
+      title: "Bakım / Onarım Raporu", filename: "garaj-defteri-bakim-raporu", color: "#4FA8D8",
+      dateFrom: dateFrom, dateTo: dateTo,
+      filterFn: function (e) { return e.category === "bakim"; }
+    });
   }
   function buildExportReportModal() {
     var modal = document.createElement("div");
@@ -6111,14 +6300,47 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     modal.innerHTML =
       '<div class="modal-head"><h3>📊 Rapor İndir</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>' +
       '<p class="field-hint">Muhasebe ve yönetim için araç, şoför ve masraf verilerini biçimli bir dosya olarak indirebilirsin.</p>' +
-      '<button type="button" class="btn-primary full" id="f-er-excel" style="margin-bottom:10px">📊 Excel Raporu İndir</button>' +
-      '<button type="button" class="btn-secondary full" id="f-er-pdf">🧾 PDF Raporu İndir</button>' +
-      '<p class="field-hint" style="margin-top:10px">Excel raporu; Araçlar, Şoförler, Masraflar ve Özet olmak üzere 4 sekme içerir. PDF raporu ise yazdırılabilir / paylaşılabilir tek dosya halindedir.</p>';
+      '<p class="profile-section-title">Tarih Aralığı (opsiyonel)</p>' +
+      '<div class="field-row">' +
+        '<label class="field"><span>Başlangıç</span><input type="date" id="f-er-from" /></label>' +
+        '<label class="field"><span>Bitiş</span><input type="date" id="f-er-to" /></label>' +
+      '</div>' +
+      '<p class="field-hint" style="margin-top:-6px">Tarih aralığı yalnızca Masraflar ve Bakım/Onarım PDF raporlarını etkiler.</p>' +
+      '<p class="profile-section-title">Excel Raporu</p>' +
+      '<button type="button" class="btn-primary full" id="f-er-excel" style="margin-bottom:6px">📊 Excel Raporu İndir</button>' +
+      '<p class="field-hint" style="margin-top:0">Araçlar, Şoförler, Masraflar ve Özet olmak üzere 4 sekme içerir.</p>' +
+      '<p class="profile-section-title">PDF Raporları</p>' +
+      '<button type="button" class="btn-secondary full" id="f-er-pdf-genel" style="margin-bottom:6px">🧾 Genel Rapor İndir</button>' +
+      '<button type="button" class="btn-secondary full" id="f-er-pdf-arac" style="margin-bottom:6px">🚗 Araçlar Raporu İndir</button>' +
+      '<button type="button" class="btn-secondary full" id="f-er-pdf-sofor" style="margin-bottom:6px">🧑‍✈️ Şoförler Raporu İndir</button>' +
+      '<button type="button" class="btn-secondary full" id="f-er-pdf-masraf" style="margin-bottom:6px">💳 Masraflar Raporu İndir</button>' +
+      '<button type="button" class="btn-secondary full" id="f-er-pdf-bakim">🔧 Bakım / Onarım Raporu İndir</button>' +
+      '<p class="field-hint" style="margin-top:10px">Her PDF raporu, ayrı bir dosya olarak yazdırılabilir / paylaşılabilir haldedir.</p>';
+    function getRange() {
+      var from = modal.querySelector("#f-er-from").value || "";
+      var to = modal.querySelector("#f-er-to").value || "";
+      return { from: from, to: to };
+    }
     modal.querySelector("#f-er-excel").addEventListener("click", function () {
       try { buildExcelReport(); } catch (e) { toast("Excel raporu oluşturulamadı."); }
     });
-    modal.querySelector("#f-er-pdf").addEventListener("click", function () {
-      try { buildPdfReport(); } catch (e) { toast("PDF raporu oluşturulamadı."); }
+    modal.querySelector("#f-er-pdf-genel").addEventListener("click", function () {
+      var r = getRange();
+      try { buildPdfGenelReport(r.from, r.to); } catch (e) { toast("PDF raporu oluşturulamadı."); }
+    });
+    modal.querySelector("#f-er-pdf-arac").addEventListener("click", function () {
+      try { buildPdfAracReport(); } catch (e) { toast("PDF raporu oluşturulamadı."); }
+    });
+    modal.querySelector("#f-er-pdf-sofor").addEventListener("click", function () {
+      try { buildPdfSoforReport(); } catch (e) { toast("PDF raporu oluşturulamadı."); }
+    });
+    modal.querySelector("#f-er-pdf-masraf").addEventListener("click", function () {
+      var r = getRange();
+      try { buildPdfMasrafReport(r.from, r.to); } catch (e) { toast("PDF raporu oluşturulamadı."); }
+    });
+    modal.querySelector("#f-er-pdf-bakim").addEventListener("click", function () {
+      var r = getRange();
+      try { buildPdfBakimReport(r.from, r.to); } catch (e) { toast("PDF raporu oluşturulamadı."); }
     });
     return modal;
   }
