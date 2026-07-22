@@ -854,7 +854,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.8.4"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.8.5"; // Dynamic Version Tracking
   var APP_UPDATED = "22 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -5942,7 +5942,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     doc.text(opts.right || "", pageW - opts.margin, 18, { align: "right" });
     doc.setTextColor(27, 31, 36);
   }
-  function pdfAddFooter(doc, margin) {
+  function pdfAddFooter(doc, margin, scopeText) {
     var pageCount = doc.internal.getNumberOfPages();
     var pageW = doc.internal.pageSize.getWidth();
     var pageH = doc.internal.pageSize.getHeight();
@@ -5952,6 +5952,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       doc.setFontSize(8);
       doc.setTextColor(139, 147, 157);
       doc.text("Garaj Defteri", margin, pageH - 14);
+      if (scopeText) doc.text(scopeText, pageW / 2, pageH - 14, { align: "center" });
       doc.text("Sayfa " + i + " / " + pageCount, pageW - margin, pageH - 14, { align: "right" });
       doc.setTextColor(27, 31, 36);
     }
@@ -5986,6 +5987,25 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (!dateFrom && !dateTo) return "";
     return "-" + (dateFrom || "bas") + "_" + (dateTo || "gunumuz");
   }
+  // Sütun sayısı çok olan tablolarda (Araçlar/Şoförler) tek sayfaya sığması için
+  // başlıklar kısaltılıyor. Global tanımlandı, tüm PDF raporları paylaşıyor.
+  var pdfLabelOverrides = {
+    "Araç adı": "Araç", "Araç türü": "Tür", "Marka / Model": "Marka/Model", "Model yılı": "Yıl",
+    "Yakıt tipi": "Yakıt", "Depo hacmi (lt)": "Depo (lt)", "Muayene tarihi": "Muayene",
+    "Sonraki bakım tarihi": "Bakım Tarihi", "Trafik sigortası bitiş": "Trafik Sig.", "Kasko bitiş": "Kasko",
+    "Sigorta şirketi": "Sigorta Şrk.", "Poliçe no": "Poliçe No", "Vergi (MTV) ödeme tarihi": "MTV Tarihi",
+    "Lastik değişimi": "Lastik", "Şasi no / VIN": "VIN", "Güncel kilometre": "Km", "Sonraki bakım km": "Bakım Km",
+    "Atanan araç(lar)": "Araç(lar)", "Ehliyet sınıfı": "Ehliyet", "Ehliyet geçerlilik tarihi": "Ehliyet Bitiş",
+    "SRC belgesi türü": "SRC Türü", "SRC belgesi geçerlilik tarihi": "SRC Bitiş",
+    "Psikoteknik belgesi geçerlilik tarihi": "Psikoteknik", "Sağlık raporu geçerlilik tarihi": "Sağlık Rap.",
+    "Yurtdışında çalışıyor": "Yurtdışı", "Pasaport no": "Pasaport No", "Pasaport geçerlilik tarihi": "Pasaport Bitiş",
+    "Vize ülkesi": "Vize Ülke", "Vize no": "Vize No", "Vize geçerlilik tarihi": "Vize Bitiş"
+  };
+  function pdfLabel(l) { return pdfLabelOverrides[l] || l; }
+  // Çok sütunlu tabloları (Araçlar: 19, Şoförler: 15 sütun) tek sayfa genişliğine
+  // sığdırmak için küçük font + dar hücre aralığı kullanılır.
+  var pdfDenseTableStyles = { fontSize: 6.3, font: "DejaVuSans", fontStyle: "normal", cellPadding: { top: 3, right: 2, bottom: 3, left: 2 }, overflow: "linebreak", valign: "middle", minCellWidth: 0 };
+  function pdfDenseHeadStyles(color) { return { fillColor: pdfTint(color, 0.78), textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold", fontSize: 6.3, lineWidth: 0, halign: "left" }; }
   function buildPdfGenelReport(dateFrom, dateTo) {
     var doc = new jspdf.jsPDF({ orientation: "landscape" });
     // Türkçe karakterler (ç, ğ, ı, ö, ş, ü) için varsayılan Helvetica yerine
@@ -5993,19 +6013,6 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     doc.setFont("DejaVuSans", "normal");
     var margin = 18;
     var dateLabel = fmtDateTR(todayStr());
-    var pdfLabelOverrides = {
-      "Araç adı": "Araç", "Araç türü": "Tür", "Marka / Model": "Marka/Model", "Model yılı": "Yıl",
-      "Yakıt tipi": "Yakıt", "Depo hacmi (lt)": "Depo (lt)", "Muayene tarihi": "Muayene",
-      "Sonraki bakım tarihi": "Bakım Tarihi", "Trafik sigortası bitiş": "Trafik Sig.", "Kasko bitiş": "Kasko",
-      "Sigorta şirketi": "Sigorta Şrk.", "Poliçe no": "Poliçe No", "Vergi (MTV) ödeme tarihi": "MTV Tarihi",
-      "Lastik değişimi": "Lastik", "Şasi no / VIN": "VIN", "Güncel kilometre": "Km", "Sonraki bakım km": "Bakım Km",
-      "Atanan araç(lar)": "Araç(lar)", "Ehliyet sınıfı": "Ehliyet", "Ehliyet geçerlilik tarihi": "Ehliyet Bitiş",
-      "SRC belgesi türü": "SRC Türü", "SRC belgesi geçerlilik tarihi": "SRC Bitiş",
-      "Psikoteknik belgesi geçerlilik tarihi": "Psikoteknik", "Sağlık raporu geçerlilik tarihi": "Sağlık Rap.",
-      "Yurtdışında çalışıyor": "Yurtdışı", "Pasaport no": "Pasaport No", "Pasaport geçerlilik tarihi": "Pasaport Bitiş",
-      "Vize ülkesi": "Vize Ülke", "Vize no": "Vize No", "Vize geçerlilik tarihi": "Vize Bitiş"
-    };
-    function pdfLabel(l) { return pdfLabelOverrides[l] || l; }
 
     var rangeLabel = pdfRangeLabel(dateFrom, dateTo);
     var rangedExpenses = filterExpensesByRange(state.expenses, dateFrom, dateTo);
@@ -6028,14 +6035,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       startY: kpiY + kpiH + 18,
       head: [carFields.map(function (f) { return pdfLabel(f.label); })],
       body: (state.cars || []).map(function (c) { return carFields.map(function (f) { return String(excelCellValue(f.type, c[f.key]) || "—"); }); }),
-      styles: { fontSize: 8.5, font: "DejaVuSans", fontStyle: "normal", cellPadding: { top: 5, right: 4, bottom: 5, left: 4 }, overflow: "linebreak", valign: "middle", minCellWidth: 24 },
-      headStyles: { fillColor: pdfTint("#F2A93B", 0.78), textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold", fontSize: 8.5, lineWidth: 0, halign: "left" },
+      styles: pdfDenseTableStyles,
+      headStyles: pdfDenseHeadStyles("#F2A93B"),
       alternateRowStyles: { fillColor: [245, 246, 248] },
-      columnStyles: { 0: { fontStyle: "bold", minCellWidth: 30 } },
+      columnStyles: { 0: { fontStyle: "bold" } },
       margin: { top: 40, left: margin, right: margin, bottom: 24 },
       tableWidth: "auto",
-      horizontalPageBreak: true,
-      horizontalPageBreakRepeat: 0,
+      horizontalPageBreak: false,
       showHead: "everyPage",
       didDrawPage: function (data) {
         if (data.pageNumber > 1) {
@@ -6053,14 +6059,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       startY: 54,
       head: [driverFields.map(function (f) { return pdfLabel(f.label); })],
       body: (state.drivers || []).map(function (d) { return driverFields.map(function (f) { return String(excelCellValue(f.type, d[f.key]) || "—"); }); }),
-      styles: { fontSize: 8.5, font: "DejaVuSans", fontStyle: "normal", cellPadding: { top: 5, right: 4, bottom: 5, left: 4 }, overflow: "linebreak", valign: "middle", minCellWidth: 24 },
-      headStyles: { fillColor: pdfTint("#4FA8D8", 0.78), textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold", fontSize: 8.5, lineWidth: 0, halign: "left" },
+      styles: pdfDenseTableStyles,
+      headStyles: pdfDenseHeadStyles("#4FA8D8"),
       alternateRowStyles: { fillColor: [245, 246, 248] },
-      columnStyles: { 0: { fontStyle: "bold", minCellWidth: 32 } },
+      columnStyles: { 0: { fontStyle: "bold" } },
       margin: { top: 40, left: margin, right: margin, bottom: 24 },
       tableWidth: "auto",
-      horizontalPageBreak: true,
-      horizontalPageBreakRepeat: 0,
+      horizontalPageBreak: false,
       showHead: "everyPage",
       didDrawPage: function (data) {
         if (data.pageNumber > 1) {
@@ -6119,7 +6124,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       margin: { left: margin, right: margin }
     });
 
-    pdfAddFooter(doc, margin);
+    pdfAddFooter(doc, margin, "Masraf dönemi: " + rangeLabel);
     doc.save("garaj-defteri-genel-rapor-" + todayStr() + pdfRangeSuffix(dateFrom, dateTo) + ".pdf");
     toast("Genel PDF raporu indirildi.");
   }
@@ -6132,16 +6137,15 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     pdfAddBanner(doc, { title: "Garaj Defteri — Araçlar Raporu", subtitle: (state.cars || []).length + " araç kayıtlı", right: "Oluşturulma tarihi: " + dateLabel, color: "#F2A93B", margin: margin });
     doc.autoTable({
       startY: 40,
-      head: [carFields.map(function (f) { return f.label; })],
+      head: [carFields.map(function (f) { return pdfLabel(f.label); })],
       body: (state.cars || []).map(function (c) { return carFields.map(function (f) { return String(excelCellValue(f.type, c[f.key]) || "—"); }); }),
-      styles: { fontSize: 8.5, font: "DejaVuSans", fontStyle: "normal", cellPadding: { top: 5, right: 4, bottom: 5, left: 4 }, overflow: "linebreak", valign: "middle", minCellWidth: 24 },
-      headStyles: { fillColor: pdfTint("#F2A93B", 0.78), textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold", fontSize: 8.5, lineWidth: 0, halign: "left" },
+      styles: pdfDenseTableStyles,
+      headStyles: pdfDenseHeadStyles("#F2A93B"),
       alternateRowStyles: { fillColor: [245, 246, 248] },
-      columnStyles: { 0: { fontStyle: "bold", minCellWidth: 30 } },
+      columnStyles: { 0: { fontStyle: "bold" } },
       margin: { top: 40, left: margin, right: margin, bottom: 24 },
       tableWidth: "auto",
-      horizontalPageBreak: true,
-      horizontalPageBreakRepeat: 0,
+      horizontalPageBreak: false,
       showHead: "everyPage",
       didDrawPage: function (data) {
         if (data.pageNumber > 1) {
@@ -6149,7 +6153,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         }
       }
     });
-    pdfAddFooter(doc, margin);
+    pdfAddFooter(doc, margin, "Kapsam: Tüm güncel kayıtlar (tarih aralığı bu raporu etkilemez)");
     doc.save("garaj-defteri-araclar-raporu-" + todayStr() + ".pdf");
     toast("Araçlar PDF raporu indirildi.");
   }
@@ -6162,16 +6166,15 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     pdfAddBanner(doc, { title: "Garaj Defteri — Şoförler Raporu", subtitle: (state.drivers || []).length + " şoför kayıtlı", right: "Oluşturulma tarihi: " + dateLabel, color: "#4FA8D8", margin: margin });
     doc.autoTable({
       startY: 40,
-      head: [driverFields.map(function (f) { return f.label; })],
+      head: [driverFields.map(function (f) { return pdfLabel(f.label); })],
       body: (state.drivers || []).map(function (d) { return driverFields.map(function (f) { return String(excelCellValue(f.type, d[f.key]) || "—"); }); }),
-      styles: { fontSize: 8.5, font: "DejaVuSans", fontStyle: "normal", cellPadding: { top: 5, right: 4, bottom: 5, left: 4 }, overflow: "linebreak", valign: "middle", minCellWidth: 24 },
-      headStyles: { fillColor: pdfTint("#4FA8D8", 0.78), textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold", fontSize: 8.5, lineWidth: 0, halign: "left" },
+      styles: pdfDenseTableStyles,
+      headStyles: pdfDenseHeadStyles("#4FA8D8"),
       alternateRowStyles: { fillColor: [245, 246, 248] },
-      columnStyles: { 0: { fontStyle: "bold", minCellWidth: 32 } },
+      columnStyles: { 0: { fontStyle: "bold" } },
       margin: { top: 40, left: margin, right: margin, bottom: 24 },
       tableWidth: "auto",
-      horizontalPageBreak: true,
-      horizontalPageBreakRepeat: 0,
+      horizontalPageBreak: false,
       showHead: "everyPage",
       didDrawPage: function (data) {
         if (data.pageNumber > 1) {
@@ -6179,7 +6182,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         }
       }
     });
-    pdfAddFooter(doc, margin);
+    pdfAddFooter(doc, margin, "Kapsam: Tüm güncel kayıtlar (tarih aralığı bu raporu etkilemez)");
     doc.save("garaj-defteri-soforler-raporu-" + todayStr() + ".pdf");
     toast("Şoförler PDF raporu indirildi.");
   }
@@ -6279,7 +6282,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       });
     }
 
-    pdfAddFooter(doc, margin);
+    pdfAddFooter(doc, margin, "Dönem: " + rangeLabel);
     doc.save(opts.filename + "-" + todayStr() + pdfRangeSuffix(opts.dateFrom, opts.dateTo) + ".pdf");
     toast(opts.title + " PDF raporu indirildi.");
   }
