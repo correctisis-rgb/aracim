@@ -832,7 +832,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.7.2"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.7.3"; // Dynamic Version Tracking
   var APP_UPDATED = "22 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -2968,6 +2968,59 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return items;
   }
 
+  // ---------- şoför pasaport / vize hatırlatmaları ----------
+  function computeDriverSummaryItems() {
+    var driversList = state.drivers || [];
+    var items = [];
+    driversList.forEach(function (d) {
+      if (!d.worksAbroad) return;
+      if (d.passportExpiry) {
+        items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: "Pasaport", emoji: "🛂", date: d.passportExpiry });
+      }
+      if (d.visaExpiry) {
+        items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: d.visaCountry ? ("Vize · " + d.visaCountry) : "Vize", emoji: "🌍", date: d.visaExpiry });
+      }
+    });
+    items.forEach(function (it) {
+      it.days = daysUntil(it.date);
+      it.status = urgency(it.days);
+      it.dateLabel = it.date ? fmtDateTR(it.date) : "Tarih girilmedi";
+      it.tier = tierOf(it.status);
+      it.metric = it.days === null ? 99999 : it.days;
+    });
+    items.sort(function (a, b) { return a.tier !== b.tier ? a.tier - b.tier : a.metric - b.metric; });
+    return items;
+  }
+
+  // ---------- Takvim: tüm araçlar + tüm şoförler ----------
+  function computeAllCarSummaryItems() {
+    var carsToProcess = state.cars || [];
+    var items = [];
+    carsToProcess.forEach(function (c) {
+      items.push({ kind: "car", carId: c.id, carName: c.name, carPhoto: c.photo, type: "Muayene", emoji: "🗓️", date: c.inspectionDate || null, apptKey: "inspectionDate", apptDate: (c.appointments && c.appointments.inspectionDate) || null });
+      items.push({ kind: "car", carId: c.id, carName: c.name, carPhoto: c.photo, type: "Bakım / Servis (tarih)", emoji: "🔧", date: c.maintenanceDate || null, apptKey: "maintenanceDate", apptDate: (c.appointments && c.appointments.maintenanceDate) || null });
+      items.push({ kind: "car", carId: c.id, carName: c.name, carPhoto: c.photo, type: "Trafik Sigortası", emoji: "🛡️", date: c.insuranceDate || null, apptKey: "insuranceDate", apptDate: (c.appointments && c.appointments.insuranceDate) || null });
+      items.push({ kind: "car", carId: c.id, carName: c.name, carPhoto: c.photo, type: "Kasko", emoji: "🚙", date: c.kaskoDate || null, apptKey: "kaskoDate", apptDate: (c.appointments && c.appointments.kaskoDate) || null });
+      items.push({ kind: "car", carId: c.id, carName: c.name, carPhoto: c.photo, type: "Vergi (MTV)", emoji: "💰", date: c.taxDate || null, apptKey: "taxDate", apptDate: (c.appointments && c.appointments.taxDate) || null });
+      items.push({ kind: "car", carId: c.id, carName: c.name, carPhoto: c.photo, type: "Lastik Değişimi", emoji: "🛞", date: c.tireDate || null, apptKey: "tireDate", apptDate: (c.appointments && c.appointments.tireDate) || null });
+    });
+    items.forEach(function (it) {
+      it.days = daysUntil(it.date);
+      it.status = urgency(it.days);
+      it.dateLabel = it.date ? fmtDateTR(it.date) : "Tarih girilmedi";
+      if (it.apptDate) it.dateLabel += " · 📅 Randevu: " + fmtDateTR(it.apptDate);
+      it.tier = tierOf(it.status);
+      it.metric = it.days === null ? 99999 : it.days;
+    });
+    return items;
+  }
+
+  function computeCalendarItems() {
+    var items = computeAllCarSummaryItems().concat(computeDriverSummaryItems());
+    items.sort(function (a, b) { return a.tier !== b.tier ? a.tier - b.tier : a.metric - b.metric; });
+    return items;
+  }
+
   // ---------- auth screen ----------
   function renderAuth() {
     var app = document.getElementById("app");
@@ -3169,6 +3222,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     }
 
     var user = state.currentUser;
+    var calendarItems = computeCalendarItems();
+    var calendarHasUrgent = calendarItems.some(function (it) { return it.status.key === "overdue" || it.status.key === "today" || it.status.key === "soon"; });
     var html = "";
     html += '<header class="gd-header">' +
       '<div class="header-top-row">' +
@@ -3189,6 +3244,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             '<button type="button" class="account-menu-item" data-action="open-notif-history">🔔 Geçmiş Hatırlatmalar' + (hasUnseenNotifHistory() ? ' <span class="account-chip-dot" aria-hidden="true"></span>' : '') + '</button>' +
             '<button type="button" class="account-menu-item" data-action="open-activity-log">🕒 Aktivite Geçmişi' + (hasUnseenActivityLog() ? ' <span class="account-chip-dot" aria-hidden="true"></span>' : '') + '</button>' +
             '<button type="button" class="account-menu-item" data-action="set-main-section" data-section="drivers">🧑‍✈️ Şoförler</button>' +
+            '<button type="button" class="account-menu-item" data-action="set-main-section" data-section="calendar">📅 Takvim' + (calendarHasUrgent ? ' <span class="account-chip-dot" aria-hidden="true"></span>' : '') + '</button>' +
             '<button type="button" class="account-menu-item" data-action="open-help">🆘 Yardım &amp; Destek' + (hasUnseenSupportUpdate() ? ' <span class="account-chip-dot" aria-hidden="true"></span>' : '') + '</button>' +
             (isAdminUser(user) ?
               '<div class="account-menu-divider"></div>' +
@@ -3224,13 +3280,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     if (user) {
       html += '<nav class="view-tabs section-tabs" aria-label="Ana bölüm seçimi" style="margin-bottom:14px">' +
-        '<button class="view-tab ' + (state.mainSection !== "drivers" ? "active" : "") + '" data-action="set-main-section" data-section="cars">🚗 Araçlar</button>' +
+        '<button class="view-tab ' + (state.mainSection !== "drivers" && state.mainSection !== "calendar" ? "active" : "") + '" data-action="set-main-section" data-section="cars">🚗 Araçlar</button>' +
         '<button class="view-tab ' + (state.mainSection === "drivers" ? "active" : "") + '" data-action="set-main-section" data-section="drivers">🧑‍✈️ Şoförler</button>' +
+        '<button class="view-tab ' + (state.mainSection === "calendar" ? "active" : "") + '" data-action="set-main-section" data-section="calendar">📅 Takvim' + (calendarHasUrgent ? '<span class="view-tab-flag"></span>' : '') + '</button>' +
         '</nav>';
     }
 
     if (state.mainSection === "drivers") {
       html += renderDriversSection();
+    } else if (state.mainSection === "calendar") {
+      html += renderCalendarSection(calendarItems);
     } else {
 
     // car tabs
@@ -3280,7 +3339,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     app.innerHTML = html;
 
-    if (state.mainSection !== "drivers" && (state.view === "panel" || state.view === "analiz")) drawCharts();
+    if (state.mainSection !== "drivers" && state.mainSection !== "calendar" && (state.view === "panel" || state.view === "analiz")) drawCharts();
     if (state.modal) renderModal();
     if (state.lightbox) renderLightbox();
 
@@ -3531,8 +3590,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   function calendarButtonHTML(it) {
     if (!it.date) return "";
-    var title = it.type + " · " + it.carName;
-    var notes = it.carName + " için " + it.type;
+    var ownerName = it.carName || it.driverName || "";
+    var title = it.type + (ownerName ? (" · " + ownerName) : "");
+    var notes = (ownerName ? (ownerName + " için ") : "") + it.type;
     return '<button class="exp-del" data-action="add-to-calendar" data-title="' + esc(title) + '" data-date="' + esc(it.date) + '" data-notes="' + esc(notes) + '" title="Takvime ekle" aria-label="Takvime ekle">📅</button>';
   }
 
@@ -3713,6 +3773,47 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       html += '</ul>';
     }
     html += '<p class="summary-hint">30 gün içinde: kırmızı · 90 gün içinde: turuncu · daha uzak: yeşil. Tarihleri araç kartındaki kalem simgesinden güncelleyebilirsiniz.</p>';
+    html += '</section>';
+    return html;
+  }
+
+  function renderCalendarSection(items) {
+    items = items || computeCalendarItems();
+    var html = '<section class="panel">' +
+      '<h2>📅 Takvim</h2>' +
+      '<p class="field-hint" style="margin-top:2px">Tüm araçların muayene, sigorta, kasko, vergi ve bakım tarihleri ile yurtdışına çıkan şoförlerin pasaport / vize süreleri tek listede.</p>';
+    if (items.length === 0) {
+      html += '<p class="empty-hint">Önce bir araç veya şoför ekleyin; muayene, sigorta, kasko ve pasaport/vize tarihleri burada listelenecek.</p>';
+    } else {
+      html += '<ul class="summary-list">';
+      items.forEach(function (it) {
+        var isDriver = it.kind === "driver";
+        var ownerName = isDriver ? it.driverName : it.carName;
+        var avatar = (!isDriver && it.carPhoto)
+          ? '<img class="sum-avatar" src="' + it.carPhoto + '" alt="" data-action="open-lightbox" data-src="' + it.carPhoto + '" data-caption="' + esc(ownerName) + '" />'
+          : '<span class="sum-icon" style="background:' + it.status.color + '22;color:' + it.status.color + '">' + it.emoji + '</span>';
+        var showIcon = (it.status.key === "overdue" || it.status.key === "today" || it.status.key === "soon") ? "⚠️ " : (it.status.key === "ok" ? "✅ " : "");
+        var editBtn = isDriver
+          ? '<button class="exp-del" data-action="open-edit-driver" data-id="' + it.driverId + '" title="Düzenle" aria-label="Düzenle">✏️</button>'
+          : '<button class="exp-del" data-action="open-edit-car" data-car="' + it.carId + '" title="Düzenle" aria-label="Düzenle">✏️</button>';
+        html += '<li class="summary-row">' + avatar +
+          '<span class="sum-main"><span class="sum-type">' + esc(it.type) + ' · ' + esc(ownerName) +
+            (isDriver ? ' <span class="driver-abroad-badge" style="margin-left:4px">🧑\u200d✈️ Şoför</span>' : '') + '</span>' +
+          '<span class="sum-date">' + esc(it.dateLabel) + '</span></span>' +
+          '<span class="sum-extra">' +
+            '<span class="sum-badge" style="color:' + it.status.color + ';border-color:' + it.status.color + '55;background:' + it.status.color + '18">' + showIcon + esc(it.status.label) + '</span>' +
+            '<span class="sum-actions">' +
+              (isDriver ? "" : appointmentButtonHTML(it)) +
+              calendarButtonHTML(it) +
+              editBtn +
+            '</span>' +
+          '</span>' +
+          (isDriver ? "" : appointmentCTAHTML(it)) +
+          '</li>';
+      });
+      html += '</ul>';
+    }
+    html += '<p class="summary-hint">30 gün içinde: kırmızı · 90 gün içinde: turuncu · daha uzak: yeşil. Araç tarihlerini araç kartından, pasaport/vize tarihlerini Şoförler bölümünden güncelleyebilirsiniz.</p>';
     html += '</section>';
     return html;
   }
@@ -5114,6 +5215,29 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     html += '<div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:4px;"><h2 style="margin:0; font-family:\'Oswald\', sans-serif; font-size:16px; letter-spacing:0.02em;">🧑‍✈️ Şoförler</h2></div>';
     html += '<p class="field-hint" style="margin-top:2px">Şoförlerini ekle, hangi araç(lar)ı kullandıklarını belirle. Yurtdışına çıkacak şoförler için pasaport ve vize bilgilerini de burada tutabilirsin.</p>';
     html += '<button type="button" class="btn-primary full" data-action="open-add-driver" style="margin-bottom:14px">+ Şoför Ekle</button>';
+
+    var driverUpcomingItems = computeDriverSummaryItems().filter(function (it) { return it.tier < 3; });
+    if (driverUpcomingItems.length) {
+      html += '<div style="margin-bottom:18px">';
+      html += '<h3 style="margin:0 0 8px; font-size:13px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.03em;">⏰ Yaklaşan Pasaport / Vize İşlemleri</h3>';
+      html += '<ul class="summary-list">';
+      driverUpcomingItems.forEach(function (it) {
+        var showIcon = (it.status.key === "overdue" || it.status.key === "today" || it.status.key === "soon") ? "⚠️ " : (it.status.key === "ok" ? "✅ " : "");
+        html += '<li class="summary-row">' +
+          '<span class="sum-icon" style="background:' + it.status.color + '22;color:' + it.status.color + '">' + it.emoji + '</span>' +
+          '<span class="sum-main"><span class="sum-type">' + esc(it.type) + ' · ' + esc(it.driverName) + '</span>' +
+          '<span class="sum-date">' + esc(it.dateLabel) + '</span></span>' +
+          '<span class="sum-extra">' +
+            '<span class="sum-badge" style="color:' + it.status.color + ';border-color:' + it.status.color + '55;background:' + it.status.color + '18">' + showIcon + esc(it.status.label) + '</span>' +
+            '<span class="sum-actions">' +
+              calendarButtonHTML(it) +
+              '<button class="exp-del" data-action="open-edit-driver" data-id="' + it.driverId + '" title="Düzenle" aria-label="Düzenle">✏️</button>' +
+            '</span>' +
+          '</span>' +
+          '</li>';
+      });
+      html += '</ul></div>';
+    }
 
     if (!list.length) {
       html += '<p class="mon-empty">Henüz şoför eklenmedi.</p>';
