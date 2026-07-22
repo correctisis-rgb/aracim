@@ -832,7 +832,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.7.3"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.7.4"; // Dynamic Version Tracking
   var APP_UPDATED = "22 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1537,6 +1537,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return [
       { key: "name", label: "Ad Soyad" },
       { key: "phone", label: "Telefon" },
+      { key: "carIds", label: "Atanan araç(lar)", type: "carList" },
       { key: "worksAbroad", label: "Yurtdışında çalışıyor", type: "bool" },
       { key: "passportNo", label: "Pasaport no" },
       { key: "passportExpiry", label: "Pasaport geçerlilik tarihi", type: "date" },
@@ -1554,6 +1555,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (type === "car") {
       var c = (state.cars || []).find(function (x) { return x.id === value; });
       return c ? c.name : "—";
+    }
+    if (type === "carList") {
+      var ids = Array.isArray(value) ? value : (value ? [value] : []);
+      var names = ids.map(function (id) {
+        var cc = (state.cars || []).find(function (x) { return x.id === id; });
+        return cc ? cc.name : null;
+      }).filter(Boolean);
+      return names.length ? names.join(", ") : "—";
     }
     if (type === "payer") {
       if (!value) return "Ben";
@@ -3012,6 +3021,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       it.tier = tierOf(it.status);
       it.metric = it.days === null ? 99999 : it.days;
     });
+    carsToProcess.forEach(function (c) {
+      if (c.maintenanceKm == null) return;
+      var remaining = c.currentKm != null ? (c.maintenanceKm - c.currentKm) : null;
+      var status = kmUrgency(remaining);
+      items.push({
+        kind: "car", carId: c.id, carName: c.name, carPhoto: c.photo, type: "Bakım / Servis (km)", emoji: "🔧",
+        date: null, dateLabel: status.label, status: status, isKm: true,
+        tier: tierOf(status), metric: remaining === null ? 99999 : remaining
+      });
+    });
     return items;
   }
 
@@ -4007,6 +4026,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     // "yükleniyor" durumu, sonra veri gelince tekrar) üst üste yeni backdrop'lar
     // eklenir; bu da arka planın gittikçe kararmasına ve aynı pencerenin
     // birden fazla kez görünmesine yol açar.
+    // Modal her render()'da baştan oluşturulduğundan (ör. bir aktivite/SSS
+    // kaydını genişletince), önceki kaydırma konumunu almazsak liste her
+    // seferinde en başa sıçrar. Var olan .modal elemanının scrollTop'ını
+    // alıp yeni oluşturulan elemana geri uyguluyoruz.
+    var prevModalEl = document.querySelector(".modal-backdrop .modal");
+    var prevScrollTop = prevModalEl ? prevModalEl.scrollTop : 0;
+
     document.querySelectorAll(".modal-backdrop").forEach(function (el) { el.remove(); });
 
     var backdrop = document.createElement("div");
@@ -4047,6 +4073,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       backdrop.appendChild(buildDriverModal());
     }
     document.body.appendChild(backdrop);
+
+    if (prevScrollTop) {
+      var newModalEl = backdrop.querySelector(".modal");
+      if (newModalEl) newModalEl.scrollTop = prevScrollTop;
+    }
   }
 
   function buildHouseholdQRModal() {
