@@ -835,7 +835,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.7.6"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.7.7"; // Dynamic Version Tracking
   var APP_UPDATED = "22 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -2504,9 +2504,20 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         var removePatch = {};
         removePatch.members = firebase.firestore.FieldValue.arrayRemove(myUid);
         removePatch["memberProfiles." + myUid] = firebase.firestore.FieldValue.delete();
-        householdRef.update(removePatch).catch(function (err) { console.error(err); });
-        ownRef.set({ householdId: firebase.firestore.FieldValue.delete() }, { merge: true }).then(function () {
-          if (unsubscribeHouseholdDoc) { unsubscribeHouseholdDoc(); unsubscribeHouseholdDoc = null; }
+        // ÖNEMLİ: Hane belgesindeki dinleyiciyi, çıkış yazısını göndermeden
+        // ÖNCE (senkron olarak) kapatıyoruz. Aksi halde, çıkışın yerel
+        // (optimistic) yansıması bu dinleyiciye anında düşer ve
+        // ensureSelfInHousehold — "kendi kaydım yoksa geri ekle" mantığıyla
+        // az önce kasıtlı sildiğimiz kendi kaydımızı hane sahibinin
+        // belgesine geri yazmaya çalışır. Ağ gecikmesine bağlı olarak bu,
+        // hane sahibinin tarafında ayrılan üyenin "hayalet" gibi kalmasına
+        // ya da geri gelmesine yol açabiliyordu. Dinleyiciyi önce kapatmak
+        // bu yarışı tamamen ortadan kaldırır.
+        var savedUnsubscribe = unsubscribeHouseholdDoc;
+        if (unsubscribeHouseholdDoc) { unsubscribeHouseholdDoc(); unsubscribeHouseholdDoc = null; }
+        householdRef.update(removePatch).then(function () {
+          return ownRef.set({ householdId: firebase.firestore.FieldValue.delete() }, { merge: true });
+        }).then(function () {
           state.householdId = myUid;
           return ownRef.get();
         }).then(function (snap) {
@@ -2517,7 +2528,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           toast("Ortak haneden ayrıldın.");
         }).catch(function (err) {
           console.error(err);
-          toast("Ayrılma işlemi başarısız oldu.");
+          // Çıkış işlemi başarısız oldu: dinleyiciyi geri açıp eski haneye
+          // bağlı kalalım, aksi halde kullanıcı ne kendi hanesinde ne de
+          // ortak hanede canlı güncelleme alan bir ara durumda kalır.
+          if (state.householdId === oldHouseholdId) { subscribeHousehold(oldHouseholdId); }
+          else { unsubscribeHouseholdDoc = savedUnsubscribe; }
+          toast("Ayrılma işlemi başarısız oldu, tekrar dene.");
+          render();
         });
       }
     });
@@ -4508,6 +4525,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     fbUser.reauthenticateWithCredential(credential).then(function () {
       // Ortak bir hanenin üyesiyse, önce o haneden kendini çıkar.
       if (wasInOtherHousehold) {
+        // Aynı yarış durumu burada da geçerli: dinleyiciyi çıkış yazısından
+        // önce kapatıyoruz (bkz. leaveHousehold() içindeki not).
+        if (unsubscribeHouseholdDoc) { unsubscribeHouseholdDoc(); unsubscribeHouseholdDoc = null; }
         var removePatch = {};
         removePatch.members = firebase.firestore.FieldValue.arrayRemove(myUid);
         removePatch["memberProfiles." + myUid] = firebase.firestore.FieldValue.delete();
