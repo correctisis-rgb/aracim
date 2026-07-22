@@ -832,7 +832,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.7.4"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.7.5"; // Dynamic Version Tracking
   var APP_UPDATED = "22 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -4028,10 +4028,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     // birden fazla kez görünmesine yol açar.
     // Modal her render()'da baştan oluşturulduğundan (ör. bir aktivite/SSS
     // kaydını genişletince), önceki kaydırma konumunu almazsak liste her
-    // seferinde en başa sıçrar. Var olan .modal elemanının scrollTop'ını
-    // alıp yeni oluşturulan elemana geri uyguluyoruz.
+    // seferinde en başa sıçrar. Asıl kayan eleman çoğu zaman .modal'ın
+    // kendisi değil, içindeki .err-list (aktivite/hata/bildirim listeleri)
+    // gibi kendi overflow'u olan bir alt elemandır — o yüzden ikisini de
+    // ayrı ayrı alıp geri uyguluyoruz.
     var prevModalEl = document.querySelector(".modal-backdrop .modal");
     var prevScrollTop = prevModalEl ? prevModalEl.scrollTop : 0;
+    var prevListEl = document.querySelector(".modal-backdrop .modal .err-list");
+    var prevListScrollTop = prevListEl ? prevListEl.scrollTop : 0;
 
     document.querySelectorAll(".modal-backdrop").forEach(function (el) { el.remove(); });
 
@@ -4077,6 +4081,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (prevScrollTop) {
       var newModalEl = backdrop.querySelector(".modal");
       if (newModalEl) newModalEl.scrollTop = prevScrollTop;
+    }
+    if (prevListScrollTop) {
+      var newListEl = backdrop.querySelector(".modal .err-list");
+      if (newListEl) newListEl.scrollTop = prevListScrollTop;
     }
   }
 
