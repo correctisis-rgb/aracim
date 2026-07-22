@@ -621,6 +621,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<!-- Türkçe karakter desteği için DejaVu Sans fontu jsPDF'e ekleniyor (ç, ğ, ı, ö, ş, ü) -->
+<script src="dejavu-sans-jspdf.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
@@ -835,7 +837,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.7.8"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.7.9"; // Dynamic Version Tracking
   var APP_UPDATED = "22 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -5882,6 +5884,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
   function buildPdfReport() {
     var doc = new jspdf.jsPDF({ orientation: "landscape" });
+    // Türkçe karakterler (ç, ğ, ı, ö, ş, ü) için varsayılan Helvetica yerine
+    // DejaVu Sans kullanılıyor. Font, dejavu-sans-jspdf.js dosyasıyla eklendi.
+    doc.setFont("DejaVuSans", "normal");
     var margin = 40;
     doc.setFontSize(16);
     doc.text("Garaj Defteri - Filo Raporu", margin, 40);
@@ -5893,12 +5898,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       startY: 75,
       head: [carFields.map(function (f) { return f.label; })],
       body: (state.cars || []).map(function (c) { return carFields.map(function (f) { return String(excelCellValue(f.type, c[f.key]) || "—"); }); }),
-      styles: { fontSize: 7 },
-      headStyles: { fillColor: [242, 169, 59] },
+      styles: { fontSize: 7, font: "DejaVuSans", fontStyle: "normal" },
+      headStyles: { fillColor: [242, 169, 59], font: "DejaVuSans", fontStyle: "bold" },
       margin: { left: margin, right: margin }
     });
 
     doc.addPage();
+    doc.setFont("DejaVuSans", "normal");
     doc.setFontSize(14);
     doc.text("Şoförler", margin, 40);
     var driverFields = driverActivityFieldDefs();
@@ -5906,12 +5912,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       startY: 55,
       head: [driverFields.map(function (f) { return f.label; })],
       body: (state.drivers || []).map(function (d) { return driverFields.map(function (f) { return String(excelCellValue(f.type, d[f.key]) || "—"); }); }),
-      styles: { fontSize: 7 },
-      headStyles: { fillColor: [79, 168, 216] },
+      styles: { fontSize: 7, font: "DejaVuSans", fontStyle: "normal" },
+      headStyles: { fillColor: [79, 168, 216], font: "DejaVuSans", fontStyle: "bold" },
       margin: { left: margin, right: margin }
     });
 
     doc.addPage();
+    doc.setFont("DejaVuSans", "normal");
     doc.setFontSize(14);
     doc.text("Masraf Özeti", margin, 40);
     var carTotals = {};
@@ -5923,8 +5930,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       startY: 55,
       head: [["Araç", "Toplam Masraf"]],
       body: summaryBody,
-      styles: { fontSize: 9 },
-      headStyles: { fillColor: [123, 198, 126] },
+      styles: { fontSize: 9, font: "DejaVuSans", fontStyle: "normal" },
+      headStyles: { fillColor: [123, 198, 126], font: "DejaVuSans", fontStyle: "bold" },
       margin: { left: margin, right: margin }
     });
 
