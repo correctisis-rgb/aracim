@@ -60,6 +60,16 @@ const DATE_FIELDS = [
   { key: "tireDate", label: "Lastik Değişimi", emoji: "🛞" }
 ];
 
+// Şoförlerin (worksAbroad === true olanların) pasaport/vize bitiş tarihleri.
+// Araç alanlarıyla AYNI eşik (7/3/1/0 gün) ve AYNI notifState dedup
+// mekanizmasını kullanır, aynı bildirime ve aynı hane/üye dağıtımına dahil
+// edilir. fieldKey her zaman null olduğundan aşağıdaki "Evet/Hayır" randevu
+// aksiyon düğmeleri (dateBasedItems filtresi) bu öğeleri hiç etkilemez.
+const DRIVER_DATE_FIELDS = [
+  { key: "passportExpiry", label: "Pasaport", emoji: "🛂" },
+  { key: "visaExpiry", label: "Vize", emoji: "🌍" }
+];
+
 const DAY_THRESHOLDS = [7, 3, 1, 0];
 const KM_THRESHOLDS = [3000, 1000, 0];
 
@@ -145,7 +155,12 @@ async function runFullScan(db, bypassDedup, triggerSource) {
     if (user.householdId && user.householdId !== ownerId) continue;
 
     const cars = user.cars || [];
-    if (!cars.length) continue;
+    const drivers = user.drivers || [];
+    // Önceden bir hanenin hiç aracı yoksa (ör. sadece şoför bilgisi girilmiş
+    // olabilir) burada taramadan tamamen çıkılıyordu — bu da o hanenin
+    // şoför pasaport/vize hatırlatmalarını hiç almamasına yol açardı.
+    // Artık aracı VEYA şoförü olan her hane taranıyor.
+    if (!cars.length && !drivers.length) continue;
 
     const notifState = user.notifState || {};
     const newNotifState = Object.assign({}, notifState);
@@ -183,6 +198,27 @@ async function runFullScan(db, bypassDedup, triggerSource) {
           }
         }
       }
+    });
+
+    // ---------- Şoför pasaport / vize hatırlatmaları ----------
+    drivers.forEach((driver) => {
+      if (!driver.worksAbroad) return;
+      DRIVER_DATE_FIELDS.forEach((f) => {
+        const dateVal = driver[f.key];
+        if (!dateVal) return;
+        const days = daysUntil(dateVal);
+        if (days == null) return;
+        if (!DAY_THRESHOLDS.includes(days)) return;
+
+        const stateKey = "driver_" + driver.id + "_" + f.key;
+        if (!bypassDedup && newNotifState[stateKey] === days) return;
+
+        newNotifState[stateKey] = days;
+        const driverName = driver.name || "Şoför";
+        const dayText = days === 0 ? "bugün" : days + " gün içinde";
+        const extra = f.key === "visaExpiry" && driver.visaCountry ? ` (${driver.visaCountry})` : "";
+        triggered.push({ text: `${f.emoji} ${driverName}: ${f.label}${extra} süresi ${dayText} doluyor`, carId: null, fieldKey: null });
+      });
     });
 
     if (!triggered.length) continue;
