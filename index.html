@@ -618,6 +618,9 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
@@ -832,7 +835,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.7.5"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.7.6"; // Dynamic Version Tracking
   var APP_UPDATED = "22 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1538,6 +1541,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       { key: "name", label: "Ad Soyad" },
       { key: "phone", label: "Telefon" },
       { key: "carIds", label: "Atanan araç(lar)", type: "carList" },
+      { key: "licenseClass", label: "Ehliyet sınıfı" },
+      { key: "licenseExpiry", label: "Ehliyet geçerlilik tarihi", type: "date" },
+      { key: "srcType", label: "SRC belgesi türü" },
+      { key: "srcExpiry", label: "SRC belgesi geçerlilik tarihi", type: "date" },
+      { key: "psikoteknikExpiry", label: "Psikoteknik belgesi geçerlilik tarihi", type: "date" },
+      { key: "healthReportExpiry", label: "Sağlık raporu geçerlilik tarihi", type: "date" },
       { key: "worksAbroad", label: "Yurtdışında çalışıyor", type: "bool" },
       { key: "passportNo", label: "Pasaport no" },
       { key: "passportExpiry", label: "Pasaport geçerlilik tarihi", type: "date" },
@@ -2982,6 +2991,18 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var driversList = state.drivers || [];
     var items = [];
     driversList.forEach(function (d) {
+      if (d.licenseExpiry) {
+        items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: d.licenseClass ? ("Ehliyet · " + d.licenseClass) : "Ehliyet", emoji: "🪪", date: d.licenseExpiry });
+      }
+      if (d.srcExpiry) {
+        items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: d.srcType ? ("SRC · " + d.srcType) : "SRC Belgesi", emoji: "📄", date: d.srcExpiry });
+      }
+      if (d.psikoteknikExpiry) {
+        items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: "Psikoteknik Belgesi", emoji: "🧠", date: d.psikoteknikExpiry });
+      }
+      if (d.healthReportExpiry) {
+        items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: "Sağlık Raporu", emoji: "🩺", date: d.healthReportExpiry });
+      }
       if (!d.worksAbroad) return;
       if (d.passportExpiry) {
         items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: "Pasaport", emoji: "🛂", date: d.passportExpiry });
@@ -3264,6 +3285,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             '<button type="button" class="account-menu-item" data-action="open-activity-log">🕒 Aktivite Geçmişi' + (hasUnseenActivityLog() ? ' <span class="account-chip-dot" aria-hidden="true"></span>' : '') + '</button>' +
             '<button type="button" class="account-menu-item" data-action="set-main-section" data-section="drivers">🧑‍✈️ Şoförler</button>' +
             '<button type="button" class="account-menu-item" data-action="set-main-section" data-section="calendar">📅 Takvim' + (calendarHasUrgent ? ' <span class="account-chip-dot" aria-hidden="true"></span>' : '') + '</button>' +
+            '<div class="account-menu-divider"></div>' +
+            '<button type="button" class="account-menu-item" data-action="open-bulk-import">📥 Toplu İçe Aktar (Excel)</button>' +
+            '<button type="button" class="account-menu-item" data-action="open-export-report">📊 Rapor İndir (Excel / PDF)</button>' +
             '<button type="button" class="account-menu-item" data-action="open-help">🆘 Yardım &amp; Destek' + (hasUnseenSupportUpdate() ? ' <span class="account-chip-dot" aria-hidden="true"></span>' : '') + '</button>' +
             (isAdminUser(user) ?
               '<div class="account-menu-divider"></div>' +
@@ -3800,9 +3824,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     items = items || computeCalendarItems();
     var html = '<section class="panel">' +
       '<h2>📅 Takvim</h2>' +
-      '<p class="field-hint" style="margin-top:2px">Tüm araçların muayene, sigorta, kasko, vergi ve bakım tarihleri ile yurtdışına çıkan şoförlerin pasaport / vize süreleri tek listede.</p>';
+      '<p class="field-hint" style="margin-top:2px">Tüm araçların muayene, sigorta, kasko, vergi ve bakım tarihleri ile şoförlerin ehliyet, SRC, psikoteknik, sağlık raporu ve (yurtdışına çıkanlar için) pasaport / vize süreleri tek listede.</p>';
     if (items.length === 0) {
-      html += '<p class="empty-hint">Önce bir araç veya şoför ekleyin; muayene, sigorta, kasko ve pasaport/vize tarihleri burada listelenecek.</p>';
+      html += '<p class="empty-hint">Önce bir araç veya şoför ekleyin; muayene, sigorta, kasko ve şoför belge tarihleri burada listelenecek.</p>';
     } else {
       html += '<ul class="summary-list">';
       items.forEach(function (it) {
@@ -3832,7 +3856,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       });
       html += '</ul>';
     }
-    html += '<p class="summary-hint">30 gün içinde: kırmızı · 90 gün içinde: turuncu · daha uzak: yeşil. Araç tarihlerini araç kartından, pasaport/vize tarihlerini Şoförler bölümünden güncelleyebilirsiniz.</p>';
+    html += '<p class="summary-hint">30 gün içinde: kırmızı · 90 gün içinde: turuncu · daha uzak: yeşil. Araç tarihlerini araç kartından, şoför belge tarihlerini Şoförler bölümünden güncelleyebilirsiniz.</p>';
     html += '</section>';
     return html;
   }
@@ -4075,6 +4099,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       backdrop.appendChild(buildHouseholdScanModal());
     } else if (state.modal.type === "addDriver" || state.modal.type === "editDriver") {
       backdrop.appendChild(buildDriverModal());
+    } else if (state.modal.type === "bulkImport") {
+      backdrop.appendChild(buildBulkImportModal());
+    } else if (state.modal.type === "exportReport") {
+      backdrop.appendChild(buildExportReportModal());
     }
     document.body.appendChild(backdrop);
 
@@ -5252,13 +5280,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var list = state.drivers || [];
     var html = '<section class="panel">';
     html += '<div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:4px;"><h2 style="margin:0; font-family:\'Oswald\', sans-serif; font-size:16px; letter-spacing:0.02em;">🧑‍✈️ Şoförler</h2></div>';
-    html += '<p class="field-hint" style="margin-top:2px">Şoförlerini ekle, hangi araç(lar)ı kullandıklarını belirle. Yurtdışına çıkacak şoförler için pasaport ve vize bilgilerini de burada tutabilirsin.</p>';
+    html += '<p class="field-hint" style="margin-top:2px">Şoförlerini ekle, hangi araç(lar)ı kullandıklarını belirle. Ehliyet, SRC, psikoteknik ve sağlık raporu tarihlerini, yurtdışına çıkacaklar için pasaport ve vize bilgilerini de burada tutabilirsin.</p>';
     html += '<button type="button" class="btn-primary full" data-action="open-add-driver" style="margin-bottom:14px">+ Şoför Ekle</button>';
 
     var driverUpcomingItems = computeDriverSummaryItems().filter(function (it) { return it.tier < 3; });
     if (driverUpcomingItems.length) {
       html += '<div style="margin-bottom:18px">';
-      html += '<h3 style="margin:0 0 8px; font-size:13px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.03em;">⏰ Yaklaşan Pasaport / Vize İşlemleri</h3>';
+      html += '<h3 style="margin:0 0 8px; font-size:13px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.03em;">⏰ Yaklaşan Şoför Belgeleri</h3>';
       html += '<ul class="summary-list">';
       driverUpcomingItems.forEach(function (it) {
         var showIcon = (it.status.key === "overdue" || it.status.key === "today" || it.status.key === "soon") ? "⚠️ " : (it.status.key === "ok" ? "✅ " : "");
@@ -5298,6 +5326,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           '</div>' +
           (d.phone ? '<div class="err-item-meta">📞 ' + esc(d.phone) + '</div>' : '') +
           '<div class="err-item-meta">🚗 ' + (carNames.length ? esc(carNames.join(", ")) : "Araç atanmadı") + '</div>' +
+          (d.licenseClass ? '<div class="err-item-meta">🪪 Ehliyet: ' + esc(d.licenseClass) + '</div>' : '') +
         '</li>';
       });
       html += '</ul>';
@@ -5343,6 +5372,18 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           : '<span class="car-checklist-empty">Önce bir araç eklemen gerekiyor.</span>') +
       '</div>' +
       '<p class="field-hint">Bir şoföre birden fazla araç atanabilir (örn. çekici + römork); en az bir araç seçilmelidir. Zaten başka bir şoförde olan araçları önce oradan kaldırmalısın.</p>' +
+      '<div class="field-row">' +
+        '<label class="field"><span>Ehliyet sınıfı</span><input id="f-dlicclass" value="' + (driver ? esc(driver.licenseClass || "") : "") + '" placeholder="Örn. C, CE, D" /></label>' +
+        '<label class="field"><span>Ehliyet geçerlilik tarihi</span><input id="f-dlicexp" type="date" value="' + (driver && driver.licenseExpiry ? driver.licenseExpiry : "") + '" /></label>' +
+      '</div>' +
+      '<div class="field-row">' +
+        '<label class="field"><span>SRC belgesi türü</span><input id="f-dsrctype" value="' + (driver ? esc(driver.srcType || "") : "") + '" placeholder="Örn. SRC2, SRC4" /></label>' +
+        '<label class="field"><span>SRC belgesi geçerlilik tarihi</span><input id="f-dsrcexp" type="date" value="' + (driver && driver.srcExpiry ? driver.srcExpiry : "") + '" /></label>' +
+      '</div>' +
+      '<div class="field-row">' +
+        '<label class="field"><span>Psikoteknik belgesi geçerlilik tarihi</span><input id="f-dpsikoexp" type="date" value="' + (driver && driver.psikoteknikExpiry ? driver.psikoteknikExpiry : "") + '" /></label>' +
+        '<label class="field"><span>Sağlık raporu geçerlilik tarihi</span><input id="f-dhealthexp" type="date" value="' + (driver && driver.healthReportExpiry ? driver.healthReportExpiry : "") + '" /></label>' +
+      '</div>' +
       '<label class="toggle-row" id="f-dabroad-row"><input type="checkbox" id="f-dabroad"' + (worksAbroad ? " checked" : "") + ' /><span>Yurtdışında çalışacak (pasaport / vize gerekli)</span></label>' +
       '<div class="abroad-fields" id="f-dabroad-fields"' + (worksAbroad ? "" : " hidden") + '>' +
         '<div class="field-row">' +
@@ -5397,6 +5438,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         name: name,
         phone: modal.querySelector("#f-dphone").value.trim(),
         carIds: checkedCarIds,
+        licenseClass: modal.querySelector("#f-dlicclass").value.trim(),
+        licenseExpiry: modal.querySelector("#f-dlicexp").value || null,
+        srcType: modal.querySelector("#f-dsrctype").value.trim(),
+        srcExpiry: modal.querySelector("#f-dsrcexp").value || null,
+        psikoteknikExpiry: modal.querySelector("#f-dpsikoexp").value || null,
+        healthReportExpiry: modal.querySelector("#f-dhealthexp").value || null,
         worksAbroad: abroad,
         passportNo: abroad ? modal.querySelector("#f-dpassno").value.trim() : "",
         passportExpiry: abroad ? passportExpiryVal : null,
@@ -5434,6 +5481,412 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return modal;
   }
 
+
+  // ---------- Toplu İçe Aktar (Excel) ----------
+  function carImportFieldDefs() {
+    return [
+      { key: "name", label: "Araç adı", required: true },
+      { key: "vehicleType", label: "Araç türü" },
+      { key: "plate", label: "Plaka" },
+      { key: "brand", label: "Marka / Model" },
+      { key: "year", label: "Model yılı" },
+      { key: "fuelType", label: "Yakıt tipi" },
+      { key: "transmission", label: "Vites" },
+      { key: "tankCapacity", label: "Depo hacmi (lt)", type: "number" },
+      { key: "inspectionDate", label: "Muayene tarihi", type: "date" },
+      { key: "maintenanceDate", label: "Sonraki bakım tarihi", type: "date" },
+      { key: "insuranceDate", label: "Trafik sigortası bitiş", type: "date" },
+      { key: "kaskoDate", label: "Kasko bitiş", type: "date" },
+      { key: "insuranceCompany", label: "Sigorta şirketi" },
+      { key: "policyNo", label: "Poliçe no" },
+      { key: "taxDate", label: "Vergi (MTV) ödeme tarihi", type: "date" },
+      { key: "tireDate", label: "Lastik değişimi", type: "date" },
+      { key: "vin", label: "Şasi no / VIN" },
+      { key: "currentKm", label: "Güncel kilometre", type: "number" },
+      { key: "maintenanceKm", label: "Sonraki bakım km", type: "number" }
+    ];
+  }
+  function driverImportFieldDefs() {
+    return [
+      { key: "name", label: "Ad Soyad", required: true },
+      { key: "phone", label: "Telefon" },
+      { key: "plates", label: "Atanan araç plaka(ları)", type: "plateList" },
+      { key: "licenseClass", label: "Ehliyet sınıfı" },
+      { key: "licenseExpiry", label: "Ehliyet geçerlilik tarihi", type: "date" },
+      { key: "srcType", label: "SRC belgesi türü" },
+      { key: "srcExpiry", label: "SRC belgesi geçerlilik tarihi", type: "date" },
+      { key: "psikoteknikExpiry", label: "Psikoteknik belgesi geçerlilik tarihi", type: "date" },
+      { key: "healthReportExpiry", label: "Sağlık raporu geçerlilik tarihi", type: "date" },
+      { key: "worksAbroad", label: "Yurtdışında çalışıyor (Evet/Hayır)", type: "bool" },
+      { key: "passportNo", label: "Pasaport no" },
+      { key: "passportExpiry", label: "Pasaport geçerlilik tarihi", type: "date" },
+      { key: "visaCountry", label: "Vize ülkesi" },
+      { key: "visaNo", label: "Vize no" },
+      { key: "visaExpiry", label: "Vize geçerlilik tarihi", type: "date" }
+    ];
+  }
+  function normalizeHeaderKey(s) {
+    return String(s || "").toLowerCase()
+      .replace(/ı/g, "i").replace(/İ/g, "i").replace(/ğ/g, "g").replace(/ü/g, "u")
+      .replace(/ş/g, "s").replace(/ö/g, "o").replace(/ç/g, "c")
+      .replace(/[^a-z0-9]+/g, "");
+  }
+  function matchFieldForHeader(headerRaw, fieldDefs, usedKeys) {
+    var norm = normalizeHeaderKey(headerRaw);
+    if (!norm) return null;
+    for (var i = 0; i < fieldDefs.length; i++) {
+      if (usedKeys[fieldDefs[i].key]) continue;
+      if (normalizeHeaderKey(fieldDefs[i].label) === norm) return fieldDefs[i];
+    }
+    for (var j = 0; j < fieldDefs.length; j++) {
+      if (usedKeys[fieldDefs[j].key]) continue;
+      var fl = normalizeHeaderKey(fieldDefs[j].label);
+      if (fl && (fl.indexOf(norm) !== -1 || norm.indexOf(fl) !== -1)) return fieldDefs[j];
+    }
+    return null;
+  }
+  function parseNumberCell(v) {
+    if (v === null || v === undefined || v === "") return null;
+    if (typeof v === "number") return v;
+    var s = String(v).trim().replace(/\s/g, "");
+    if (s.indexOf(",") !== -1 && s.indexOf(".") === -1) s = s.replace(",", ".");
+    else s = s.replace(/\.(?=\d{3})/g, "").replace(",", ".");
+    var n = parseFloat(s);
+    return isNaN(n) ? null : n;
+  }
+  function parseBoolCell(v) {
+    var s = String(v || "").trim().toLowerCase();
+    return ["evet", "true", "1", "x", "yes", "var"].indexOf(s) !== -1;
+  }
+  function parseDateCell(v) {
+    if (v === null || v === undefined || v === "") return null;
+    if (v instanceof Date && !isNaN(v.getTime())) return v.toISOString().slice(0, 10);
+    if (typeof v === "number") {
+      try {
+        var parsed = XLSX.SSF.parse_date_code(v);
+        if (parsed) return parsed.y + "-" + String(parsed.m).padStart(2, "0") + "-" + String(parsed.d).padStart(2, "0");
+      } catch (e) { /* yoksay */ }
+      return null;
+    }
+    var s = String(v).trim();
+    if (!s) return null;
+    var m1 = s.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})$/);
+    if (m1) return m1[3] + "-" + m1[2].padStart(2, "0") + "-" + m1[1].padStart(2, "0");
+    var m2 = s.match(/^(\d{4})[.\/-](\d{1,2})[.\/-](\d{1,2})$/);
+    if (m2) return m2[1] + "-" + m2[2].padStart(2, "0") + "-" + m2[3].padStart(2, "0");
+    return null;
+  }
+  function downloadImportTemplate(entity) {
+    var fields = entity === "drivers" ? driverImportFieldDefs() : carImportFieldDefs();
+    var headers = fields.map(function (f) { return f.label; });
+    var exampleCar = ["Kamyon 1", "Kamyon", "34 AB 123", "Mercedes Actros", "2019", "Dizel", "Manuel", 400, "15.08.2026", "15.09.2026", "01.12.2026", "01.12.2026", "ABC Sigorta", "POL123456", "01.01.2027", "01.10.2026", "WDB1234567890", 125000, 135000];
+    var exampleDriver = ["Ahmet Yılmaz", "0532 000 00 00", "34 AB 123, 34 CD 456", "B", "01.01.2029", "SRC2", "01.06.2027", "01.03.2027", "01.03.2027", "Hayır", "", "", "", "", ""];
+    var example = entity === "drivers" ? exampleDriver : exampleCar;
+    var ws = XLSX.utils.aoa_to_sheet([headers, example]);
+    ws["!cols"] = headers.map(function (h) { return { wch: Math.max(14, h.length + 2) }; });
+    var infoRows = [
+      ["Nasıl kullanılır?"],
+      ["1. İlk satırdaki başlıkları değiştirmeyin."],
+      ["2. Örnek satırı kendi verilerinizle değiştirin, gerektiği kadar satır ekleyin."],
+      ["3. Tarihleri GG.AA.YYYY veya YYYY-AA-GG olarak yazın."]
+    ];
+    if (entity === "drivers") {
+      infoRows.push(["4. \"Atanan araç plaka(ları)\" sütununa, şoförün kullandığı aracın/araçların plakasını virgülle ayırarak yazın (araç önce sisteme eklenmiş olmalı)."]);
+    } else {
+      infoRows.push(["4. Plaka alanı boş bırakılabilir ama doldurulması önerilir."]);
+    }
+    infoRows.push(["5. Dosyayı kaydedip Hesap Menüsü > Toplu İçe Aktar ekranından yükleyin."]);
+    var infoWs = XLSX.utils.aoa_to_sheet(infoRows);
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, entity === "drivers" ? "Şoförler" : "Araçlar");
+    XLSX.utils.book_append_sheet(wb, infoWs, "Nasıl Kullanılır");
+    XLSX.writeFile(wb, (entity === "drivers" ? "sofor-sablonu" : "arac-sablonu") + ".xlsx");
+  }
+  function parseImportWorkbook(arrayBuffer, entity) {
+    var wb = XLSX.read(arrayBuffer, { type: "array", cellDates: true });
+    var sheet = wb.Sheets[wb.SheetNames[0]];
+    var rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: "" });
+    if (!rows.length) return { records: [], errors: ["Dosyada veri bulunamadı."] };
+
+    var fieldDefs = entity === "drivers" ? driverImportFieldDefs() : carImportFieldDefs();
+    var usedKeys = {};
+    var colMap = rows[0].map(function (h) {
+      var f = matchFieldForHeader(h, fieldDefs, usedKeys);
+      if (f) usedKeys[f.key] = true;
+      return f;
+    });
+
+    var records = [];
+    var errors = [];
+    if (!colMap.some(Boolean)) {
+      errors.push("Sütun başlıkları tanınamadı. Lütfen şablon dosyasındaki başlıkları kullanın.");
+    }
+    for (var r = 1; r < rows.length; r++) {
+      var row = rows[r];
+      if (!row || row.every(function (c) { return c === "" || c === null || c === undefined; })) continue;
+      var obj = {};
+      colMap.forEach(function (f, idx) {
+        if (!f) return;
+        var raw = row[idx];
+        if (f.type === "number") obj[f.key] = parseNumberCell(raw);
+        else if (f.type === "date") obj[f.key] = parseDateCell(raw);
+        else if (f.type === "bool") obj[f.key] = parseBoolCell(raw);
+        else if (f.type === "plateList") obj[f.key] = String(raw || "").split(/[,;]/).map(function (s) { return s.trim(); }).filter(Boolean);
+        else obj[f.key] = (raw === null || raw === undefined) ? "" : String(raw).trim();
+      });
+      var requiredMissing = fieldDefs.filter(function (f) { return f.required; }).some(function (f) { return !obj[f.key]; });
+      if (requiredMissing) {
+        errors.push("Satır " + (r + 1) + ": zorunlu alan(lar) boş, atlandı.");
+        continue;
+      }
+      records.push(obj);
+    }
+    return { records: records, errors: errors };
+  }
+  function commitBulkImport(entity, rows) {
+    if (!rows || !rows.length) return;
+    if (entity === "cars") {
+      var startLen = (state.cars || []).length;
+      var newCars = rows.map(function (r, i) {
+        return {
+          id: uid(),
+          color: CAR_COLORS[(startLen + i) % CAR_COLORS.length],
+          name: r.name, vehicleType: r.vehicleType || "", plate: r.plate || "", brand: r.brand || "",
+          year: r.year || "", fuelType: r.fuelType || "", transmission: r.transmission || "",
+          tankCapacity: r.tankCapacity != null ? r.tankCapacity : null,
+          inspectionDate: r.inspectionDate || null, maintenanceDate: r.maintenanceDate || null,
+          insuranceDate: r.insuranceDate || null, kaskoDate: r.kaskoDate || null,
+          insuranceCompany: r.insuranceCompany || "", policyNo: r.policyNo || "",
+          taxDate: r.taxDate || null, tireDate: r.tireDate || null, vin: r.vin || "",
+          currentKm: r.currentKm != null ? r.currentKm : null,
+          maintenanceKm: r.maintenanceKm != null ? r.maintenanceKm : null,
+          photo: null, ruhsat: null
+        };
+      });
+      state.cars = (state.cars || []).concat(newCars);
+      persistCars();
+      logActivity("car", "add", { summary: "Excel ile " + newCars.length + " araç toplu içe aktarıldı." });
+      toast(newCars.length + " araç içe aktarıldı.");
+    } else {
+      var newDrivers = rows.map(function (r) {
+        var carIds = (r.plates || []).map(function (plate) {
+          var norm = plate.replace(/\s+/g, "").toUpperCase();
+          var found = (state.cars || []).find(function (c) { return (c.plate || "").replace(/\s+/g, "").toUpperCase() === norm; });
+          return found ? found.id : null;
+        }).filter(Boolean);
+        return {
+          id: uid(), name: r.name, phone: r.phone || "", carIds: carIds,
+          licenseClass: r.licenseClass || "", licenseExpiry: r.licenseExpiry || null,
+          srcType: r.srcType || "", srcExpiry: r.srcExpiry || null,
+          psikoteknikExpiry: r.psikoteknikExpiry || null, healthReportExpiry: r.healthReportExpiry || null,
+          worksAbroad: !!r.worksAbroad,
+          passportNo: r.worksAbroad ? (r.passportNo || "") : "",
+          passportExpiry: r.worksAbroad ? (r.passportExpiry || null) : null,
+          visaCountry: r.worksAbroad ? (r.visaCountry || "") : "",
+          visaNo: r.worksAbroad ? (r.visaNo || "") : "",
+          visaExpiry: r.worksAbroad ? (r.visaExpiry || null) : null
+        };
+      });
+      state.drivers = (state.drivers || []).concat(newDrivers);
+      persistDrivers();
+      logActivity("driver", "add", { summary: "Excel ile " + newDrivers.length + " şoför toplu içe aktarıldı." });
+      toast(newDrivers.length + " şoför içe aktarıldı.");
+    }
+    closeModal();
+    render();
+  }
+  function buildBulkImportModal() {
+    var m = state.modal;
+    var entity = m.entity || "cars";
+    var rows = m.rows || null;
+    var errors = m.errors || [];
+
+    var modal = document.createElement("div");
+    modal.className = "modal wide";
+    modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
+
+    var html = '<div class="modal-head"><h3>📥 Toplu İçe Aktar (Excel)</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>';
+    html += '<div class="view-tabs" style="margin-bottom:12px">' +
+      '<button type="button" class="view-tab' + (entity === "cars" ? " active" : "") + '" id="f-bi-cars">🚗 Araçlar</button>' +
+      '<button type="button" class="view-tab' + (entity === "drivers" ? " active" : "") + '" id="f-bi-drivers">🧑‍✈️ Şoförler</button>' +
+    '</div>';
+    html += '<p class="field-hint">Önce şablonu indirip Excel\'de doldurun, sonra aynı dosyayı buradan yükleyin. Onlarca araç ya da şoförü tek tek eklemek yerine tek seferde aktarabilirsiniz.</p>';
+    html += '<button type="button" class="btn-secondary full" id="f-bi-template" style="margin-bottom:10px">📄 ' + (entity === "drivers" ? "Şoför" : "Araç") + ' Şablonunu İndir</button>';
+    html += '<label class="btn-secondary full" style="cursor:pointer;position:relative;overflow:hidden;display:block;text-align:center;margin-bottom:14px">📤 Excel Dosyası Seç<input type="file" accept=".xlsx,.xls,.csv" id="f-bi-file" style="position:absolute;inset:0;opacity:0;cursor:pointer;" /></label>';
+
+    if (rows) {
+      html += '<div class="field-hint" style="margin-top:-6px">' + rows.length + ' kayıt okundu' + (errors.length ? (", " + errors.length + " satır atlandı") : "") + '.</div>';
+      if (errors.length) {
+        html += '<ul class="err-list" style="max-height:120px; margin-top:6px">' + errors.slice(0, 30).map(function (e) {
+          return '<li class="err-item" style="color:var(--red); font-size:12px">' + esc(e) + '</li>';
+        }).join("") + '</ul>';
+      }
+      if (rows.length) {
+        html += '<ul class="err-list" style="max-height:220px; margin-top:6px">' + rows.slice(0, 50).map(function (row) {
+          var sub = entity === "drivers"
+            ? (row.plates && row.plates.length ? row.plates.join(", ") : "Araç eşleşmedi")
+            : (row.plate || "—");
+          return '<li class="err-item"><div class="err-item-head"><span class="driver-item-name">' + esc(row.name) + '</span></div><div class="err-item-meta">' + esc(sub) + '</div></li>';
+        }).join("") + '</ul>';
+        if (rows.length > 50) html += '<p class="field-hint">…ve ' + (rows.length - 50) + ' kayıt daha.</p>';
+      }
+      html += '<button class="btn-primary full" id="f-bi-confirm" style="margin-top:12px"' + (rows.length ? "" : " disabled") + '>✅ ' + rows.length + ' Kaydı İçe Aktar</button>';
+    }
+
+    modal.innerHTML = html;
+
+    modal.querySelector("#f-bi-cars").addEventListener("click", function () {
+      state.modal = { type: "bulkImport", entity: "cars", rows: null, errors: [] };
+      render();
+    });
+    modal.querySelector("#f-bi-drivers").addEventListener("click", function () {
+      state.modal = { type: "bulkImport", entity: "drivers", rows: null, errors: [] };
+      render();
+    });
+    modal.querySelector("#f-bi-template").addEventListener("click", function () {
+      downloadImportTemplate(entity);
+    });
+    modal.querySelector("#f-bi-file").addEventListener("change", function (ev) {
+      var file = ev.target.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function () {
+        try {
+          var result = parseImportWorkbook(reader.result, entity);
+          state.modal = { type: "bulkImport", entity: entity, rows: result.records, errors: result.errors };
+          render();
+        } catch (e) {
+          toast("Dosya okunamadı. Lütfen .xlsx veya .csv formatında bir dosya seçin.");
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    });
+    var confirmBtn = modal.querySelector("#f-bi-confirm");
+    if (confirmBtn) {
+      confirmBtn.addEventListener("click", function () { commitBulkImport(entity, rows); });
+    }
+
+    return modal;
+  }
+
+  // ---------- Excel / PDF Rapor Dışa Aktarma ----------
+  function excelCellValue(type, value) {
+    if (type === "date") return value ? fmtDateTR(value) : "";
+    if (type === "bool") return value ? "Evet" : "Hayır";
+    if (type === "carList") {
+      var ids = Array.isArray(value) ? value : (value ? [value] : []);
+      return ids.map(function (id) { var c = (state.cars || []).find(function (x) { return x.id === id; }); return c ? c.name : null; }).filter(Boolean).join(", ");
+    }
+    if (value === null || value === undefined) return "";
+    return value;
+  }
+  function buildExcelReport() {
+    var wb = XLSX.utils.book_new();
+
+    var carFields = carActivityFieldDefs().filter(function (f) { return f.type !== "photo"; });
+    var carHeaders = carFields.map(function (f) { return f.label; });
+    var carRows = (state.cars || []).map(function (c) { return carFields.map(function (f) { return excelCellValue(f.type, c[f.key]); }); });
+    var carWs = XLSX.utils.aoa_to_sheet([carHeaders].concat(carRows));
+    carWs["!cols"] = carHeaders.map(function (h) { return { wch: Math.max(12, h.length + 2) }; });
+    XLSX.utils.book_append_sheet(wb, carWs, "Araçlar");
+
+    var driverFields = driverActivityFieldDefs();
+    var driverHeaders = driverFields.map(function (f) { return f.label; });
+    var driverRows = (state.drivers || []).map(function (d) { return driverFields.map(function (f) { return excelCellValue(f.type, d[f.key]); }); });
+    var driverWs = XLSX.utils.aoa_to_sheet([driverHeaders].concat(driverRows));
+    driverWs["!cols"] = driverHeaders.map(function (h) { return { wch: Math.max(12, h.length + 2) }; });
+    XLSX.utils.book_append_sheet(wb, driverWs, "Şoförler");
+
+    var expHeaders = ["Araç", "Kategori", "Tutar (TL)", "Tarih", "Kilometre", "Litre", "Ödeyen", "Not"];
+    var expRows = (state.expenses || []).slice().sort(function (a, b) { return new Date(a.date) - new Date(b.date); }).map(function (e) {
+      var car = (state.cars || []).find(function (c) { return c.id === e.carId; });
+      var payer = e.payerId ? (((state.familyMembers || []).find(function (m) { return m.id === e.payerId; }) || {}).name) : "Ben";
+      return [car ? car.name : "—", catById(e.category).label, e.amount || 0, e.date ? fmtDateTR(e.date) : "", e.km || "", e.liter || "", payer || "—", e.note || ""];
+    });
+    var expWs = XLSX.utils.aoa_to_sheet([expHeaders].concat(expRows));
+    expWs["!cols"] = expHeaders.map(function (h) { return { wch: Math.max(12, h.length + 2) }; });
+    XLSX.utils.book_append_sheet(wb, expWs, "Masraflar");
+
+    var carTotals = {};
+    (state.expenses || []).forEach(function (e) { carTotals[e.carId] = (carTotals[e.carId] || 0) + (e.amount || 0); });
+    var summaryRows = (state.cars || []).map(function (c) { return [c.name, carTotals[c.id] || 0]; });
+    var grandTotal = Object.keys(carTotals).reduce(function (sum, k) { return sum + carTotals[k]; }, 0);
+    summaryRows.push(["TOPLAM", grandTotal]);
+    var summaryWs = XLSX.utils.aoa_to_sheet([["Araç", "Toplam Masraf (TL)"]].concat(summaryRows));
+    XLSX.utils.book_append_sheet(wb, summaryWs, "Özet");
+
+    XLSX.writeFile(wb, "garaj-defteri-rapor-" + todayStr() + ".xlsx");
+    toast("Excel raporu indirildi.");
+  }
+  function buildPdfReport() {
+    var doc = new jspdf.jsPDF({ orientation: "landscape" });
+    var margin = 40;
+    doc.setFontSize(16);
+    doc.text("Garaj Defteri - Filo Raporu", margin, 40);
+    doc.setFontSize(10);
+    doc.text("Oluşturulma tarihi: " + fmtDateTR(todayStr()), margin, 58);
+
+    var carFields = carActivityFieldDefs().filter(function (f) { return f.type !== "photo"; });
+    doc.autoTable({
+      startY: 75,
+      head: [carFields.map(function (f) { return f.label; })],
+      body: (state.cars || []).map(function (c) { return carFields.map(function (f) { return String(excelCellValue(f.type, c[f.key]) || "—"); }); }),
+      styles: { fontSize: 7 },
+      headStyles: { fillColor: [242, 169, 59] },
+      margin: { left: margin, right: margin }
+    });
+
+    doc.addPage();
+    doc.setFontSize(14);
+    doc.text("Şoförler", margin, 40);
+    var driverFields = driverActivityFieldDefs();
+    doc.autoTable({
+      startY: 55,
+      head: [driverFields.map(function (f) { return f.label; })],
+      body: (state.drivers || []).map(function (d) { return driverFields.map(function (f) { return String(excelCellValue(f.type, d[f.key]) || "—"); }); }),
+      styles: { fontSize: 7 },
+      headStyles: { fillColor: [79, 168, 216] },
+      margin: { left: margin, right: margin }
+    });
+
+    doc.addPage();
+    doc.setFontSize(14);
+    doc.text("Masraf Özeti", margin, 40);
+    var carTotals = {};
+    (state.expenses || []).forEach(function (e) { carTotals[e.carId] = (carTotals[e.carId] || 0) + (e.amount || 0); });
+    var summaryBody = (state.cars || []).map(function (c) { return [c.name, fmtTL(carTotals[c.id] || 0)]; });
+    var grandTotal = Object.keys(carTotals).reduce(function (sum, k) { return sum + carTotals[k]; }, 0);
+    summaryBody.push(["TOPLAM", fmtTL(grandTotal)]);
+    doc.autoTable({
+      startY: 55,
+      head: [["Araç", "Toplam Masraf"]],
+      body: summaryBody,
+      styles: { fontSize: 9 },
+      headStyles: { fillColor: [123, 198, 126] },
+      margin: { left: margin, right: margin }
+    });
+
+    doc.save("garaj-defteri-rapor-" + todayStr() + ".pdf");
+    toast("PDF raporu indirildi.");
+  }
+  function buildExportReportModal() {
+    var modal = document.createElement("div");
+    modal.className = "modal";
+    modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
+    modal.innerHTML =
+      '<div class="modal-head"><h3>📊 Rapor İndir</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>' +
+      '<p class="field-hint">Muhasebe ve yönetim için araç, şoför ve masraf verilerini biçimli bir dosya olarak indirebilirsin.</p>' +
+      '<button type="button" class="btn-primary full" id="f-er-excel" style="margin-bottom:10px">📊 Excel Raporu İndir</button>' +
+      '<button type="button" class="btn-secondary full" id="f-er-pdf">🧾 PDF Raporu İndir</button>' +
+      '<p class="field-hint" style="margin-top:10px">Excel raporu; Araçlar, Şoförler, Masraflar ve Özet olmak üzere 4 sekme içerir. PDF raporu ise yazdırılabilir / paylaşılabilir tek dosya halindedir.</p>';
+    modal.querySelector("#f-er-excel").addEventListener("click", function () {
+      try { buildExcelReport(); } catch (e) { toast("Excel raporu oluşturulamadı."); }
+    });
+    modal.querySelector("#f-er-pdf").addEventListener("click", function () {
+      try { buildPdfReport(); } catch (e) { toast("PDF raporu oluşturulamadı."); }
+    });
+    return modal;
+  }
 
   function photoUploadHTML(key, label, existing) {
     var content = existing
@@ -5813,6 +6266,18 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           downloadICS(el.getAttribute("data-title"), el.getAttribute("data-date"), el.getAttribute("data-notes"));
         }
         else if (action === "export-data") { exportData(); }
+        else if (action === "open-bulk-import") {
+          ev.stopPropagation();
+          state.modal = { type: "bulkImport", entity: "cars", rows: null, errors: [] };
+          state.accountMenuOpen = false;
+          render();
+        }
+        else if (action === "open-export-report") {
+          ev.stopPropagation();
+          state.modal = { type: "exportReport" };
+          state.accountMenuOpen = false;
+          render();
+        }
         else if (action === "enable-notifications") { enableNotifications(); }
         else if (action === "disable-notifications") { disableNotifications(); }
         else if (action === "toggle-account-menu") { ev.stopPropagation(); state.accountMenuOpen = !state.accountMenuOpen; render(); }
