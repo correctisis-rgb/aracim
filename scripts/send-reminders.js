@@ -232,11 +232,20 @@ const DATE_FIELDS = [
   { key: "tireDate", label: "Lastik Değişimi", emoji: "🛞" }
 ];
 
-// Şoförlerin (worksAbroad === true olanların) pasaport/vize bitiş tarihleri.
-// Araç vade tarihleriyle AYNI kademeli (30/15/7-2/1-0 gün) hatırlatma
-// akışını ve aynı bildirime dahil edilmeyi kullanır — ayrıca burada
-// randevu (appointments) kavramı yok, sadece düz vade hatırlatması var.
+// Şoförlerin belge bitiş tarihleri. Ehliyet/SRC/Psikoteknik/Sağlık Raporu
+// TÜM şoförler için kontrol edilir (worksAbroad şartı yok). Pasaport/Vize
+// ise sadece worksAbroad === true olan şoförler için kontrol edilir (bkz.
+// aşağıdaki kullanım noktası). Hepsi araç vade tarihleriyle AYNI kademeli
+// (30/15/7-2/1-0 gün) hatırlatma akışını ve aynı bildirime dahil edilmeyi
+// kullanır — ayrıca burada randevu (appointments) kavramı yok, sadece düz
+// vade hatırlatması var.
 const DRIVER_DATE_FIELDS = [
+  { key: "licenseExpiry", label: "Ehliyet", emoji: "🪪" },
+  { key: "srcExpiry", label: "SRC Belgesi", emoji: "📄" },
+  { key: "psikoteknikExpiry", label: "Psikoteknik Belgesi", emoji: "🧠" },
+  { key: "healthReportExpiry", label: "Sağlık Raporu", emoji: "🩺" }
+];
+const DRIVER_ABROAD_DATE_FIELDS = [
   { key: "passportExpiry", label: "Pasaport", emoji: "🛂" },
   { key: "visaExpiry", label: "Vize", emoji: "🌍" }
 ];
@@ -470,18 +479,18 @@ async function main() {
       }
     });
 
-    // ---------- Şoför pasaport / vize hatırlatmaları ----------
-    // Yurtdışına çıkacak (worksAbroad === true) şoförlerin pasaport ve vize
-    // bitiş tarihleri, araç vade tarihleriyle AYNI kademeli (30/15 gün tek
-    // seferlik — 7-2 gün her gün 09+20 — 1-0 gün her gün 09+14+20) akışı ve
-    // AYNI notifState dedup mekanizmasını kullanır, aynı bildirime dahil
-    // edilir. Randevu (appointments) kavramı yoktur, actionable: false
-    // olduğundan sw.js'in "Evet/Hayır" aksiyon düğmeleri eklenmez (bu
-    // düğmeler sadece araç randevu akışına özgüdür).
+    // ---------- Şoför belge hatırlatmaları ----------
+    // Ehliyet/SRC/Psikoteknik/Sağlık Raporu TÜM şoförler için kontrol edilir.
+    // Pasaport/Vize ise sadece yurtdışına çıkacak (worksAbroad === true)
+    // şoförler için ayrıca eklenir. actionable: false olduğundan sw.js'in
+    // "Evet/Hayır" aksiyon düğmeleri eklenmez (bu düğmeler sadece araç
+    // randevu akışına özgüdür).
     const drivers = user.drivers || [];
     drivers.forEach((driver) => {
-      if (!driver.worksAbroad) return;
-      DRIVER_DATE_FIELDS.forEach((f) => {
+      const driverDateFields = driver.worksAbroad
+        ? DRIVER_DATE_FIELDS.concat(DRIVER_ABROAD_DATE_FIELDS)
+        : DRIVER_DATE_FIELDS;
+      driverDateFields.forEach((f) => {
         const dateVal = driver[f.key];
         if (!dateVal) return;
 
@@ -505,7 +514,10 @@ async function main() {
         }
 
         const dayText = days === 0 ? "bugün" : days + " gün içinde";
-        const extra = f.key === "visaExpiry" && driver.visaCountry ? ` (${driver.visaCountry})` : "";
+        let extra = "";
+        if (f.key === "visaExpiry" && driver.visaCountry) extra = ` (${driver.visaCountry})`;
+        else if (f.key === "srcExpiry" && driver.srcType) extra = ` (${driver.srcType})`;
+        else if (f.key === "licenseExpiry" && driver.licenseClass) extra = ` (${driver.licenseClass})`;
         triggered.push({ text: `${f.emoji} ${driverName}: ${f.label}${extra} süresi ${dayText} doluyor`, carId: null, fieldKey: null, actionable: false });
       });
     });
