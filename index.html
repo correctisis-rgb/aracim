@@ -854,7 +854,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.8.0"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.8.1"; // Dynamic Version Tracking
   var APP_UPDATED = "22 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -5899,59 +5899,153 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     XLSX.writeFile(wb, "garaj-defteri-rapor-" + todayStr() + ".xlsx");
     toast("Excel raporu indirildi.");
   }
+  function pdfHexToRgb(hex) {
+    hex = (hex || "#F2A93B").replace("#", "");
+    if (hex.length === 3) hex = hex.split("").map(function (c) { return c + c; }).join("");
+    var num = parseInt(hex, 16);
+    return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
+  }
+  function pdfAddBanner(doc, opts) {
+    var pageW = doc.internal.pageSize.getWidth();
+    var rgb = pdfHexToRgb(opts.color);
+    doc.setFillColor(rgb[0], rgb[1], rgb[2]);
+    doc.rect(0, 0, pageW, 34, "F");
+    doc.setFont("DejaVuSans", "normal");
+    doc.setTextColor(27, 31, 36);
+    doc.setFontSize(15);
+    doc.text(opts.title, opts.margin, 18);
+    if (opts.subtitle) {
+      doc.setFontSize(9);
+      doc.text(opts.subtitle, opts.margin, 27);
+    }
+    doc.setFontSize(8.5);
+    doc.text(opts.right || "", pageW - opts.margin, 18, { align: "right" });
+    doc.setTextColor(27, 31, 36);
+  }
+  function pdfAddFooter(doc, margin) {
+    var pageCount = doc.internal.getNumberOfPages();
+    var pageW = doc.internal.pageSize.getWidth();
+    var pageH = doc.internal.pageSize.getHeight();
+    for (var i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFont("DejaVuSans", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(139, 147, 157);
+      doc.text("Garaj Defteri", margin, pageH - 14);
+      doc.text("Sayfa " + i + " / " + pageCount, pageW - margin, pageH - 14, { align: "right" });
+      doc.setTextColor(27, 31, 36);
+    }
+  }
+  function pdfKpiCard(doc, x, y, w, h, color, label, value) {
+    var rgb = pdfHexToRgb(color);
+    doc.setFillColor(rgb[0], rgb[1], rgb[2]);
+    doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
+    doc.roundedRect(x, y, w, h, 3, 3, "F");
+    doc.setTextColor(27, 31, 36);
+    doc.setFont("DejaVuSans", "normal");
+    doc.setFontSize(13);
+    doc.text(String(value), x + 10, y + h - 20);
+    doc.setFontSize(8.5);
+    doc.text(label, x + 10, y + h - 8);
+    doc.setTextColor(27, 31, 36);
+  }
   function buildPdfReport() {
     var doc = new jspdf.jsPDF({ orientation: "landscape" });
     // Türkçe karakterler (ç, ğ, ı, ö, ş, ü) için varsayılan Helvetica yerine
     // DejaVu Sans kullanılıyor. Font, dejavu-sans-jspdf.js dosyasıyla eklendi.
     doc.setFont("DejaVuSans", "normal");
     var margin = 40;
-    doc.setFontSize(16);
-    doc.text("Garaj Defteri - Filo Raporu", margin, 40);
-    doc.setFontSize(10);
-    doc.text("Oluşturulma tarihi: " + fmtDateTR(todayStr()), margin, 58);
+    var dateLabel = fmtDateTR(todayStr());
+
+    var carTotals = {};
+    (state.expenses || []).forEach(function (e) { carTotals[e.carId] = (carTotals[e.carId] || 0) + (e.amount || 0); });
+    var grandTotal = Object.keys(carTotals).reduce(function (sum, k) { return sum + carTotals[k]; }, 0);
+
+    // ---- Sayfa 1: Araçlar ----
+    pdfAddBanner(doc, { title: "Garaj Defteri — Filo Raporu", subtitle: "Araçlar", right: "Oluşturulma tarihi: " + dateLabel, color: "#F2A93B", margin: margin });
+
+    var kpiY = 46, kpiH = 34, kpiGap = 10;
+    var kpiW = (doc.internal.pageSize.getWidth() - 2 * margin - 2 * kpiGap) / 3;
+    pdfKpiCard(doc, margin, kpiY, kpiW, kpiH, "#F2A93B", "Araç Sayısı", (state.cars || []).length);
+    pdfKpiCard(doc, margin + kpiW + kpiGap, kpiY, kpiW, kpiH, "#4FA8D8", "Şoför Sayısı", (state.drivers || []).length);
+    pdfKpiCard(doc, margin + 2 * (kpiW + kpiGap), kpiY, kpiW, kpiH, "#7BC67E", "Toplam Masraf", fmtTL(grandTotal));
 
     var carFields = carActivityFieldDefs().filter(function (f) { return f.type !== "photo"; });
     doc.autoTable({
-      startY: 75,
+      startY: kpiY + kpiH + 14,
       head: [carFields.map(function (f) { return f.label; })],
       body: (state.cars || []).map(function (c) { return carFields.map(function (f) { return String(excelCellValue(f.type, c[f.key]) || "—"); }); }),
       styles: { fontSize: 7, font: "DejaVuSans", fontStyle: "normal" },
-      headStyles: { fillColor: [242, 169, 59], font: "DejaVuSans", fontStyle: "bold" },
+      headStyles: { fillColor: [242, 169, 59], textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [245, 246, 248] },
       margin: { left: margin, right: margin }
     });
 
+    // ---- Sayfa 2: Şoförler ----
     doc.addPage();
-    doc.setFont("DejaVuSans", "normal");
-    doc.setFontSize(14);
-    doc.text("Şoförler", margin, 40);
+    pdfAddBanner(doc, { title: "Şoförler", subtitle: (state.drivers || []).length + " şoför kayıtlı", right: dateLabel, color: "#4FA8D8", margin: margin });
     var driverFields = driverActivityFieldDefs();
     doc.autoTable({
-      startY: 55,
+      startY: 46,
       head: [driverFields.map(function (f) { return f.label; })],
       body: (state.drivers || []).map(function (d) { return driverFields.map(function (f) { return String(excelCellValue(f.type, d[f.key]) || "—"); }); }),
       styles: { fontSize: 7, font: "DejaVuSans", fontStyle: "normal" },
-      headStyles: { fillColor: [79, 168, 216], font: "DejaVuSans", fontStyle: "bold" },
+      headStyles: { fillColor: [79, 168, 216], textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [245, 246, 248] },
       margin: { left: margin, right: margin }
     });
 
+    // ---- Sayfa 3: Masraf Özeti (çubuk grafik + tablo) ----
     doc.addPage();
+    pdfAddBanner(doc, { title: "Masraf Özeti", subtitle: "Araç başına toplam masraf dağılımı", right: dateLabel, color: "#7BC67E", margin: margin });
+
+    var chartCars = (state.cars || []).slice().sort(function (a, b) { return (carTotals[b.id] || 0) - (carTotals[a.id] || 0); });
+    var pageW = doc.internal.pageSize.getWidth();
+    var labelW = 75, valueW = 60;
+    var barAreaX = margin + labelW;
+    var barAreaW = pageW - margin - labelW - valueW - margin;
+    var maxVal = Math.max.apply(null, chartCars.map(function (c) { return carTotals[c.id] || 0; }).concat([1]));
+    var barH = 12, barGap = 7;
+    var chartY = 50;
+
     doc.setFont("DejaVuSans", "normal");
-    doc.setFontSize(14);
-    doc.text("Masraf Özeti", margin, 40);
-    var carTotals = {};
-    (state.expenses || []).forEach(function (e) { carTotals[e.carId] = (carTotals[e.carId] || 0) + (e.amount || 0); });
-    var summaryBody = (state.cars || []).map(function (c) { return [c.name, fmtTL(carTotals[c.id] || 0)]; });
-    var grandTotal = Object.keys(carTotals).reduce(function (sum, k) { return sum + carTotals[k]; }, 0);
+    chartCars.forEach(function (c, i) {
+      var y = chartY + i * (barH + barGap);
+      var val = carTotals[c.id] || 0;
+      doc.setFontSize(8.5);
+      doc.setTextColor(27, 31, 36);
+      var carName = c.name.length > 14 ? c.name.slice(0, 13) + "…" : c.name;
+      doc.text(carName, margin, y + barH - 3);
+      var rgb = pdfHexToRgb(c.color);
+      doc.setFillColor(238, 240, 243);
+      doc.roundedRect(barAreaX, y, barAreaW, barH, 2, 2, "F");
+      var w = Math.max(val > 0 ? 4 : 0, (val / maxVal) * barAreaW);
+      doc.setFillColor(rgb[0], rgb[1], rgb[2]);
+      doc.roundedRect(barAreaX, y, w, barH, 2, 2, "F");
+      doc.setFontSize(8.5);
+      doc.text(fmtTL(val), barAreaX + barAreaW + 8, y + barH - 3);
+    });
+
+    var tableStartY = chartY + chartCars.length * (barH + barGap) + 16;
+    var summaryBody = chartCars.map(function (c) { return [c.name, fmtTL(carTotals[c.id] || 0)]; });
     summaryBody.push(["TOPLAM", fmtTL(grandTotal)]);
     doc.autoTable({
-      startY: 55,
+      startY: tableStartY,
       head: [["Araç", "Toplam Masraf"]],
       body: summaryBody,
       styles: { fontSize: 9, font: "DejaVuSans", fontStyle: "normal" },
-      headStyles: { fillColor: [123, 198, 126], font: "DejaVuSans", fontStyle: "bold" },
+      headStyles: { fillColor: [123, 198, 126], textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [245, 246, 248] },
+      didParseCell: function (data) {
+        if (data.row.section === "body" && data.row.index === summaryBody.length - 1) {
+          data.cell.styles.fontStyle = "bold";
+          data.cell.styles.fillColor = [230, 234, 238];
+        }
+      },
       margin: { left: margin, right: margin }
     });
 
+    pdfAddFooter(doc, margin);
     doc.save("garaj-defteri-rapor-" + todayStr() + ".pdf");
     toast("PDF raporu indirildi.");
   }
