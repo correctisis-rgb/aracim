@@ -888,7 +888,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.9.2"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.9.3"; // Dynamic Version Tracking
   var APP_UPDATED = "23 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1415,10 +1415,24 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // Çevrimdışıyken yapılan her değişiklik burada sayılır; "X kayıt
   // senkronize edilecek" rozeti bu sayaca göre gösterilir. Bağlantı
   // dönüp syncOfflineData() başarıyla tamamlanınca sıfırlanır.
+  //
+  // Tek bir kullanıcı işlemi (ör. "masraf ekle") aslında birden fazla
+  // persist* çağrısını art arda tetikleyebilir (masraf verisi + aktivite
+  // geçmişi kaydı + gerekirse aracın km bilgisi) — bunların hepsi aynı
+  // senkron çağrısı içinde (aynı "tick"te) gerçekleşir. Kullanıcıya "1 işlem
+  // yaptım ama 2-3 kayıt senkronize edilecek diyor" diye yanlış bir sayı
+  // göstermemek için, aynı tick içindeki ardışık markPendingSync()
+  // çağrıları tek bir artışa indirgeniyor (microtask ile ertelenip toplanıyor).
+  var pendingSyncBumpQueued = false;
   function markPendingSync() {
-    state.pendingSyncCount = (state.pendingSyncCount || 0) + 1;
-    setLocalData("pending_sync_count", state.pendingSyncCount);
-    render();
+    if (pendingSyncBumpQueued) return;
+    pendingSyncBumpQueued = true;
+    Promise.resolve().then(function () {
+      pendingSyncBumpQueued = false;
+      state.pendingSyncCount = (state.pendingSyncCount || 0) + 1;
+      setLocalData("pending_sync_count", state.pendingSyncCount);
+      render();
+    });
   }
   function clearPendingSync() {
     state.pendingSyncCount = 0;
