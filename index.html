@@ -494,6 +494,10 @@
     display: none !important;
   }
 
+  .license-banner { margin: 0 0 12px; padding: 10px 14px; border-radius: 10px; font-size: 13.5px; font-weight: 500; cursor: pointer; line-height: 1.4; }
+  .license-banner.warn { background: rgba(242,169,59,0.12); border: 1px solid var(--amber); color: var(--amber); }
+  .license-banner.bad { background: rgba(235,87,87,0.12); border: 1px solid var(--red); color: var(--red); }
+
   .exp-added-by { font-size: 11px; color: var(--muted); }
 
   /* ---------- auth screen ---------- */
@@ -914,7 +918,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.9.8"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.9.9"; // Dynamic Version Tracking
   var APP_UPDATED = "23 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1199,7 +1203,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     householdDataLoaded: false,
     notifHistory: getLocalData("notif_history", []),
     activityLog: getLocalData("activity_log", []),
-    theme: getLocalData("theme", "dark")
+    theme: getLocalData("theme", "dark"),
+    license: null,
+    licenseBannerDismissedFor: null
   };
   document.documentElement.setAttribute("data-theme", state.theme === "light" ? "light" : "dark");
   function applyThemeColorMeta() {
@@ -1308,6 +1314,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       state.drivers = data.drivers || state.drivers || [];
       state.notifHistory = data.notifHistory || state.notifHistory || [];
       state.activityLog = data.activityLog || state.activityLog || [];
+      state.license = data.license || null;
       setLocalData("cars", state.cars);
       setLocalData("expenses", state.expenses);
       setLocalData("family", state.familyMembers);
@@ -1417,7 +1424,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       activityLog: true
     };
   }
-  function myHouseholdPerms() {
+  function myHouseholdPermsRaw() {
     if (!state.currentUser) return normalizeMemberPerms(null);
     // Hane sahibi her zaman tam yetkilidir; kendine kısıtlama koyamaz.
     if (state.householdId === state.currentUser.id) {
@@ -1425,6 +1432,43 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     }
     var mine = (state.householdMembers || []).find(function (m) { return m.uid === state.currentUser.id; });
     return mine ? mine.perms : normalizeMemberPerms(null);
+  }
+  // ---------- Lisans sistemi ----------
+  // Hane dokümanındaki license.expiresAt (Firestore Timestamp) alanına göre
+  // durum hesaplar. Admin hesabı lisans kısıtlamasından her zaman muaftır.
+  function licenseExpiresAtMillis() {
+    var lic = state.license;
+    if (!lic || !lic.expiresAt) return null;
+    if (typeof lic.expiresAt.toMillis === "function") return lic.expiresAt.toMillis();
+    if (typeof lic.expiresAt.seconds === "number") return lic.expiresAt.seconds * 1000;
+    var t = new Date(lic.expiresAt).getTime();
+    return isNaN(t) ? null : t;
+  }
+  function getLicenseStatus() {
+    var ms = licenseExpiresAtMillis();
+    if (!ms) return { state: "none", daysLeft: 0, expiresAtMs: null };
+    var daysLeft = Math.ceil((ms - Date.now()) / (24 * 60 * 60 * 1000));
+    if (ms <= Date.now()) return { state: "expired", daysLeft: 0, expiresAtMs: ms };
+    if (daysLeft <= 7) return { state: "expiring", daysLeft: daysLeft, expiresAtMs: ms };
+    return { state: "active", daysLeft: daysLeft, expiresAtMs: ms };
+  }
+  function isLicenseLocked() {
+    if (!state.currentUser) return false;
+    if (isAdminUser(state.currentUser)) return false;
+    var s = getLicenseStatus().state;
+    return s === "none" || s === "expired";
+  }
+  function myHouseholdPerms() {
+    var perms = myHouseholdPermsRaw();
+    // Lisans yoksa/süresi dolmuşsa hane genelinde salt-okunur moda geç:
+    // ekleme/düzenleme/silme, masraf ekleme, yedekleme ve toplu içe
+    // aktarma kapanır. Görüntüleme (seeCars/seeExpenses/seeDrivers/report/
+    // activityLog) etkilenmez, "dosyaları görsün" gereksinimi bu şekilde
+    // karşılanır.
+    if (isLicenseLocked()) {
+      perms = Object.assign({}, perms, { manage: false, addExpense: false, backup: false, bulkImport: false });
+    }
+    return perms;
   }
   function hasHouseholdPerm(key) {
     return !!myHouseholdPerms()[key];
@@ -1883,6 +1927,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   var REMINDER_TRIGGER_URL = "https://aracim-mu.vercel.app/api/trigger-reminder";
   var ANNOUNCEMENT_TRIGGER_URL = "https://aracim-mu.vercel.app/api/trigger-announcement";
+  var LICENSE_CREATE_URL = "https://aracim-mu.vercel.app/api/create-license";
+  var LICENSE_LIST_URL = "https://aracim-mu.vercel.app/api/list-licenses";
+  var LICENSE_REDEEM_URL = "https://aracim-mu.vercel.app/api/redeem-license";
   var APP_SHARE_URL = "https://correctisis-rgb.github.io/aracim/";
   // ?a2hs=1 ile açılan link, sayfa yüklenir yüklenmez otomatik olarak
   // "Ana Ekrana Ekle" akışını tetikler (bkz. maybeAutoTriggerAddToHomeScreen).
@@ -1925,6 +1972,97 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     mySupportRequests: null, mySupportRequestsError: null,
     myLogins: null
   };
+  // --- Admin: Lisans Yönetimi ---
+  var licenseAdmin = {
+    licenses: null, households: null,
+    loading: false, error: null
+  };
+  function loadLicenseAdminData(force) {
+    if (!state.currentUser || !isAdminUser(state.currentUser)) return;
+    if (licenseAdmin.loading) return;
+    if (licenseAdmin.licenses && !force) return;
+    licenseAdmin.loading = true;
+    licenseAdmin.error = null;
+    if (state.modal && state.modal.type === "licenses") render();
+    if (!auth.currentUser) { licenseAdmin.loading = false; licenseAdmin.error = "Oturum bulunamadı."; render(); return; }
+    auth.currentUser.getIdToken().then(function (idToken) {
+      return fetch(LICENSE_LIST_URL, {
+        method: "POST",
+        headers: { "Authorization": "Bearer " + idToken, "Content-Type": "application/json" }
+      });
+    }).then(function (r) {
+      return r.json().then(function (data) { return { ok: r.ok, data: data }; });
+    }).then(function (result) {
+      licenseAdmin.loading = false;
+      if (result.ok && result.data && result.data.ok) {
+        licenseAdmin.licenses = result.data.licenses || [];
+        licenseAdmin.households = result.data.households || [];
+      } else {
+        licenseAdmin.error = (result.data && result.data.error) ? result.data.error : "Veriler alınamadı.";
+      }
+      if (state.modal && state.modal.type === "licenses") render();
+    }).catch(function (err) {
+      licenseAdmin.loading = false;
+      licenseAdmin.error = err && err.message ? err.message : String(err);
+      if (state.modal && state.modal.type === "licenses") render();
+    });
+  }
+  function createLicense(days) {
+    if (!state.currentUser || !isAdminUser(state.currentUser)) return;
+    var d = parseInt(days, 10);
+    if (!d || d <= 0) { toast("Geçerli bir gün sayısı gir."); return; }
+    if (!auth.currentUser) { toast("Oturum bulunamadı, tekrar giriş yapın."); return; }
+    toast("Lisans oluşturuluyor...");
+    auth.currentUser.getIdToken().then(function (idToken) {
+      return fetch(LICENSE_CREATE_URL, {
+        method: "POST",
+        headers: { "Authorization": "Bearer " + idToken, "Content-Type": "application/json" },
+        body: JSON.stringify({ days: d, count: 1 })
+      });
+    }).then(function (r) {
+      return r.json().then(function (data) { return { ok: r.ok, data: data }; });
+    }).then(function (result) {
+      if (result.ok && result.data && result.data.ok) {
+        var code = (result.data.codes || [])[0] || "";
+        toast("Lisans oluşturuldu: " + code);
+        loadLicenseAdminData(true);
+      } else {
+        var msg = (result.data && result.data.error) ? result.data.error : "bilinmeyen hata";
+        toast("Oluşturulamadı: " + msg);
+      }
+    }).catch(function (err) {
+      console.error(err);
+      toast("İstek gönderilemedi: " + (err && err.message ? err.message : err));
+    });
+  }
+  function redeemLicenseCode(rawCode) {
+    if (!state.currentUser) return;
+    if (state.householdId !== state.currentUser.id) { toast("Sadece hane sahibi lisans girebilir."); return; }
+    var code = (rawCode || "").trim().toUpperCase();
+    if (!code) { toast("Lütfen bir lisans kodu gir."); return; }
+    if (!auth.currentUser) { toast("Oturum bulunamadı, tekrar giriş yapın."); return; }
+    return auth.currentUser.getIdToken().then(function (idToken) {
+      return fetch(LICENSE_REDEEM_URL, {
+        method: "POST",
+        headers: { "Authorization": "Bearer " + idToken, "Content-Type": "application/json" },
+        body: JSON.stringify({ code: code })
+      });
+    }).then(function (r) {
+      return r.json().then(function (data) { return { ok: r.ok, data: data }; });
+    }).then(function (result) {
+      if (result.ok && result.data && result.data.ok) {
+        toast("Lisans etkinleştirildi! 🎉");
+        state.modal = { type: "profile" };
+        render();
+      } else {
+        var msg = (result.data && result.data.error) ? result.data.error : "Lisans etkinleştirilemedi.";
+        toast(msg);
+      }
+    }).catch(function (err) {
+      console.error(err);
+      toast("İstek gönderilemedi: " + (err && err.message ? err.message : err));
+    });
+  }
 
   // --- Oturum/cihaz denetimi: giriş anında kim, hangi cihazdan bağlandı ---
   var pendingAuthAction = null; // loginAs() tarafından okunur; sayfa yenilemede (sessiz oturum geri yükleme) log YAZILMAZ.
@@ -3143,6 +3281,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       state.familyMembers = [];
       state.budgets = {};
       state.drivers = [];
+      state.license = null;
       state.householdId = null;
       state.householdInviteToken = null;
       state.householdMembers = [];
@@ -3702,6 +3841,25 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // ---------- rendering ----------
   var charts = { donut: null, trend: null, consumption: null, price: null };
 
+  function buildLicenseBannerHtml() {
+    if (!state.currentUser || isAdminUser(state.currentUser)) return "";
+    var st = getLicenseStatus();
+    if (st.state === "active") return "";
+    var isOwn = state.householdId === state.currentUser.id;
+    var msg, cls;
+    if (st.state === "expiring") {
+      cls = "license-banner warn";
+      msg = "⏳ Lisansınızın süresi " + st.daysLeft + " gün içinde doluyor.";
+    } else if (st.state === "expired") {
+      cls = "license-banner bad";
+      msg = "🔒 Lisans süreniz doldu. Verileriniz görüntülenebilir ama düzenlenemez.";
+    } else {
+      cls = "license-banner bad";
+      msg = "🔒 Bu hanede aktif bir lisans yok. Verileriniz görüntülenebilir ama düzenlenemez.";
+    }
+    msg += isOwn ? " Hesabım bölümünden yeni bir lisans kodu girebilirsin." : " Hane sahibinin Hesabım bölümünden yeni bir lisans kodu girmesi gerekiyor.";
+    return '<div class="' + cls + '" data-action="open-profile">' + msg + '</div>';
+  }
   function render() {
     var app = document.getElementById("app");
     var carsList = state.cars || [];
@@ -3776,6 +3934,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             (isAdminUser(user) ?
               '<div class="account-menu-divider"></div>' +
               '<button type="button" class="account-menu-item" data-action="open-announcement">📢 Duyuru / Bakım Mesajı Gönder</button>' +
+              '<button type="button" class="account-menu-item" data-action="open-licenses">🔑 Lisans Yönetimi</button>' +
               '<button type="button" class="account-menu-item" data-action="trigger-reminders">🛠️ Bildirimleri Tetikle</button>' +
               '<button type="button" class="account-menu-item" data-action="open-health">🩺 Sağlık</button>' +
               '<button type="button" class="account-menu-item" data-action="open-errors">🐞 Hata İzleme</button>' +
@@ -3802,6 +3961,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         '<label class="btn-secondary backup-import-label" style="cursor:pointer;position:relative;overflow:hidden;">⬆️ Geri Yükle<input type="file" accept="application/json" id="import-input" style="position:absolute;inset:0;opacity:0;cursor:pointer;" /></label>' +
       '</div>' +
       '</header>';
+    html += buildLicenseBannerHtml();
 
     if (user) html += renderOnboardingCard();
 
@@ -4695,6 +4855,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       backdrop.appendChild(buildSupportRequestsModal());
     } else if (state.modal.type === "loginAudit") {
       backdrop.appendChild(buildLoginAuditModal());
+    } else if (state.modal.type === "licenses") {
+      backdrop.appendChild(buildLicensesModal());
     } else if (state.modal.type === "announcement") {
       backdrop.appendChild(buildAnnouncementModal());
     } else if (state.modal.type === "householdQR") {
@@ -4847,6 +5009,28 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return html;
   }
 
+  function buildLicenseSectionHtml() {
+    var st = getLicenseStatus();
+    var badge;
+    if (st.state === "active") badge = '<span class="mon-badge ok">🟢 Aktif — ' + st.daysLeft + ' gün kaldı</span>';
+    else if (st.state === "expiring") badge = '<span class="mon-badge warn">⏳ ' + st.daysLeft + ' gün içinde doluyor</span>';
+    else if (st.state === "expired") badge = '<span class="mon-badge bad">🔴 Süresi doldu</span>';
+    else badge = '<span class="mon-badge bad">🔒 Lisans yok</span>';
+    var expiresLine = st.expiresAtMs ? ('<div class="mon-row"><span class="mon-label">Bitiş Tarihi</span><span class="mon-value">' + fmtDateShort(st.expiresAtMs) + '</span></div>') : '';
+    var hintText = st.state === "none"
+      ? "Bu hanede aktif bir lisans yok. Uygulamayı kullanmaya devam etmek için bir lisans kodu gir."
+      : st.state === "expired"
+      ? "Lisans süreniz doldu. Verileriniz görüntülenebilir ama düzenlenemez; devam etmek için yeni bir kod gir."
+      : "Lisansının süresi yakında dolacak, zamanında yenilemeyi unutma.";
+    return '<p class="profile-section-title">🔑 Lisans</p>' +
+      '<div class="mon-row"><span class="mon-label">Durum</span><span class="mon-value">' + badge + '</span></div>' +
+      expiresLine +
+      (st.state !== "active" ? '<p class="field-hint" style="margin-top:-4px; color:var(--amber)">' + hintText + '</p>' : '') +
+      '<div class="budget-row">' +
+        '<input id="license-code-input" placeholder="Lisans kodu (örn. LIC-XXXXX-XXXXX)" style="flex:1; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:8px 10px; font-size:14px;" />' +
+        '<button type="button" class="btn-primary" id="license-activate">Lisansı Etkinleştir</button>' +
+      '</div>';
+  }
   function buildProfileModal() {
     var user = state.currentUser;
     var autoBackupSettings = getAutoBackupSettings();
@@ -4959,6 +5143,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         '<button type="button" class="btn-secondary full" id="household-join">Koda Katıl</button>' +
         '<button type="button" class="btn-secondary full" id="household-scan">📷 QR Okut</button>' +
       '</div>' +
+
+      (isOwnHousehold ? buildLicenseSectionHtml() : '') +
 
       '<p class="profile-section-title">Şifre Değiştir</p>' +
       '<label class="field"><span>Mevcut şifre</span><input id="p-cur-pass" type="password" autocomplete="current-password" /></label>' +
@@ -5159,6 +5345,20 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         onConfirm: function () { deleteAccountAndData(pass); }
       });
     });
+
+    var licenseActivateBtn = modal.querySelector("#license-activate");
+    if (licenseActivateBtn) {
+      licenseActivateBtn.addEventListener("click", function () {
+        var codeInput = modal.querySelector("#license-code-input");
+        var codeVal = codeInput ? codeInput.value : "";
+        licenseActivateBtn.disabled = true;
+        licenseActivateBtn.textContent = "Kontrol ediliyor…";
+        Promise.resolve(redeemLicenseCode(codeVal)).then(function () {
+          licenseActivateBtn.disabled = false;
+          licenseActivateBtn.textContent = "Lisansı Etkinleştir";
+        });
+      });
+    }
 
     return modal;
   }
@@ -5747,6 +5947,90 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             '</div>' +
             '<div class="err-item-msg">' + esc(l.name || "") + ' — ' + (l.action === "register" ? "Yeni hesap oluşturdu" : "Giriş yaptı") + '</div>' +
             '<div class="err-item-meta">' + esc(l.device || "") + (l.appVersion ? (" · " + esc(l.appVersion)) : "") + '</div>' +
+          '</li>';
+        });
+        html += '</ul>';
+      }
+    }
+
+    modal.innerHTML = html;
+    return modal;
+  }
+  function fmtDateShort(ms) {
+    if (!ms) return "—";
+    var d = new Date(ms);
+    return d.toLocaleDateString("tr-TR");
+  }
+  function licenseExpiresMsFromField(lic) {
+    if (!lic || !lic.expiresAt) return null;
+    if (typeof lic.expiresAt.toMillis === "function") return lic.expiresAt.toMillis();
+    if (typeof lic.expiresAt.seconds === "number") return lic.expiresAt.seconds * 1000;
+    var t = new Date(lic.expiresAt).getTime();
+    return isNaN(t) ? null : t;
+  }
+  function buildLicensesModal() {
+    var modal = document.createElement("div");
+    modal.className = "modal wide";
+    modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
+
+    var html = '<div class="modal-head"><h3>🔑 Lisans Yönetimi</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>';
+    html += '<div class="mon-refresh-row"><button type="button" data-action="refresh-licenses">↻ Yenile</button></div>';
+
+    html += '<p class="profile-section-title">Yeni Lisans Kodu Oluştur</p>';
+    html += '<div class="budget-row">' +
+      '<button type="button" class="btn-secondary" data-action="create-license" data-days="3">3 Günlük</button>' +
+      '<button type="button" class="btn-secondary" data-action="create-license" data-days="7">7 Günlük</button>' +
+      '<button type="button" class="btn-secondary" data-action="create-license" data-days="14">14 Günlük</button>' +
+      '<button type="button" class="btn-primary" data-action="create-license" data-days="365">Yıllık (365)</button>' +
+    '</div>';
+    html += '<div class="budget-row" style="margin-top:8px">' +
+      '<input id="license-custom-days" type="number" min="1" max="3650" placeholder="Özel gün sayısı" style="background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:8px 10px; font-size:14px; width:140px;" />' +
+      '<button type="button" class="btn-secondary" data-action="create-license-custom">Oluştur</button>' +
+    '</div>';
+
+    if (licenseAdmin.loading && !licenseAdmin.licenses) {
+      html += '<p class="mon-loading">Yükleniyor…</p>';
+    } else if (licenseAdmin.error) {
+      html += '<p class="mon-empty">Veriler alınamadı: ' + esc(licenseAdmin.error) + '</p>';
+    } else {
+      var households = licenseAdmin.households || [];
+      html += '<p class="profile-section-title">Şu An Lisanslı Haneler (' + households.length + ')</p>';
+      if (!households.length) {
+        html += '<p class="mon-empty">Aktif lisansı olan hane yok.</p>';
+      } else {
+        html += '<ul class="err-list">';
+        households.forEach(function (h) {
+          var ms = licenseExpiresMsFromField(h.license);
+          var daysLeft = ms ? Math.ceil((ms - Date.now()) / (24 * 60 * 60 * 1000)) : 0;
+          var badge = daysLeft <= 7 ? '<span class="mon-badge warn">⏳ ' + daysLeft + ' gün kaldı</span>' : '<span class="mon-badge ok">🟢 ' + daysLeft + ' gün kaldı</span>';
+          html += '<li class="err-item">' +
+            '<div class="err-item-head">' +
+              '<span class="err-item-user">' + esc(h.name || h.email || h.id) + '</span>' +
+              badge +
+            '</div>' +
+            '<div class="err-item-meta">Kod: ' + esc((h.license && h.license.code) || "—") + ' · Bitiş: ' + fmtDateShort(ms) + '</div>' +
+          '</li>';
+        });
+        html += '</ul>';
+      }
+
+      var licenses = licenseAdmin.licenses || [];
+      html += '<p class="profile-section-title">Oluşturulan Lisans Kodları (' + licenses.length + ')</p>';
+      if (!licenses.length) {
+        html += '<p class="mon-empty">Henüz kod oluşturulmadı.</p>';
+      } else {
+        html += '<ul class="err-list">';
+        licenses.forEach(function (l) {
+          var isUsed = !!l.used;
+          html += '<li class="err-item">' +
+            '<div class="err-item-head">' +
+              '<span class="err-item-time">' + esc(l.id) + '</span>' +
+              (isUsed ? '<span class="mon-badge bad">Kullanıldı</span>' : '<span class="mon-badge ok">Boşta</span>') +
+            '</div>' +
+            '<div class="err-item-meta">' + (l.days || 0) + ' gün' + (l.label ? (" · " + esc(l.label)) : "") + (isUsed && l.usedByHousehold ? (" · Kullanan hane: " + esc(l.usedByHousehold)) : "") + '</div>' +
+            '<div class="mon-refresh-row" style="margin:8px 0 0">' +
+              '<button type="button" data-action="copy-license-code" data-code="' + esc(l.id) + '">📋 Kodu Kopyala</button>' +
+            '</div>' +
           '</li>';
         });
         html += '</ul>';
@@ -7327,6 +7611,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         var BULK_IMPORT_ACTIONS = ["open-bulk-import"];
         var ACTIVITY_LOG_ACTIONS = ["open-activity-log"];
         var SEE_EXPENSES_VIEWS = ["panel", "analiz"]; // maliyet verisi içeren görünümler
+        var LICENSE_LOCKED_ACTIONS = MANAGE_ONLY_ACTIONS.concat(ADD_EXPENSE_ACTIONS, BACKUP_ACTIONS, BULK_IMPORT_ACTIONS);
+        if (isLicenseLocked() && LICENSE_LOCKED_ACTIONS.indexOf(action) !== -1) {
+          toast("Lisans süreniz doldu. Devam etmek için Hesabım bölümünden yeni bir lisans kodu girin.");
+          state.modal = { type: "profile" };
+          render();
+          return;
+        }
         var actionPerms = myHouseholdPerms();
         if (MANAGE_ONLY_ACTIONS.indexOf(action) !== -1 && !actionPerms.manage) {
           toast("Bu hanede araç/şoför/masraf düzenleme yetkin yok.");
@@ -7618,6 +7909,33 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         else if (action === "support-mark-resolved") { setSupportRequestStatus(el.getAttribute("data-id"), "resolved"); }
         else if (action === "support-mark-open") { setSupportRequestStatus(el.getAttribute("data-id"), "open"); }
         else if (action === "refresh-login-audit") { loadLoginAuditLogs(true); }
+        else if (action === "open-licenses") {
+          ev.stopPropagation();
+          if (!isAdminUser(state.currentUser)) return;
+          state.modal = { type: "licenses" };
+          state.accountMenuOpen = false;
+          render();
+          loadLicenseAdminData();
+        }
+        else if (action === "refresh-licenses") { loadLicenseAdminData(true); }
+        else if (action === "create-license") {
+          var presetDays = parseInt(el.getAttribute("data-days"), 10);
+          createLicense(presetDays);
+        }
+        else if (action === "create-license-custom") {
+          var customInput = document.getElementById("license-custom-days");
+          var customDays = customInput ? parseInt(customInput.value, 10) : NaN;
+          createLicense(customDays);
+        }
+        else if (action === "copy-license-code") {
+          var codeVal = el.getAttribute("data-code") || "";
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(codeVal).then(function () { toast("Kod kopyalandı: " + codeVal); })
+              .catch(function () { toast("Kopyalanamadı, kod: " + codeVal); });
+          } else {
+            toast("Kopyalanamadı, kod: " + codeVal);
+          }
+        }
         else if (action === "logout") {
           ev.stopPropagation();
           state.accountMenuOpen = false;
