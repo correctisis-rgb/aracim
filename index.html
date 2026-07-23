@@ -99,6 +99,23 @@
     .fab-add-expense-label { display: none; }
     .fab-add-expense { padding: 0; width: 52px; justify-content: center; }
   }
+  .floating-sync-pill {
+    position: fixed;
+    left: 14px;
+    bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+    z-index: 44;
+    display: inline-flex; align-items: center;
+    max-width: calc(100vw - 28px);
+    padding: 8px 14px;
+    border-radius: 999px;
+    font-size: 12.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    color: #1B1F24;
+    background: var(--amber);
+    box-shadow: 0 6px 18px -4px #00000060, 0 2px 6px #00000040;
+    animation: fadeIn 0.2s ease-out;
+  }
   @media (max-width: 640px) {
     .toast { bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
   }
@@ -871,7 +888,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.9.0"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.9.1"; // Dynamic Version Tracking
   var APP_UPDATED = "23 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -3008,7 +3025,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     });
     window.addEventListener("offline", function () { 
       state.online = false; 
-      if (state.currentUser) render(); 
+      if (state.currentUser) { toast("Çevrimdışısınız. Değişiklikleriniz internet gelince otomatik senkronize edilecek."); render(); }
     });
     auth.onAuthStateChanged(function (fbUser) {
       if (fbUser) {
@@ -3701,6 +3718,18 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     }
 
     } // end mainSection "cars" branch
+
+    // Çevrimdışı/senkron durumu sadece header'da kalırsa kullanıcı aşağı
+    // kaydırınca gözden kaçabiliyor; bu yüzden ekranda sabit kalan küçük
+    // bir gösterge de ekleniyor. Her şey yolundayken (çevrimiçi ve
+    // bekleyen kayıt yoksa) hiçbir şey göstermiyor ki gereksiz yer kaplamasın.
+    if (user && (!state.online || state.pendingSyncCount > 0)) {
+      html += '<div class="floating-sync-pill" role="status" style="' + (!state.online ? 'background:#E2574C;color:#fff' : 'background:var(--amber);color:#1B1F24') + '">' +
+        (!state.online
+          ? '🔴 Çevrimdışı — kaydediliyor'
+          : '⏳ ' + state.pendingSyncCount + ' kayıt senkronize edilecek') +
+        '</div>';
+    }
 
     app.innerHTML = html;
 
@@ -7308,4 +7337,3 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 </script>
 </body>
 </html>
-
