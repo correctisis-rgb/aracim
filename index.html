@@ -1144,6 +1144,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     carFilterText: "",
     driverFilterText: "",
     carsTabsExpanded: false,
+    driversListExpanded: false,
+    driverUpcomingExpanded: false,
+    calendarVisibleCount: 20,
     logVisibleCount: 20,
     budgets: getLocalData("budgets", {}),
     householdId: null,
@@ -4165,8 +4168,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (items.length === 0) {
       html += '<p class="empty-hint">Önce bir araç veya şoför ekleyin; muayene, sigorta, kasko ve şoför belge tarihleri burada listelenecek.</p>';
     } else {
+      // Ekran uzun listeyle dolup taşmasın diye takvim kayıtları 20'şerlik
+      // sayfalar halinde gösterilir; "Daha Fazla Göster" ile devamı açılır.
+      var calendarPageSize = 20;
+      var calendarVisibleCount = Math.max(calendarPageSize, state.calendarVisibleCount || calendarPageSize);
+      var calendarVisibleSlice = items.slice(0, calendarVisibleCount);
+      var hasMoreCalendarItems = items.length > calendarVisibleSlice.length;
       html += '<ul class="summary-list">';
-      items.forEach(function (it) {
+      calendarVisibleSlice.forEach(function (it) {
         var isDriver = it.kind === "driver";
         var ownerName = isDriver ? it.driverName : it.carName;
         var avatar = (!isDriver && it.carPhoto)
@@ -4192,6 +4201,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           '</li>';
       });
       html += '</ul>';
+      if (hasMoreCalendarItems) {
+        html += '<div style="text-align:center; margin-top:12px">' +
+          '<button type="button" class="btn-secondary" data-action="load-more-calendar">Daha Fazla Göster (' + (items.length - calendarVisibleSlice.length) + ' kayıt daha)</button>' +
+          '</div>';
+      }
     }
     html += '<p class="summary-hint">30 gün içinde: kırmızı · 90 gün içinde: turuncu · daha uzak: yeşil. Araç tarihlerini araç kartından, şoför belge tarihlerini Şoförler bölümünden güncelleyebilirsiniz.</p>';
     html += '</section>';
@@ -5724,12 +5738,22 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     html += buildEntitySearchBoxHTML("driver-filter-search", "clear-driver-filter", state.driverFilterText, "🔎 İsim, telefon veya araç ile ara...", "Şoförlerde ara");
 
-    var driverUpcomingItems = computeDriverSummaryItems().filter(function (it) { return it.tier < 3; });
+    // Arama kutusuna yazılan metin hem alttaki şoför listesini hem de
+    // "Yaklaşan Şoför Belgeleri" listesini filtrelesin diye, önce filtrelenmiş
+    // şoför id'leri hesaplanıp yaklaşan belgeler bu id'lere göre daraltılıyor.
+    var filteredList = filterDriversByText(list, state.driverFilterText);
+    var filteredDriverIds = {};
+    filteredList.forEach(function (d) { filteredDriverIds[d.id] = true; });
+
+    var driverUpcomingItems = computeDriverSummaryItems().filter(function (it) { return it.tier < 3 && filteredDriverIds[it.driverId]; });
     if (driverUpcomingItems.length) {
+      var DRIVER_UPCOMING_LIMIT = 4;
+      var upcomingCollapsed = !state.driverUpcomingExpanded && driverUpcomingItems.length > DRIVER_UPCOMING_LIMIT;
+      var upcomingToShow = upcomingCollapsed ? driverUpcomingItems.slice(0, DRIVER_UPCOMING_LIMIT) : driverUpcomingItems;
       html += '<div style="margin-bottom:18px">';
       html += '<h3 style="margin:0 0 8px; font-size:13px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.03em;">⏰ Yaklaşan Şoför Belgeleri</h3>';
       html += '<ul class="summary-list">';
-      driverUpcomingItems.forEach(function (it) {
+      upcomingToShow.forEach(function (it) {
         var showIcon = (it.status.key === "overdue" || it.status.key === "today" || it.status.key === "soon") ? "⚠️ " : (it.status.key === "ok" ? "✅ " : "");
         html += '<li class="summary-row">' +
           '<span class="sum-icon" style="background:' + it.status.color + '22;color:' + it.status.color + '">' + it.emoji + '</span>' +
@@ -5744,18 +5768,27 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           '</span>' +
           '</li>';
       });
-      html += '</ul></div>';
+      html += '</ul>';
+      if (upcomingCollapsed) {
+        html += '<button type="button" class="btn-secondary" data-action="toggle-driver-upcoming-expanded" style="margin-top:8px">▾ Tümünü Gör (' + driverUpcomingItems.length + ')</button>';
+      } else if (state.driverUpcomingExpanded && driverUpcomingItems.length > DRIVER_UPCOMING_LIMIT) {
+        html += '<button type="button" class="btn-secondary" data-action="toggle-driver-upcoming-expanded" style="margin-top:8px">▴ Daha Az Göster</button>';
+      }
+      html += '</div>';
     }
-
-    var filteredList = filterDriversByText(list, state.driverFilterText);
 
     if (!list.length) {
       html += '<p class="mon-empty">Henüz şoför eklenmedi.</p>';
     } else if (!filteredList.length) {
       html += '<p class="entity-search-empty">"' + esc(state.driverFilterText) + '" ile eşleşen şoför bulunamadı.</p>';
     } else {
+      // Liste uzayıp ekranı kaplamasın diye varsayılan olarak sadece ilk
+      // birkaç şoför gösterilir; kalanı "Tümünü Göster" ile açılır.
+      var DRIVER_LIST_LIMIT = 4;
+      var driversCollapsed = !state.driverFilterText && !state.driversListExpanded && filteredList.length > DRIVER_LIST_LIMIT;
+      var driversToShow = driversCollapsed ? filteredList.slice(0, DRIVER_LIST_LIMIT) : filteredList;
       html += '<ul class="err-list" style="max-height:none">';
-      filteredList.forEach(function (d) {
+      driversToShow.forEach(function (d) {
         var carNames = (d.carIds || []).map(function (cid) {
           var c = (state.cars || []).find(function (x) { return x.id === cid; });
           if (!c) return null;
@@ -5775,6 +5808,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         '</li>';
       });
       html += '</ul>';
+      if (driversCollapsed) {
+        html += '<button type="button" class="btn-secondary" data-action="toggle-drivers-expanded" style="margin-top:10px">▾ Tümünü Göster (' + filteredList.length + ')</button>';
+      } else if (state.driversListExpanded && filteredList.length > DRIVER_LIST_LIMIT) {
+        html += '<button type="button" class="btn-secondary" data-action="toggle-drivers-expanded" style="margin-top:10px">▴ Daha Az Göster</button>';
+      }
     }
 
     html += '</section>';
@@ -6971,6 +7009,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         }
         if (action === "select-car") { state.selectedCarId = el.getAttribute("data-car"); state.logVisibleCount = 20; render(); }
         else if (action === "toggle-cars-expanded") { state.carsTabsExpanded = !state.carsTabsExpanded; render(); }
+        else if (action === "toggle-drivers-expanded") { state.driversListExpanded = !state.driversListExpanded; render(); }
+        else if (action === "toggle-driver-upcoming-expanded") { state.driverUpcomingExpanded = !state.driverUpcomingExpanded; render(); }
+        else if (action === "load-more-calendar") { state.calendarVisibleCount = (state.calendarVisibleCount || 20) + 20; render(); }
         else if (action === "clear-car-filter") { state.carFilterText = ""; render(); }
         else if (action === "load-more-log") {
           var prevScrollYForLog = window.scrollY;
