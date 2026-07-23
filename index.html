@@ -854,8 +854,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.8.5"; // Dynamic Version Tracking
-  var APP_UPDATED = "22 Temmuz 2026";
+  var APP_VERSION = "v1.8.6"; // Dynamic Version Tracking
+  var APP_UPDATED = "23 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -1230,6 +1230,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     state.familyMembers = data.familyMembers || state.familyMembers || [];
     state.budgets = data.budgets || state.budgets || {};
     state.drivers = data.drivers || state.drivers || [];
+    setTimeout(maybeRunAutoBackup, 0);
     state.householdMembers = Object.keys(data.memberProfiles || {}).map(function (uidKey) {
       var p = (data.memberProfiles || {})[uidKey] || {};
       // Rol alanı yoksa (eski üyeler ya da hiç değiştirilmemişse) varsayılan
@@ -1758,6 +1759,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   // --- Oturum/cihaz denetimi: giriş anında kim, hangi cihazdan bağlandı ---
   var pendingAuthAction = null; // loginAs() tarafından okunur; sayfa yenilemede (sessiz oturum geri yükleme) log YAZILMAZ.
+  var autoBackupCheckedThisSession = false; // applyHouseholdData() içinde bir oturumda bir kez kontrol edilsin diye.
   function simpleDeviceLabel() {
     var ua = navigator.userAgent || "";
     var os = /Android/i.test(ua) ? "Android" : /iPhone|iPad|iPod/i.test(ua) ? "iOS" : /Windows/i.test(ua) ? "Windows" : /Mac OS/i.test(ua) ? "macOS" : /Linux/i.test(ua) ? "Linux" : "Bilinmeyen cihaz";
@@ -2305,7 +2307,58 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     }, "image/png");
   }
 
-  function exportData() {
+  // ---------- Otomatik Yedekleme ----------
+  var AUTO_BACKUP_INTERVAL_MS = {
+    off: 0,
+    daily: 24 * 60 * 60 * 1000,
+    weekly: 7 * 24 * 60 * 60 * 1000,
+    monthly: 30 * 24 * 60 * 60 * 1000
+  };
+
+  function getAutoBackupSettings() {
+    var s = getLocalData("autoBackupSettings", null);
+    if (!s || typeof s !== "object") s = {};
+    return {
+      interval: AUTO_BACKUP_INTERVAL_MS.hasOwnProperty(s.interval) ? s.interval : "off",
+      lastBackupAt: s.lastBackupAt || null
+    };
+  }
+
+  function setAutoBackupSettings(patch) {
+    var current = getAutoBackupSettings();
+    var next = Object.assign({}, current, patch);
+    setLocalData("autoBackupSettings", next);
+    return next;
+  }
+
+  function autoBackupIntervalLabel(interval) {
+    if (interval === "daily") return "Günlük";
+    if (interval === "weekly") return "Haftalık";
+    if (interval === "monthly") return "Aylık";
+    return "Kapalı";
+  }
+
+  // Uygulama açıldığında/verisi geldiğinde bir kez çağrılır; ayarlanan
+  // periyot dolmuşsa yedeği sessizce indirir ve son yedekleme zamanını
+  // günceller. Kullanıcı etkileşimi gerektirmez.
+  function maybeRunAutoBackup() {
+    if (autoBackupCheckedThisSession) return;
+    autoBackupCheckedThisSession = true;
+    var settings = getAutoBackupSettings();
+    var ms = AUTO_BACKUP_INTERVAL_MS[settings.interval];
+    if (!ms) return; // "Kapalı"
+    if (!state.cars || !state.cars.length) return; // yedeklenecek veri henüz gelmediyse bekle
+    var lastMs = settings.lastBackupAt ? new Date(settings.lastBackupAt).getTime() : 0;
+    if (isNaN(lastMs)) lastMs = 0;
+    if (Date.now() - lastMs < ms) return; // henüz zamanı gelmedi
+    exportData({ silent: true });
+    setAutoBackupSettings({ lastBackupAt: new Date().toISOString() });
+    toast("Otomatik yedek indirildi.");
+    if (state.modal && state.modal.type === "profile") render();
+  }
+
+  function exportData(opts) {
+    opts = opts || {};
     var payload = { cars: state.cars, expenses: state.expenses, family: state.familyMembers, budgets: state.budgets, drivers: state.drivers, exportedAt: new Date().toISOString() };
     var blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     var url = URL.createObjectURL(blob);
@@ -2317,7 +2370,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
-    toast("Yedek indirildi.");
+    if (!opts.silent) {
+      setAutoBackupSettings({ lastBackupAt: new Date().toISOString() });
+      toast("Yedek indirildi.");
+    }
   }
 
   function importData(file) {
@@ -2807,6 +2863,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   function init() {
     maybeAutoTriggerAddToHomeScreen();
+    // Sekme uzun süre açık kalırsa (gün aşırı vs.) periyodu yeniden
+    // değerlendirmek için birkaç saatte bir otomatik yedekleme kontrolünü
+    // tekrar tetikle.
+    setInterval(function () {
+      autoBackupCheckedThisSession = false;
+      maybeRunAutoBackup();
+    }, 6 * 60 * 60 * 1000);
     window.addEventListener("online", function () { 
       state.online = true; 
       syncOfflineData();
@@ -2827,6 +2890,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         monitoring.openSupportCount = 0;
         monitoring.mySupportRequests = null;
         state.currentUser = null;
+        autoBackupCheckedThisSession = false;
         renderAuth();
       }
     });
@@ -4316,6 +4380,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   function buildProfileModal() {
     var user = state.currentUser;
+    var autoBackupSettings = getAutoBackupSettings();
     var modal = document.createElement("div");
     modal.className = "modal wide";
     modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
@@ -4376,6 +4441,19 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         '<button type="button" class="btn-secondary full" id="app-a2hs">🏠 Ana Ekrana Ekle</button>' +
       '</div>' +
 
+      '<p class="profile-section-title">💾 Otomatik Yedekleme</p>' +
+      '<p class="field-hint" style="margin-top:-4px">Belirlediğin periyotta, uygulamayı açtığında verilerin (araçlar, masraflar, şoförler) otomatik olarak JSON dosyası halinde cihazına indirilir.</p>' +
+      '<label class="field"><span>Periyot</span>' +
+        '<select id="auto-backup-interval">' +
+          '<option value="off"' + (autoBackupSettings.interval === "off" ? " selected" : "") + '>Kapalı</option>' +
+          '<option value="daily"' + (autoBackupSettings.interval === "daily" ? " selected" : "") + '>Günlük</option>' +
+          '<option value="weekly"' + (autoBackupSettings.interval === "weekly" ? " selected" : "") + '>Haftalık</option>' +
+          '<option value="monthly"' + (autoBackupSettings.interval === "monthly" ? " selected" : "") + '>Aylık</option>' +
+        '</select>' +
+      '</label>' +
+      '<p class="field-hint" style="margin-top:-6px">Son yedekleme: ' + (autoBackupSettings.lastBackupAt ? fmtDateTime(autoBackupSettings.lastBackupAt) : "Henüz yapılmadı") + '</p>' +
+      '<button type="button" class="btn-secondary full" id="auto-backup-now">⬇️ Şimdi Yedekle</button>' +
+
       '<p class="profile-section-title">🏠 Ortak Hesap</p>' +
       '<p class="field-hint" style="margin-top:-4px">Aynı araçları eşin/ailenle ortak yönetmek için davet kodunu paylaş, ya da sana verilen bir kodla katıl. Katılan üyenin rolünü (düzenleyebilir / sadece görüntüleyebilir) aşağıdaki listeden ayarlayabilirsin.</p>' +
       (isOwnHousehold ? '' : '<p class="field-hint" style="color:var(--amber)">Şu an başka bir kullanıcının ortak hanesindesin.</p>') +
@@ -4434,6 +4512,19 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     });
     var appA2hsBtn = modal.querySelector("#app-a2hs");
     if (appA2hsBtn) appA2hsBtn.addEventListener("click", function () { addAppToHomeScreen(); });
+
+    var autoBackupSelect = modal.querySelector("#auto-backup-interval");
+    if (autoBackupSelect) autoBackupSelect.addEventListener("change", function () {
+      var interval = autoBackupSelect.value;
+      setAutoBackupSettings({ interval: interval });
+      toast(interval === "off" ? "Otomatik yedekleme kapatıldı." : autoBackupIntervalLabel(interval) + " otomatik yedekleme açıldı.");
+      render();
+    });
+    var autoBackupNowBtn = modal.querySelector("#auto-backup-now");
+    if (autoBackupNowBtn) autoBackupNowBtn.addEventListener("click", function () {
+      exportData();
+      render();
+    });
 
     var householdCopyBtn = modal.querySelector("#household-copy");
     if (householdCopyBtn) householdCopyBtn.addEventListener("click", function () {
