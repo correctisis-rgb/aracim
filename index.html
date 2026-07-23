@@ -914,7 +914,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.9.7"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.9.8"; // Dynamic Version Tracking
   var APP_UPDATED = "23 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1461,7 +1461,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return db.collection("users").doc(state.currentUser.id).set(patch, { merge: true })
       .then(function () {
         toast("Üye yetkileri güncellendi.");
-        closeModal();
+        // Kaydettikten sonra ana ekrana değil, Hesabım ekranındaki üye
+        // listesine geri dön — hane sahibi arka arkaya birden fazla üyenin
+        // yetkisini düzenlerken her seferinde Hesabım'ı yeniden açmak
+        // zorunda kalmasın.
+        state.modal = { type: "profile" };
+        render();
       })
       .catch(function (err) {
         console.error(err);
@@ -5178,13 +5183,39 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var perms = member ? (member.perms || normalizeMemberPerms(member)) : normalizeMemberPerms(null);
     var name = (member && member.name) || state.modal.name || "Üye";
 
+    // Yetki kopyalama: hane sahibi dahil, düzenlenen üye HARİÇ diğer tüm
+    // hane üyelerinin yetki setini tek tıkla buraya kopyalayabilmek için
+    // bir kaynak listesi. Hane sahibinin kendi "perms" alanı olmadığından
+    // (her zaman tam yetkili) onu ayrıca sabit tam-yetki nesnesiyle temsil
+    // ediyoruz.
+    var copySources = [];
+    if (state.householdId && state.householdId !== uid) {
+      copySources.push({
+        uid: state.householdId,
+        label: "👑 Hane Sahibi (tam yetki)",
+        perms: { seeCars: true, seeDrivers: true, seeExpenses: true, addExpense: true, manage: true, backup: true, report: true, bulkImport: true, activityLog: true }
+      });
+    }
+    (state.householdMembers || []).forEach(function (m) {
+      if (m.uid === uid || m.uid === state.householdId) return; // düzenlenen üye ve hane sahibi zaten ele alındı
+      copySources.push({ uid: m.uid, label: m.name, perms: m.perms || normalizeMemberPerms(m) });
+    });
+
     var modal = document.createElement("div");
     modal.className = "modal wide";
     modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
 
     modal.innerHTML =
-      '<div class="modal-head"><h3>🔐 ' + esc(name) + ' — Yetkiler</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>' +
+      '<div class="modal-head"><h3>🔐 ' + esc(name) + ' — Yetkiler</h3><button class="icon-btn" data-action="back-to-profile" aria-label="Kapat">✕</button></div>' +
       '<p class="field-hint" style="margin-top:-4px">Bu üyenin ortak hanende neleri görüp yapabileceğini seç. Değişiklikler kaydettiğin anda üyeye yansır.</p>' +
+      (copySources.length ?
+        '<label class="field" style="margin-bottom:12px"><span>Başka bir üyenin yetkilerini buraya kopyala</span>' +
+          '<select id="mp-copy-from">' +
+            '<option value="">— üye seç —</option>' +
+            copySources.map(function (s) { return '<option value="' + esc(s.uid) + '">' + esc(s.label) + '</option>'; }).join("") +
+          '</select>' +
+        '</label>'
+        : '') +
       '<div class="car-checklist" id="mp-checklist" style="max-height:none">' +
         HOUSEHOLD_PERM_DEFS.map(function (def) {
           var checked = perms[def.key] !== false;
@@ -5196,6 +5227,22 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         }).join("") +
       '</div>' +
       '<button type="button" class="btn-primary full" id="mp-save">Kaydet</button>';
+
+    var copySelect = modal.querySelector("#mp-copy-from");
+    if (copySelect) {
+      copySelect.addEventListener("change", function () {
+        var srcUid = copySelect.value;
+        if (!srcUid) return;
+        var src = copySources.find(function (s) { return s.uid === srcUid; });
+        if (!src) return;
+        HOUSEHOLD_PERM_DEFS.forEach(function (def) {
+          var cb = modal.querySelector('[data-perm="' + def.key + '"]');
+          if (cb) cb.checked = src.perms[def.key] !== false;
+        });
+        toast(src.label.replace(/^👑\s*/, "") + " yetkileri kopyalandı. Uygulamak için Kaydet'e bas.");
+        copySelect.value = ""; // aynı üyeyi tekrar seçebilmek için sıfırla
+      });
+    }
 
     modal.querySelector("#mp-save").addEventListener("click", function () {
       var newPerms = {};
@@ -7433,7 +7480,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           });
         }
         else if (action === "close-modal") { closeModal(); }
-        else if (action === "close-modal-backdrop" && ev.target === el) { closeModal(); }
+        else if (action === "back-to-profile") { ev.stopPropagation(); state.modal = { type: "profile" }; render(); }
+        else if (action === "close-modal-backdrop" && ev.target === el) {
+          if (state.modal && state.modal.type === "memberPerms") { state.modal = { type: "profile" }; render(); }
+          else closeModal();
+        }
         else if (action === "clear-log-filters") {
           state.logFilters = { search: "", category: "all", carId: "all", dateFrom: "", dateTo: "" };
           state.logVisibleCount = 20;
