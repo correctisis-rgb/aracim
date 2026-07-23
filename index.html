@@ -159,6 +159,8 @@
   .car-tab:hover { border-color: var(--tab-color, var(--amber)); color: var(--text); }
   .car-tab.active { background: color-mix(in srgb, var(--tab-color, var(--amber)) 16%, var(--surface)); border-color: var(--tab-color, var(--amber)); color: var(--text); }
   .car-tab-add { padding: 8px 14px; border-style: dashed; }
+  .car-tab-more { padding: 8px 14px; opacity: .8; }
+  .car-tab-more:hover { opacity: 1; }
   .car-avatar { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; flex-shrink: 0; background: var(--surface-2); cursor: pointer; transition: transform 0.2s; }
   .car-avatar:hover { transform: scale(1.1); }
   .car-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
@@ -375,6 +377,7 @@
 
   /* ---------- Log filters ---------- */
   .log-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; align-items: center; }
+  .log-load-more { display: flex; justify-content: center; padding: 14px 0 4px; }
   .log-filters input, .log-filters select {
     background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text);
     padding: 7px 9px; font-size: 12.5px; font-family: inherit;
@@ -868,7 +871,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.8.7"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.8.8"; // Dynamic Version Tracking
   var APP_UPDATED = "23 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1140,6 +1143,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     logFilters: { search: "", category: "all", carId: "all", dateFrom: "", dateTo: "" },
     carFilterText: "",
     driverFilterText: "",
+    carsTabsExpanded: false,
+    logVisibleCount: 20,
     budgets: getLocalData("budgets", {}),
     householdId: null,
     householdInviteToken: null,
@@ -3629,12 +3634,30 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     // car tabs
     html += buildEntitySearchBoxHTML("car-filter-search", "clear-car-filter", state.carFilterText, "🔎 Plaka veya araç adı ile ara...", "Araçlarda ara");
     var filteredCarsList = filterCarsByText(carsList, state.carFilterText);
+    // Araç listesi ekranı kaplamasın diye varsayılan olarak sadece ilk
+    // birkaç araç sekmesi gösterilir; kalanı "Tümünü Göster" ile açılır.
+    var CAR_TABS_LIMIT = 4;
+    var carsCollapsed = !state.carFilterText && !state.carsTabsExpanded && filteredCarsList.length > CAR_TABS_LIMIT;
+    var carTabsToShow = filteredCarsList;
+    if (carsCollapsed) {
+      carTabsToShow = filteredCarsList.slice(0, CAR_TABS_LIMIT);
+      // Seçili araç sekmesi görünür kalsın (limitin dışında kalsa bile).
+      if (state.selectedCarId !== "all" && !carTabsToShow.some(function (c) { return c.id === state.selectedCarId; })) {
+        var selectedCarTab = filteredCarsList.find(function (c) { return c.id === state.selectedCarId; });
+        if (selectedCarTab) carTabsToShow = carTabsToShow.concat([selectedCarTab]);
+      }
+    }
     html += '<nav class="car-tabs" aria-label="Araç seçimi">';
     html += '<button class="car-tab ' + (state.selectedCarId === "all" ? "active" : "") + '" style="--tab-color:#EDEEF0" data-action="select-car" data-car="all">🚘 Tüm Araçlar</button>';
-    filteredCarsList.forEach(function (c) {
+    carTabsToShow.forEach(function (c) {
       var avatar = c.photo ? '<img class="car-avatar" src="' + c.photo + '" alt="" data-action="open-lightbox" data-src="' + c.photo + '" data-caption="' + esc(c.name) + '" />' : '<span class="car-dot" style="background:' + c.color + '"></span>';
       html += '<button class="car-tab ' + (state.selectedCarId === c.id ? "active" : "") + '" style="--tab-color:' + c.color + '" data-action="select-car" data-car="' + c.id + '">' + avatar + esc(c.name) + '</button>';
     });
+    if (carsCollapsed) {
+      html += '<button type="button" class="car-tab car-tab-more" data-action="toggle-cars-expanded">▾ Tümünü Göster (' + filteredCarsList.length + ')</button>';
+    } else if (state.carsTabsExpanded && filteredCarsList.length > CAR_TABS_LIMIT) {
+      html += '<button type="button" class="car-tab car-tab-more" data-action="toggle-cars-expanded">▴ Daha Az Göster</button>';
+    }
     html += '<button class="car-tab car-tab-add" data-action="open-add-car">+ Araç Ekle</button>';
     html += '</nav>';
     if (state.carFilterText && filteredCarsList.length === 0) {
@@ -3684,6 +3707,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     bindGlobalActions();
     bindLogFilters();
+    bindLogInfiniteScroll();
     bindEntitySearchFilters();
     bindAnalysisPanel();
 
@@ -4296,11 +4320,18 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         ? '<p class="empty-hint">Filtrelere uyan kayıt yok. "Temizle" ile tüm kayıtları tekrar görebilirsin.</p>'
         : '<p class="empty-hint">Kayıt yok. İlk masrafını eklediğinde defter burada dolmaya başlar.</p>';
     } else {
+      // Ekran uzun listeyle dolup taşmasın diye masraflar 20'şerlik
+      // sayfalar halinde gösterilir; aşağı kaydırınca otomatik olarak
+      // 20 tane daha yüklenir (bkz. bindLogInfiniteScroll).
+      var logPageSize = 20;
+      var logVisibleCount = Math.max(logPageSize, state.logVisibleCount || logPageSize);
+      var visibleSlice = visible.slice(0, logVisibleCount);
+      var hasMoreLogItems = visible.length > visibleSlice.length;
       html += '<ul class="expense-list">';
       // "Ekleyen" etiketi sadece ortak hanede birden fazla üye varken
       // anlamlı olduğu için tek kişilik hanelerde gösterilmiyor.
       var showAddedBy = (state.householdMembers || []).length > 1;
-      visible.forEach(function (e) {
+      visibleSlice.forEach(function (e) {
         var cat = catById(e.category);
         var car = (state.cars || []).find(function (c) { return c.id === e.carId; });
         var noteBits = [];
@@ -4323,6 +4354,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           '</li>';
       });
       html += '</ul>';
+      if (hasMoreLogItems) {
+        html += '<div id="log-load-more-sentinel" class="log-load-more">' +
+          '<button type="button" class="btn-secondary" data-action="load-more-log">Daha Fazla Göster (' + (visible.length - visibleSlice.length) + ' kayıt daha)</button>' +
+          '</div>';
+      }
     }
     html += '</section>';
     return html;
@@ -4332,28 +4368,51 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var searchEl = document.getElementById("log-filter-search");
     if (searchEl) searchEl.addEventListener("input", function () {
       state.logFilters.search = searchEl.value;
+      state.logVisibleCount = 20;
       render();
     });
     var catEl = document.getElementById("log-filter-cat");
     if (catEl) catEl.addEventListener("change", function () {
       state.logFilters.category = catEl.value;
+      state.logVisibleCount = 20;
       render();
     });
     var carEl = document.getElementById("log-filter-car");
     if (carEl) carEl.addEventListener("change", function () {
       state.logFilters.carId = carEl.value;
+      state.logVisibleCount = 20;
       render();
     });
     var fromEl = document.getElementById("log-filter-from");
     if (fromEl) fromEl.addEventListener("change", function () {
       state.logFilters.dateFrom = fromEl.value;
+      state.logVisibleCount = 20;
       render();
     });
     var toEl = document.getElementById("log-filter-to");
     if (toEl) toEl.addEventListener("change", function () {
       state.logFilters.dateTo = toEl.value;
+      state.logVisibleCount = 20;
       render();
     });
+  }
+
+  var logInfiniteScrollObserver = null;
+  function bindLogInfiniteScroll() {
+    var sentinel = document.getElementById("log-load-more-sentinel");
+    if (logInfiniteScrollObserver) { logInfiniteScrollObserver.disconnect(); logInfiniteScrollObserver = null; }
+    if (!sentinel || typeof IntersectionObserver === "undefined") return;
+    logInfiniteScrollObserver = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          var prevScrollYForLog = window.scrollY;
+          state.logVisibleCount = (state.logVisibleCount || 20) + 20;
+          render();
+          window.scrollTo(0, prevScrollYForLog);
+        }
+      });
+    }, { rootMargin: "200px" });
+    logInfiniteScrollObserver.observe(sentinel);
   }
 
   // ---------- modals ----------
@@ -6910,8 +6969,15 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           toast("Bu hanede sadece görüntüleme yetkin var, düzenleme yapamazsın.");
           return;
         }
-        if (action === "select-car") { state.selectedCarId = el.getAttribute("data-car"); render(); }
+        if (action === "select-car") { state.selectedCarId = el.getAttribute("data-car"); state.logVisibleCount = 20; render(); }
+        else if (action === "toggle-cars-expanded") { state.carsTabsExpanded = !state.carsTabsExpanded; render(); }
         else if (action === "clear-car-filter") { state.carFilterText = ""; render(); }
+        else if (action === "load-more-log") {
+          var prevScrollYForLog = window.scrollY;
+          state.logVisibleCount = (state.logVisibleCount || 20) + 20;
+          render();
+          window.scrollTo(0, prevScrollYForLog);
+        }
         else if (action === "clear-driver-filter") { state.driverFilterText = ""; render(); }
         else if (action === "set-view") { state.view = el.getAttribute("data-view"); render(); }
         else if (action === "set-main-section") {
@@ -7026,6 +7092,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         else if (action === "close-modal-backdrop" && ev.target === el) { closeModal(); }
         else if (action === "clear-log-filters") {
           state.logFilters = { search: "", category: "all", carId: "all", dateFrom: "", dateTo: "" };
+          state.logVisibleCount = 20;
           render();
         }
         else if (action === "share-report") { shareExpenseReport(); }
