@@ -871,7 +871,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.8.9"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.9.0"; // Dynamic Version Tracking
   var APP_UPDATED = "23 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -6480,7 +6480,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     doc.addPage();
     pdfAddBanner(doc, { title: "Masraf Özeti", subtitle: "Araç başına toplam masraf dağılımı · " + rangeLabel, right: dateLabel, color: "#7BC67E", margin: margin });
 
-    var chartCars = (state.cars || []).slice().sort(function (a, b) { return (carTotals[b.id] || 0) - (carTotals[a.id] || 0); });
+    var chartCars = (state.cars || []).filter(function (c) { return (carTotals[c.id] || 0) > 0; }).sort(function (a, b) { return (carTotals[b.id] || 0) - (carTotals[a.id] || 0); });
     var pageW = doc.internal.pageSize.getWidth();
     var labelW = 75, valueW = 60;
     var barAreaX = margin + labelW;
