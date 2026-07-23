@@ -466,7 +466,8 @@
   body.view-only-role [data-action="delete-car"],
   body.view-only-role [data-action="open-add-driver"],
   body.view-only-role [data-action="open-edit-driver"],
-  body.view-only-role [data-action="delete-driver"] {
+  body.view-only-role [data-action="delete-driver"],
+  body.view-only-role [data-action="open-quick-appt"] {
     display: none !important;
   }
   /* "Masraf ekleyebilir" izni kapalı üyeler için masraf ekleme düğmelerini gizle. */
@@ -900,7 +901,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.9.4"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.9.5"; // Dynamic Version Tracking
   var APP_UPDATED = "23 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -4010,6 +4011,15 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     inspectionDate: { url: "https://www.tuvturk.com.tr", label: "TÜVTÜRK'ten randevu al" }
   };
   function saveCarAppointmentField(carId, fieldKey, apptVal) {
+    // "Yaklaşan İşlemler" listesindeki 📅 düğmesi ve randevu modalındaki
+    // Kaydet/Kaldır düğmeleri data-action üzerinden değil doğrudan
+    // addEventListener ile bağlı; bindGlobalActions()'daki MANAGE_ONLY_ACTIONS
+    // kontrolü bu yüzden buraya ulaşmaz. Asıl yazma işlemi burada
+    // gerçekleştiği için gerçek yetki kontrolü de burada yapılmalı.
+    if (!hasHouseholdPerm("manage")) {
+      toast("Bu hanede randevu/tarih düzenleme yetkin yok.");
+      return;
+    }
     var car = (state.cars || []).find(function (c) { return c.id === carId; });
     if (!car) return;
     var prevAppt = car.appointments || {};
@@ -7213,7 +7223,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         // Sadece görüntüleyebilen üyeler bu eylemleri tetikleyemez (ilgili
         // düğmeler CSS ile zaten gizleniyor; bu, programatik/eski DOM
         // durumlarına karşı ikinci bir savunma katmanı).
-        var MANAGE_ONLY_ACTIONS = ["open-add-car", "open-edit-car", "delete-car", "open-edit-expense", "delete-expense", "open-add-driver", "open-edit-driver", "delete-driver"];
+        var MANAGE_ONLY_ACTIONS = ["open-add-car", "open-edit-car", "delete-car", "open-edit-expense", "delete-expense", "open-add-driver", "open-edit-driver", "delete-driver", "open-quick-appt"];
         var ADD_EXPENSE_ACTIONS = ["open-add-expense"];
         var BACKUP_ACTIONS = ["export-data"];
         var SEE_EXPENSES_VIEWS = ["panel", "analiz"]; // maliyet verisi içeren görünümler
