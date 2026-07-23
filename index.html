@@ -480,6 +480,19 @@
   body.no-backup .household-backup-controls {
     display: none !important;
   }
+  /* "Rapor alabilir" izni kapalı üyeler için rapor indirme/paylaşma düğmelerini gizle. */
+  body.no-report [data-action="open-export-report"],
+  body.no-report [data-action="share-report"] {
+    display: none !important;
+  }
+  /* "Toplu içe aktarabilir" izni kapalı üyeler için toplu içe aktarma düğmesini gizle. */
+  body.no-bulk-import [data-action="open-bulk-import"] {
+    display: none !important;
+  }
+  /* "Aktivite geçmişini görebilir" izni kapalı üyeler için aktivite geçmişi düğmesini gizle. */
+  body.no-activity-log [data-action="open-activity-log"] {
+    display: none !important;
+  }
 
   .exp-added-by { font-size: 11px; color: var(--muted); }
 
@@ -901,7 +914,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.9.6"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.9.7"; // Dynamic Version Tracking
   var APP_UPDATED = "23 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1374,7 +1387,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // izinler. Bu alan hiç ayarlanmamışsa (özellik eklenmeden önce katılmış
   // üyeler dahil) eski "role" alanından ("edit"/"view") makul bir varsayılan
   // türetilir, böylece mevcut üyelerin erişimi aniden değişmez.
-  var ALL_HOUSEHOLD_PERMS = ["seeCars", "seeDrivers", "seeExpenses", "addExpense", "manage", "backup"];
+  var ALL_HOUSEHOLD_PERMS = ["seeCars", "seeDrivers", "seeExpenses", "addExpense", "manage", "backup", "report", "bulkImport", "activityLog"];
   function normalizeMemberPerms(p) {
     if (p && p.perms && typeof p.perms === "object") {
       var pr = p.perms;
@@ -1384,7 +1397,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         seeExpenses: pr.seeExpenses !== false,
         addExpense: pr.addExpense !== false,
         manage: pr.manage !== false,
-        backup: pr.backup !== false
+        backup: pr.backup !== false,
+        report: pr.report !== false,
+        bulkImport: pr.bulkImport !== false,
+        activityLog: pr.activityLog !== false
       };
     }
     // Geriye dönük uyumluluk: perms hiç yoksa eski role alanına bak.
@@ -1395,14 +1411,17 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       seeExpenses: true,
       addExpense: !legacyView,
       manage: !legacyView,
-      backup: true
+      backup: true,
+      report: true,
+      bulkImport: true,
+      activityLog: true
     };
   }
   function myHouseholdPerms() {
     if (!state.currentUser) return normalizeMemberPerms(null);
     // Hane sahibi her zaman tam yetkilidir; kendine kısıtlama koyamaz.
     if (state.householdId === state.currentUser.id) {
-      return { seeCars: true, seeDrivers: true, seeExpenses: true, addExpense: true, manage: true, backup: true };
+      return { seeCars: true, seeDrivers: true, seeExpenses: true, addExpense: true, manage: true, backup: true, report: true, bulkImport: true, activityLog: true };
     }
     var mine = (state.householdMembers || []).find(function (m) { return m.uid === state.currentUser.id; });
     return mine ? mine.perms : normalizeMemberPerms(null);
@@ -3692,6 +3711,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     document.body.classList.toggle("view-only-role", !myPerms.manage);
     document.body.classList.toggle("no-add-expense", !myPerms.addExpense);
     document.body.classList.toggle("no-backup", !myPerms.backup);
+    document.body.classList.toggle("no-report", !myPerms.report);
+    document.body.classList.toggle("no-bulk-import", !myPerms.bulkImport);
+    document.body.classList.toggle("no-activity-log", !myPerms.activityLog);
 
     // Üyenin erişemediği bir ana bölümde (Araçlar/Şoförler) kalmışsa,
     // erişebildiği ilk bölüme sessizce yönlendir. Takvim herkese açık
@@ -5145,7 +5167,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     { key: "seeExpenses", icon: "💰", label: "Masrafları görebilir", hint: "Kapalıysa masraf kaydı listesini, Panel ve Analiz (maliyet) görünümlerini göremez; sadece bakım özetini (Özet) görür." },
     { key: "addExpense", icon: "➕", label: "Masraf ekleyebilir", hint: "Yeni masraf kaydı girebilir." },
     { key: "manage", icon: "✏️", label: "Araç / şoför ekleyip düzenleyebilir", hint: "Araç ve şoför ekleme, düzenleme, silme; masraf düzenleme/silme dahil." },
-    { key: "backup", icon: "💾", label: "Yedekleme yapabilir", hint: "Verileri dışa aktarabilir (⬇️ Yedekle) ve içe aktarabilir (⬆️ Geri Yükle)." }
+    { key: "backup", icon: "💾", label: "Yedekleme yapabilir", hint: "Verileri dışa aktarabilir (⬇️ Yedekle) ve içe aktarabilir (⬆️ Geri Yükle)." },
+    { key: "report", icon: "📊", label: "Rapor alabilir", hint: "Masraf raporunu indirebilir (Excel/PDF) ve paylaşabilir (📤 Rapor Paylaş)." },
+    { key: "bulkImport", icon: "📥", label: "Toplu içe aktarabilir", hint: "Excel/CSV ile toplu araç veya şoför içe aktarabilir. Not: gerçekleşmesi için ayrıca 'Araç/şoför ekleyip düzenleyebilir' ya da 'Yedekleme' yetkisi de gerekir." },
+    { key: "activityLog", icon: "🕒", label: "Aktivite geçmişini görebilir", hint: "Hanedeki eklenen/düzenlenen/silinen kayıtların geçmiş dökümünü görebilir." }
   ];
   function buildMemberPermsModal() {
     var uid = state.modal.uid;
@@ -7251,6 +7276,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         var MANAGE_ONLY_ACTIONS = ["open-add-car", "open-edit-car", "delete-car", "open-edit-expense", "delete-expense", "open-add-driver", "open-edit-driver", "delete-driver", "open-quick-appt"];
         var ADD_EXPENSE_ACTIONS = ["open-add-expense"];
         var BACKUP_ACTIONS = ["export-data"];
+        var REPORT_ACTIONS = ["open-export-report", "share-report"];
+        var BULK_IMPORT_ACTIONS = ["open-bulk-import"];
+        var ACTIVITY_LOG_ACTIONS = ["open-activity-log"];
         var SEE_EXPENSES_VIEWS = ["panel", "analiz"]; // maliyet verisi içeren görünümler
         var actionPerms = myHouseholdPerms();
         if (MANAGE_ONLY_ACTIONS.indexOf(action) !== -1 && !actionPerms.manage) {
@@ -7263,6 +7291,18 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         }
         if (BACKUP_ACTIONS.indexOf(action) !== -1 && !actionPerms.backup) {
           toast("Bu hanede yedekleme yapma yetkin yok.");
+          return;
+        }
+        if (REPORT_ACTIONS.indexOf(action) !== -1 && !actionPerms.report) {
+          toast("Bu hanede rapor alma yetkin yok.");
+          return;
+        }
+        if (BULK_IMPORT_ACTIONS.indexOf(action) !== -1 && !actionPerms.bulkImport) {
+          toast("Bu hanede toplu içe aktarma yetkin yok.");
+          return;
+        }
+        if (ACTIVITY_LOG_ACTIONS.indexOf(action) !== -1 && !actionPerms.activityLog) {
+          toast("Bu hanede aktivite geçmişini görme yetkin yok.");
           return;
         }
         if (action === "set-view" && SEE_EXPENSES_VIEWS.indexOf(el.getAttribute("data-view")) !== -1 && !actionPerms.seeExpenses) {
