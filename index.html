@@ -459,12 +459,24 @@
      bakılmaksızın) data-action üzerinden tek noktadan gizler. Programatik
      tetiklenmelere karşı ikinci savunma katmanı render()'daki
      bindGlobalActions tıklama işleyicisindedir. ---------- */
-  body.view-only-role [data-action="open-add-expense"],
   body.view-only-role [data-action="open-edit-expense"],
   body.view-only-role [data-action="delete-expense"],
   body.view-only-role [data-action="open-add-car"],
   body.view-only-role [data-action="open-edit-car"],
-  body.view-only-role [data-action="delete-car"] {
+  body.view-only-role [data-action="delete-car"],
+  body.view-only-role [data-action="open-add-driver"],
+  body.view-only-role [data-action="open-edit-driver"],
+  body.view-only-role [data-action="delete-driver"] {
+    display: none !important;
+  }
+  /* "Masraf ekleyebilir" izni kapalı üyeler için masraf ekleme düğmelerini gizle. */
+  body.no-add-expense [data-action="open-add-expense"] {
+    display: none !important;
+  }
+  /* "Yedekleme yapabilir" izni kapalı üyeler için dışa/içe aktarma düğmelerini gizle. */
+  body.no-backup [data-action="export-data"],
+  body.no-backup .backup-import-label,
+  body.no-backup .household-backup-controls {
     display: none !important;
   }
 
@@ -888,7 +900,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.9.3"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.9.4"; // Dynamic Version Tracking
   var APP_UPDATED = "23 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1294,7 +1306,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       var p = (data.memberProfiles || {})[uidKey] || {};
       // Rol alanı yoksa (eski üyeler ya da hiç değiştirilmemişse) varsayılan
       // "edit" (tam yetki) kabul edilir — bkz. firestore.rules.
-      return { uid: uidKey, name: p.name || "Üye", email: p.email || "", role: p.role || "edit" };
+      return { uid: uidKey, name: p.name || "Üye", email: p.email || "", role: p.role || "edit", perms: normalizeMemberPerms(p) };
     });
     state.householdInviteToken = data.inviteToken || null;
     tryOpenPendingDeepLink();
@@ -1348,8 +1360,49 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var mine = (state.householdMembers || []).find(function (m) { return m.uid === state.currentUser.id; });
     return (mine && mine.role) || "edit";
   }
+  // ---------- Üye yetkileri: ayrıntılı checkbox tabanlı izinler ----------
+  // Her üye için memberProfiles.{uid}.perms altında ayrı ayrı saklanan
+  // izinler. Bu alan hiç ayarlanmamışsa (özellik eklenmeden önce katılmış
+  // üyeler dahil) eski "role" alanından ("edit"/"view") makul bir varsayılan
+  // türetilir, böylece mevcut üyelerin erişimi aniden değişmez.
+  var ALL_HOUSEHOLD_PERMS = ["seeCars", "seeDrivers", "seeExpenses", "addExpense", "manage", "backup"];
+  function normalizeMemberPerms(p) {
+    if (p && p.perms && typeof p.perms === "object") {
+      var pr = p.perms;
+      return {
+        seeCars: pr.seeCars !== false,
+        seeDrivers: pr.seeDrivers !== false,
+        seeExpenses: pr.seeExpenses !== false,
+        addExpense: pr.addExpense !== false,
+        manage: pr.manage !== false,
+        backup: pr.backup !== false
+      };
+    }
+    // Geriye dönük uyumluluk: perms hiç yoksa eski role alanına bak.
+    var legacyView = !!(p && p.role === "view");
+    return {
+      seeCars: true,
+      seeDrivers: true,
+      seeExpenses: true,
+      addExpense: !legacyView,
+      manage: !legacyView,
+      backup: true
+    };
+  }
+  function myHouseholdPerms() {
+    if (!state.currentUser) return normalizeMemberPerms(null);
+    // Hane sahibi her zaman tam yetkilidir; kendine kısıtlama koyamaz.
+    if (state.householdId === state.currentUser.id) {
+      return { seeCars: true, seeDrivers: true, seeExpenses: true, addExpense: true, manage: true, backup: true };
+    }
+    var mine = (state.householdMembers || []).find(function (m) { return m.uid === state.currentUser.id; });
+    return mine ? mine.perms : normalizeMemberPerms(null);
+  }
+  function hasHouseholdPerm(key) {
+    return !!myHouseholdPerms()[key];
+  }
   function canEditHousehold() {
-    return myHouseholdRole() !== "view";
+    return hasHouseholdPerm("manage");
   }
   // Hane sahibinin, kendi hanesindeki bir üyenin rolünü değiştirmesi için.
   // memberProfiles alt-alanına sadece "role" yazıldığı için (leaf-level
@@ -1367,6 +1420,24 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       .catch(function (err) {
         console.error(err);
         toast("Rol güncellenemedi: " + (err && err.message ? err.message : err));
+      });
+  }
+  // Hane sahibinin, bir üyenin ayrıntılı (checkbox tabanlı) izinlerini
+  // güncellemesi için. memberProfiles alt-alanına sadece "perms" yazıldığı
+  // için üyenin mevcut name/email/role bilgisi silinmez.
+  function setMemberPerms(memberUid, permsObj) {
+    if (!state.currentUser || state.householdId !== state.currentUser.id) return;
+    if (memberUid === state.currentUser.id) return; // hane sahibi kendi yetkisini kısıtlayamaz
+    var patch = { memberProfiles: {} };
+    patch.memberProfiles[memberUid] = { perms: permsObj };
+    return db.collection("users").doc(state.currentUser.id).set(patch, { merge: true })
+      .then(function () {
+        toast("Üye yetkileri güncellendi.");
+        closeModal();
+      })
+      .catch(function (err) {
+        console.error(err);
+        toast("Yetkiler güncellenemedi: " + (err && err.message ? err.message : err));
       });
   }
 
@@ -3585,13 +3656,31 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var app = document.getElementById("app");
     var carsList = state.cars || [];
     var expensesList = state.expenses || [];
+    var myPerms = myHouseholdPerms();
 
     // Sadece görüntüleyebilen üyeler için ekleme/düzenleme/silme
     // düğmelerini (nerede render edilirlerse edilsinler) tek bir CSS
     // kuralıyla gizlemek için body'e bir class ekleniyor. Ayrıca
     // bindGlobalActions() içindeki tıklama işleyicisi de bunu (programatik
     // tetiklenmelere karşı) ikinci bir savunma katmanı olarak kontrol eder.
-    document.body.classList.toggle("view-only-role", !canEditHousehold());
+    document.body.classList.toggle("view-only-role", !myPerms.manage);
+    document.body.classList.toggle("no-add-expense", !myPerms.addExpense);
+    document.body.classList.toggle("no-backup", !myPerms.backup);
+
+    // Üyenin erişemediği bir ana bölümde (Araçlar/Şoförler) kalmışsa,
+    // erişebildiği ilk bölüme sessizce yönlendir. Takvim herkese açık
+    // kaldığı için son çare olarak ona düşülür.
+    if (state.mainSection === "drivers" && !myPerms.seeDrivers) {
+      state.mainSection = myPerms.seeCars ? "cars" : "calendar";
+    } else if (state.mainSection !== "drivers" && state.mainSection !== "calendar" && !myPerms.seeCars) {
+      state.mainSection = myPerms.seeDrivers ? "drivers" : "calendar";
+    }
+    // "Panel" ve "Analiz" görünümleri masraf/maliyet verisi içerdiği için
+    // masrafları görme izni yoksa sadece "Özet" (bakım hatırlatıcıları,
+    // masraf içermez) görünümünde kalınabilir.
+    if (state.view !== "ozet" && !myPerms.seeExpenses) {
+      state.view = "ozet";
+    }
 
     // Filtre girdileri gibi input alanlarında her tuşta tüm sayfa yeniden çizildiği için
     // odağı (ve imleç konumunu) render sonrasında geri yüklüyoruz.
@@ -3625,7 +3714,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             '<button type="button" class="account-menu-item" data-action="open-profile">👤 Hesabım</button>' +
             '<button type="button" class="account-menu-item" data-action="open-notif-history">🔔 Geçmiş Hatırlatmalar' + (hasUnseenNotifHistory() ? ' <span class="account-chip-dot" aria-hidden="true"></span>' : '') + '</button>' +
             '<button type="button" class="account-menu-item" data-action="open-activity-log">🕒 Aktivite Geçmişi' + (hasUnseenActivityLog() ? ' <span class="account-chip-dot" aria-hidden="true"></span>' : '') + '</button>' +
-            '<button type="button" class="account-menu-item" data-action="set-main-section" data-section="drivers">🧑‍✈️ Şoförler</button>' +
+            (myPerms.seeDrivers ? '<button type="button" class="account-menu-item" data-action="set-main-section" data-section="drivers">🧑‍✈️ Şoförler</button>' : '') +
             '<button type="button" class="account-menu-item" data-action="set-main-section" data-section="calendar">📅 Takvim' + (calendarHasUrgent ? ' <span class="account-chip-dot" aria-hidden="true"></span>' : '') + '</button>' +
             '<div class="account-menu-divider"></div>' +
             '<button type="button" class="account-menu-item" data-action="open-bulk-import">📥 Toplu İçe Aktar (Excel)</button>' +
@@ -3657,7 +3746,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             : '<button class="btn-secondary" data-action="enable-notifications">🔕 Bildirimleri Aç</button>')
           : '') +
         '<button class="btn-secondary" data-action="export-data">⬇️ Yedekle</button>' +
-        '<label class="btn-secondary" style="cursor:pointer;position:relative;overflow:hidden;">⬆️ Geri Yükle<input type="file" accept="application/json" id="import-input" style="position:absolute;inset:0;opacity:0;cursor:pointer;" /></label>' +
+        '<label class="btn-secondary backup-import-label" style="cursor:pointer;position:relative;overflow:hidden;">⬆️ Geri Yükle<input type="file" accept="application/json" id="import-input" style="position:absolute;inset:0;opacity:0;cursor:pointer;" /></label>' +
       '</div>' +
       '</header>';
 
@@ -3665,8 +3754,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     if (user) {
       html += '<nav class="view-tabs section-tabs" aria-label="Ana bölüm seçimi" style="margin-bottom:14px">' +
-        '<button class="view-tab ' + (state.mainSection !== "drivers" && state.mainSection !== "calendar" ? "active" : "") + '" data-action="set-main-section" data-section="cars">🚗 Araçlar</button>' +
-        '<button class="view-tab ' + (state.mainSection === "drivers" ? "active" : "") + '" data-action="set-main-section" data-section="drivers">🧑‍✈️ Şoförler</button>' +
+        (myPerms.seeCars ? '<button class="view-tab ' + (state.mainSection !== "drivers" && state.mainSection !== "calendar" ? "active" : "") + '" data-action="set-main-section" data-section="cars">🚗 Araçlar</button>' : '') +
+        (myPerms.seeDrivers ? '<button class="view-tab ' + (state.mainSection === "drivers" ? "active" : "") + '" data-action="set-main-section" data-section="drivers">🧑‍✈️ Şoförler</button>' : '') +
         '<button class="view-tab ' + (state.mainSection === "calendar" ? "active" : "") + '" data-action="set-main-section" data-section="calendar">📅 Takvim' + (calendarHasUrgent ? '<span class="view-tab-flag"></span>' : '') + '</button>' +
         '</nav>';
     }
@@ -3720,20 +3809,21 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       var summaryItems = computeSummaryItems();
       var hasUrgent = summaryItems.some(function (it) { return it.status.key === "overdue" || it.status.key === "today" || it.status.key === "soon"; });
       html += '<nav class="view-tabs" aria-label="Görünüm seçimi">' +
-        '<button class="view-tab ' + (state.view === "panel" ? "active" : "") + '" data-action="set-view" data-view="panel">📊 Panel</button>' +
-        '<button class="view-tab ' + (state.view === "analiz" ? "active" : "") + '" data-action="set-view" data-view="analiz">📈 Analiz</button>' +
+        (myPerms.seeExpenses ? '<button class="view-tab ' + (state.view === "panel" ? "active" : "") + '" data-action="set-view" data-view="panel">📊 Panel</button>' : '') +
+        (myPerms.seeExpenses ? '<button class="view-tab ' + (state.view === "analiz" ? "active" : "") + '" data-action="set-view" data-view="analiz">📈 Analiz</button>' : '') +
         '<button class="view-tab ' + (state.view === "ozet" ? "active" : "") + '" data-action="set-view" data-view="ozet">✅ Özet' + (hasUrgent ? '<span class="view-tab-flag"></span>' : '') + '</button>' +
         '</nav>';
 
       if (state.view === "ozet") {
         html += renderSummaryPanel(summaryItems);
-      } else if (state.view === "analiz") {
+      } else if (state.view === "analiz" && myPerms.seeExpenses) {
         html += renderAnalysisPanel();
-      } else {
+      } else if (myPerms.seeExpenses) {
         html += renderDashboard(summaryItems);
       }
 
-      html += renderLogPanel();
+      if (myPerms.seeExpenses) html += renderLogPanel();
+      else html += '<section class="panel"><p class="empty-hint">Bu hanede masrafları görüntüleme yetkin yok.</p></section>';
     }
 
     if (carsList.length > 0) {
@@ -4555,6 +4645,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       backdrop.appendChild(buildBulkImportModal());
     } else if (state.modal.type === "exportReport") {
       backdrop.appendChild(buildExportReportModal());
+    } else if (state.modal.type === "memberPerms") {
+      backdrop.appendChild(buildMemberPermsModal());
     }
     document.body.appendChild(backdrop);
 
@@ -4710,18 +4802,18 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         var kickBtn = (isOwnHousehold && m.uid !== user.id)
           ? '<button type="button" class="icon-btn" data-action="household-kick" data-uid="' + esc(m.uid) + '" data-name="' + esc(m.name) + '" aria-label="Üyeyi haneden çıkar" title="Üyeyi haneden çıkar">🗑️</button>'
           : '';
+        var mPerms = m.perms || normalizeMemberPerms(m);
+        var permCount = ALL_HOUSEHOLD_PERMS.filter(function (k) { return mPerms[k]; }).length;
         var roleBadge;
         if (isOwner) {
           roleBadge = '<span class="family-role-badge" title="Hane sahibi">👑 Hane Sahibi</span>';
         } else if (isOwnHousehold) {
-          // Hane sahibi, kendisi dışındaki üyelerin rolünü buradan bir
-          // listbox (select) ile değiştirebilir.
-          roleBadge = '<select class="family-role-select" data-action="member-role-select" data-uid="' + esc(m.uid) + '" title="Rolü değiştir" aria-label="' + esc(m.name) + ' için yetki seç">' +
-            '<option value="edit"' + (role === "view" ? "" : " selected") + '>✏️ Düzenleyebilir</option>' +
-            '<option value="view"' + (role === "view" ? " selected" : "") + '>👁️ Sadece Görüntüler</option>' +
-            '</select>';
+          // Hane sahibi, kendisi dışındaki üyelerin ayrıntılı izinlerini
+          // (araçlar/şoförler/masraflar/yedekleme vb.) buraya tıklayarak
+          // açtığı checkbox'lı bir pencereden yönetebilir.
+          roleBadge = '<button type="button" class="family-role-toggle" data-action="open-member-perms" data-uid="' + esc(m.uid) + '" data-name="' + esc(m.name) + '" title="Yetkileri düzenle" aria-label="' + esc(m.name) + ' için yetkileri düzenle">🔐 Yetkiler (' + permCount + '/' + ALL_HOUSEHOLD_PERMS.length + ')</button>';
         } else {
-          roleBadge = '<span class="family-role-badge">' + (role === "view" ? "👁️ Sadece Görüntüler" : "✏️ Düzenleyebilir") + '</span>';
+          roleBadge = '<span class="family-role-badge" title="Hane sahibi tarafından belirlenen yetkilerin">🔐 Yetkiler (' + permCount + '/' + ALL_HOUSEHOLD_PERMS.length + ')</span>';
         }
         return '<li class="family-item"><span class="family-name">👤 ' + esc(m.name) + (m.uid === user.id ? " (sen)" : "") + '</span><span class="family-role">' + esc(m.email || "") + '</span>' + roleBadge + kickBtn + '</li>';
       }).join("");
@@ -4756,6 +4848,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         '<button type="button" class="btn-secondary full" id="app-a2hs">🏠 Ana Ekrana Ekle</button>' +
       '</div>' +
 
+      (hasHouseholdPerm("backup") ? (
       '<p class="profile-section-title">💾 Otomatik Yedekleme</p>' +
       '<p class="field-hint" style="margin-top:-4px">Belirlediğin periyotta, uygulamayı açtığında verilerin (araçlar, masraflar, şoförler) otomatik olarak JSON dosyası halinde yedeklenir. Yedek her zaman sadece kendi cihazına gider, sunucuda hiç saklanmaz.</p>' +
       '<label class="field"><span>Periyot</span>' +
@@ -4779,10 +4872,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         '<p class="field-hint" style="margin-top:-6px">Tarayıcın (örn. iOS Safari) özel klasör seçmeyi desteklemiyor; yedekler cihazının İndirilenler klasörüne inecek.</p>'
       ) +
       '<p class="field-hint" style="margin-top:-6px">Son yedekleme: ' + (autoBackupSettings.lastBackupAt ? fmtDateTime(autoBackupSettings.lastBackupAt) : "Henüz yapılmadı") + '</p>' +
-      '<button type="button" class="btn-secondary full" id="auto-backup-now">⬇️ Şimdi Yedekle</button>' +
+      '<button type="button" class="btn-secondary full" id="auto-backup-now">⬇️ Şimdi Yedekle</button>'
+      ) : (
+      '<p class="profile-section-title">💾 Otomatik Yedekleme</p>' +
+      '<p class="field-hint" style="margin-top:-4px">Bu hanede yedekleme yapma yetkin yok. Yetkini değiştirmek için hane sahibinle iletişime geç.</p>'
+      )) +
 
       '<p class="profile-section-title">🏠 Ortak Hesap</p>' +
-      '<p class="field-hint" style="margin-top:-4px">Aynı araçları eşin/ailenle ortak yönetmek için davet kodunu paylaş, ya da sana verilen bir kodla katıl. Katılan üyenin rolünü (düzenleyebilir / sadece görüntüleyebilir) aşağıdaki listeden ayarlayabilirsin.</p>' +
+      '<p class="field-hint" style="margin-top:-4px">Aynı araçları eşin/ailenle ortak yönetmek için davet kodunu paylaş, ya da sana verilen bir kodla katıl. Katılan üyenin nelere erişebileceğini (araçlar, şoförler, masraflar, yedekleme vb.) 🔐 Yetkiler düğmesinden checkbox\'larla ayarlayabilirsin.</p>' +
       (isOwnHousehold ? '' : '<p class="field-hint" style="color:var(--amber)">Şu an başka bir kullanıcının ortak hanesindesin.</p>') +
       '<div class="budget-row">' +
         '<input id="household-code-display" readonly value="' + esc((isOwnHousehold && state.householdInviteToken) ? buildInviteCode(state.householdId, state.householdInviteToken) : (state.householdId || "")) + '" style="flex:1" />' +
@@ -4922,12 +5019,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         removeHouseholdMember(btn.getAttribute("data-uid"), btn.getAttribute("data-name"));
       });
     });
-    modal.querySelectorAll('[data-action="member-role-select"]').forEach(function (sel) {
-      sel.addEventListener("change", function () {
-        var uid = sel.getAttribute("data-uid");
-        var newRole = sel.value === "view" ? "view" : "edit";
-        sel.disabled = true; // Firestore güncellemesi/onSnapshot ile modal yeniden çizilene kadar çift tıklamayı önle.
-        setMemberRole(uid, newRole);
+    modal.querySelectorAll('[data-action="open-member-perms"]').forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        state.modal = { type: "memberPerms", uid: btn.getAttribute("data-uid"), name: btn.getAttribute("data-name") };
+        render();
       });
     });
 
@@ -5001,6 +5096,56 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         danger: true,
         onConfirm: function () { deleteAccountAndData(pass); }
       });
+    });
+
+    return modal;
+  }
+
+  // ---------- Üye yetkileri penceresi ----------
+  // Hane sahibinin, ortak hanedeki bir üyenin tam olarak neleri
+  // görebileceğini/yapabileceğini checkbox'larla belirlediği pencere.
+  var HOUSEHOLD_PERM_DEFS = [
+    { key: "seeCars", icon: "🚗", label: "Araçları görebilir", hint: "Kapalıysa 'Araçlar' sekmesini hiç göremez." },
+    { key: "seeDrivers", icon: "🧑‍✈️", label: "Şoförleri görebilir", hint: "Kapalıysa 'Şoförler' sekmesini hiç göremez." },
+    { key: "seeExpenses", icon: "💰", label: "Masrafları görebilir", hint: "Kapalıysa masraf kaydı listesini, Panel ve Analiz (maliyet) görünümlerini göremez; sadece bakım özetini (Özet) görür." },
+    { key: "addExpense", icon: "➕", label: "Masraf ekleyebilir", hint: "Yeni masraf kaydı girebilir." },
+    { key: "manage", icon: "✏️", label: "Araç / şoför ekleyip düzenleyebilir", hint: "Araç ve şoför ekleme, düzenleme, silme; masraf düzenleme/silme dahil." },
+    { key: "backup", icon: "💾", label: "Yedekleme yapabilir", hint: "Verileri dışa aktarabilir (⬇️ Yedekle) ve içe aktarabilir (⬆️ Geri Yükle)." }
+  ];
+  function buildMemberPermsModal() {
+    var uid = state.modal.uid;
+    var member = (state.householdMembers || []).find(function (m) { return m.uid === uid; });
+    var perms = member ? (member.perms || normalizeMemberPerms(member)) : normalizeMemberPerms(null);
+    var name = (member && member.name) || state.modal.name || "Üye";
+
+    var modal = document.createElement("div");
+    modal.className = "modal wide";
+    modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
+
+    modal.innerHTML =
+      '<div class="modal-head"><h3>🔐 ' + esc(name) + ' — Yetkiler</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>' +
+      '<p class="field-hint" style="margin-top:-4px">Bu üyenin ortak hanende neleri görüp yapabileceğini seç. Değişiklikler kaydettiğin anda üyeye yansır.</p>' +
+      '<div class="car-checklist" id="mp-checklist" style="max-height:none">' +
+        HOUSEHOLD_PERM_DEFS.map(function (def) {
+          var checked = perms[def.key] !== false;
+          return '<label class="toggle-row" style="margin-bottom:14px; align-items:flex-start;">' +
+            '<input type="checkbox" data-perm="' + def.key + '"' + (checked ? " checked" : "") + ' style="margin-top:2px" />' +
+            '<span><span style="display:block">' + def.icon + ' ' + esc(def.label) + '</span>' +
+            '<span class="field-hint" style="margin:2px 0 0">' + esc(def.hint) + '</span></span>' +
+          '</label>';
+        }).join("") +
+      '</div>' +
+      '<button type="button" class="btn-primary full" id="mp-save">Kaydet</button>';
+
+    modal.querySelector("#mp-save").addEventListener("click", function () {
+      var newPerms = {};
+      HOUSEHOLD_PERM_DEFS.forEach(function (def) {
+        var cb = modal.querySelector('[data-perm="' + def.key + '"]');
+        newPerms[def.key] = !!(cb && cb.checked);
+      });
+      var btn = modal.querySelector("#mp-save");
+      btn.disabled = true; btn.textContent = "Kaydediliyor…";
+      setMemberPerms(uid, newPerms);
     });
 
     return modal;
@@ -7068,9 +7213,25 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         // Sadece görüntüleyebilen üyeler bu eylemleri tetikleyemez (ilgili
         // düğmeler CSS ile zaten gizleniyor; bu, programatik/eski DOM
         // durumlarına karşı ikinci bir savunma katmanı).
-        var EDIT_ONLY_ACTIONS = ["open-add-car", "open-edit-car", "delete-car", "open-add-expense", "open-edit-expense", "delete-expense", "open-add-driver", "open-edit-driver", "delete-driver"];
-        if (EDIT_ONLY_ACTIONS.indexOf(action) !== -1 && !canEditHousehold()) {
-          toast("Bu hanede sadece görüntüleme yetkin var, düzenleme yapamazsın.");
+        var MANAGE_ONLY_ACTIONS = ["open-add-car", "open-edit-car", "delete-car", "open-edit-expense", "delete-expense", "open-add-driver", "open-edit-driver", "delete-driver"];
+        var ADD_EXPENSE_ACTIONS = ["open-add-expense"];
+        var BACKUP_ACTIONS = ["export-data"];
+        var SEE_EXPENSES_VIEWS = ["panel", "analiz"]; // maliyet verisi içeren görünümler
+        var actionPerms = myHouseholdPerms();
+        if (MANAGE_ONLY_ACTIONS.indexOf(action) !== -1 && !actionPerms.manage) {
+          toast("Bu hanede araç/şoför/masraf düzenleme yetkin yok.");
+          return;
+        }
+        if (ADD_EXPENSE_ACTIONS.indexOf(action) !== -1 && !actionPerms.addExpense) {
+          toast("Bu hanede masraf ekleme yetkin yok.");
+          return;
+        }
+        if (BACKUP_ACTIONS.indexOf(action) !== -1 && !actionPerms.backup) {
+          toast("Bu hanede yedekleme yapma yetkin yok.");
+          return;
+        }
+        if (action === "set-view" && SEE_EXPENSES_VIEWS.indexOf(el.getAttribute("data-view")) !== -1 && !actionPerms.seeExpenses) {
+          toast("Bu hanede masrafları görüntüleme yetkin yok.");
           return;
         }
         if (action === "select-car") { state.selectedCarId = el.getAttribute("data-car"); state.logVisibleCount = 20; render(); }
@@ -7349,7 +7510,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (importInput) {
       importInput.addEventListener("change", function (ev) {
         var file = ev.target.files && ev.target.files[0];
-        if (file) importData(file);
+        if (!file) return;
+        if (!hasHouseholdPerm("backup")) {
+          toast("Bu hanede yedekleme/geri yükleme yetkin yok.");
+          importInput.value = "";
+          return;
+        }
+        importData(file);
       });
     }
   }
