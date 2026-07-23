@@ -901,7 +901,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.9.5"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.9.6"; // Dynamic Version Tracking
   var APP_UPDATED = "23 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1303,7 +1303,15 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       setLocalData("activity_log", state.activityLog);
     }
     setTimeout(maybeRunAutoBackup, 0);
-    state.householdMembers = Object.keys(data.memberProfiles || {}).map(function (uidKey) {
+    // Üye listesi artık TÜM memberProfiles anahtarlarından değil, GÜNCEL
+    // "members" dizisinden türetiliyor. Neden: haneden ayrılan/çıkarılan
+    // bir üyenin memberProfiles kaydı artık silinmiyor (rol/yetkileri
+    // tekrar katılınca korunsun diye — bkz. leaveHousehold() /
+    // removeHouseholdMember()). Eğer burada hâlâ Object.keys(memberProfiles)
+    // kullansaydık, ayrılmış eski üyeler hane sahibine "hâlâ üye" gibi
+    // görünmeye devam ederdi.
+    var membersList = data.members || [];
+    state.householdMembers = membersList.map(function (uidKey) {
       var p = (data.memberProfiles || {})[uidKey] || {};
       // Rol alanı yoksa (eski üyeler ya da hiç değiştirilmemişse) varsayılan
       // "edit" (tam yetki) kabul edilir — bkz. firestore.rules.
@@ -2839,12 +2847,25 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         var ownRef = db.collection("users").doc(myUid);
         var removePatch = {};
         removePatch.members = firebase.firestore.FieldValue.arrayRemove(myUid);
-        removePatch["memberProfiles." + myUid] = firebase.firestore.FieldValue.delete();
+        // NOT: memberProfiles.{uid} kasıtlı olarak SİLİNMİYOR. Eskiden
+        // burada FieldValue.delete() ile tamamen kaldırılıyordu; bu da,
+        // kişi haneden ayrılıp AYNI haneye tekrar katıldığında
+        // memberProfiles kaydının (dolayısıyla rol/perms ayarının) sıfırdan
+        // oluşturulmasına ve varsayılan TAM yetkiyle geri dönmesine yol
+        // açıyordu (bkz. normalizeMemberPerms — ne perms ne role varsa tam
+        // yetki varsayılır). Kaydı members'tan çıkarıp memberProfiles'ta
+        // bırakınca, joinHousehold()'daki set(merge:true) sadece
+        // name/email alanlarını güncelliyor ve mevcut role/perms alanları
+        // (Firestore'un yaprak-seviyeli merge davranışı sayesinde) aynen
+        // korunuyor. state.householdMembers listesi zaten sadece "members"
+        // dizisindeki uid'leri gösterecek şekilde filtrelendiği için
+        // (bkz. applyHouseholdData), ayrılan kişi hane sahibine "hâlâ üye"
+        // gibi görünmez.
         // ÖNEMLİ: Hane belgesindeki dinleyiciyi, çıkış yazısını göndermeden
         // ÖNCE (senkron olarak) kapatıyoruz. Aksi halde, çıkışın yerel
         // (optimistic) yansıması bu dinleyiciye anında düşer ve
         // ensureSelfInHousehold — "kendi kaydım yoksa geri ekle" mantığıyla
-        // az önce kasıtlı sildiğimiz kendi kaydımızı hane sahibinin
+        // az önce members'tan çıkardığımız kendi kaydımızı hane sahibinin
         // belgesine geri yazmaya çalışır. Ağ gecikmesine bağlı olarak bu,
         // hane sahibinin tarafında ayrılan üyenin "hayalet" gibi kalmasına
         // ya da geri gelmesine yol açabiliyordu. Dinleyiciyi önce kapatmak
@@ -2889,7 +2910,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         var householdRef = db.collection("users").doc(state.currentUser.id);
         var removePatch = {};
         removePatch.members = firebase.firestore.FieldValue.arrayRemove(memberUid);
-        removePatch["memberProfiles." + memberUid] = firebase.firestore.FieldValue.delete();
+        // NOT: memberProfiles.{uid} burada da kasıtlı olarak SİLİNMİYOR
+        // (bkz. leaveHousehold() içindeki aynı konudaki not). Böylece hane
+        // sahibi bu kişiyi ileride yeni bir davet koduyla tekrar haneye
+        // alırsa, daha önce ayarladığı rol/yetkiler sıfırlanıp varsayılan
+        // TAM yetkiyle geri gelmez.
         // Üye çıkarılırken davet kodu da otomatik yenilenir: aksi halde
         // çıkarılan kişi elindeki (hâlâ geçerli) eski kodla anında geri
         // katılabilirdi. "Kodu Yenile" butonu bunu manuel yapmak içindir,
