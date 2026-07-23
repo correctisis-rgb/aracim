@@ -888,7 +888,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.9.1"; // Dynamic Version Tracking
+  var APP_VERSION = "v1.9.2"; // Dynamic Version Tracking
   var APP_UPDATED = "23 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1164,6 +1164,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     driversListExpanded: false,
     driverUpcomingExpanded: false,
     calendarVisibleCount: 20,
+    summaryVisibleCount: 20,
     logVisibleCount: 20,
     budgets: getLocalData("budgets", {}),
     householdId: null,
@@ -1266,11 +1267,28 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
   function applyHouseholdData(data) {
     state.householdDataLoaded = true;
-    state.cars = data.cars || state.cars || [];
-    state.expenses = data.expenses || state.expenses || [];
-    state.familyMembers = data.familyMembers || state.familyMembers || [];
-    state.budgets = data.budgets || state.budgets || {};
-    state.drivers = data.drivers || state.drivers || [];
+    // Offline'dayken yapılan değişiklikler henüz buluta yazılmadıysa
+    // (pendingSyncCount > 0), tam bu sırada gelen bir snapshot bulutun eski
+    // (henüz senkron edilmemiş) halini taşıyor olabilir. Bu durumda veri
+    // alanlarının üzerine yazmıyoruz; syncOfflineData() yazması tamamlanır
+    // tamamlanmaz zaten güncel bir snapshot tekrar gelecek ve normal şekilde
+    // uygulanacak. Aksi halde offline'da eklenen aktivite geçmişi kayıtları
+    // (ve diğer değişiklikler) bu eski veriyle ezilip kayboluyordu.
+    if (!(state.pendingSyncCount > 0)) {
+      state.cars = data.cars || state.cars || [];
+      state.expenses = data.expenses || state.expenses || [];
+      state.familyMembers = data.familyMembers || state.familyMembers || [];
+      state.budgets = data.budgets || state.budgets || {};
+      state.drivers = data.drivers || state.drivers || [];
+      state.notifHistory = data.notifHistory || state.notifHistory || [];
+      state.activityLog = data.activityLog || state.activityLog || [];
+      setLocalData("cars", state.cars);
+      setLocalData("expenses", state.expenses);
+      setLocalData("family", state.familyMembers);
+      setLocalData("budgets", state.budgets);
+      setLocalData("notif_history", state.notifHistory);
+      setLocalData("activity_log", state.activityLog);
+    }
     setTimeout(maybeRunAutoBackup, 0);
     state.householdMembers = Object.keys(data.memberProfiles || {}).map(function (uidKey) {
       var p = (data.memberProfiles || {})[uidKey] || {};
@@ -1278,15 +1296,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       // "edit" (tam yetki) kabul edilir — bkz. firestore.rules.
       return { uid: uidKey, name: p.name || "Üye", email: p.email || "", role: p.role || "edit" };
     });
-    state.notifHistory = data.notifHistory || state.notifHistory || [];
-    state.activityLog = data.activityLog || state.activityLog || [];
     state.householdInviteToken = data.inviteToken || null;
-    setLocalData("cars", state.cars);
-    setLocalData("expenses", state.expenses);
-    setLocalData("family", state.familyMembers);
-    setLocalData("budgets", state.budgets);
-    setLocalData("notif_history", state.notifHistory);
-    setLocalData("activity_log", state.activityLog);
     tryOpenPendingDeepLink();
     ensureInviteToken(dataDocId(), data);
   }
@@ -2155,7 +2165,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         cars: state.cars,
         expenses: state.expenses,
         familyMembers: state.familyMembers,
-        budgets: state.budgets
+        budgets: state.budgets,
+        drivers: state.drivers,
+        activityLog: state.activityLog
       }, { merge: true }).then(function() {
         clearPendingSync();
         toast(pendingCount > 0
@@ -4164,8 +4176,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (items.length === 0) {
       html += '<p class="empty-hint">Önce bir araç ekleyin.</p>';
     } else {
+      // Ekran uzun listeyle dolup taşmasın diye özet kayıtları 20'şerlik
+      // sayfalar halinde gösterilir; "Daha Fazla Göster" ile devamı açılır.
+      var summaryPageSize = 20;
+      var summaryVisibleCount = Math.max(summaryPageSize, state.summaryVisibleCount || summaryPageSize);
+      var summaryVisibleSlice = items.slice(0, summaryVisibleCount);
+      var hasMoreSummaryItems = items.length > summaryVisibleSlice.length;
       html += '<ul class="summary-list">';
-      items.forEach(function (it) {
+      summaryVisibleSlice.forEach(function (it) {
         var avatar = it.carPhoto ? '<img class="sum-avatar" src="' + it.carPhoto + '" alt="" data-action="open-lightbox" data-src="' + it.carPhoto + '" data-caption="' + esc(it.carName) + '" />' : '<span class="sum-icon" style="background:' + it.status.color + '22;color:' + it.status.color + '">' + it.emoji + '</span>';
         var showIcon = (it.status.key === "overdue" || it.status.key === "today" || it.status.key === "soon") ? "⚠️ " : (it.status.key === "ok" ? "✅ " : "");
         html += '<li class="summary-row">' + avatar +
@@ -4183,6 +4201,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           '</li>';
       });
       html += '</ul>';
+      if (hasMoreSummaryItems) {
+        html += '<div style="text-align:center; margin-top:12px">' +
+          '<button type="button" class="btn-secondary" data-action="load-more-summary">Daha Fazla Göster (' + (items.length - summaryVisibleSlice.length) + ' kayıt daha)</button>' +
+          '</div>';
+      }
     }
     html += '<p class="summary-hint">30 gün içinde: kırmızı · 90 gün içinde: turuncu · daha uzak: yeşil. Tarihleri araç kartındaki kalem simgesinden güncelleyebilirsiniz.</p>';
     html += '</section>';
@@ -7041,6 +7064,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         else if (action === "toggle-drivers-expanded") { state.driversListExpanded = !state.driversListExpanded; render(); }
         else if (action === "toggle-driver-upcoming-expanded") { state.driverUpcomingExpanded = !state.driverUpcomingExpanded; render(); }
         else if (action === "load-more-calendar") { state.calendarVisibleCount = (state.calendarVisibleCount || 20) + 20; render(); }
+        else if (action === "load-more-summary") { state.summaryVisibleCount = (state.summaryVisibleCount || 20) + 20; render(); }
         else if (action === "clear-car-filter") { state.carFilterText = ""; render(); }
         else if (action === "load-more-log") {
           var prevScrollYForLog = window.scrollY;
