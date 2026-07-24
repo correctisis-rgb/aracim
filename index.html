@@ -918,7 +918,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.0.4"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.0.5"; // Dynamic Version Tracking
   var APP_UPDATED = "24 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1315,6 +1315,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       state.notifHistory = data.notifHistory || state.notifHistory || [];
       state.activityLog = data.activityLog || state.activityLog || [];
       state.license = data.license || null;
+      state.householdPendingDeletion = data.pendingDeletion || null;
       setLocalData("cars", state.cars);
       setLocalData("expenses", state.expenses);
       setLocalData("family", state.familyMembers);
@@ -1563,28 +1564,38 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       });
   }
 
+  // Bir üye, hane sahibinin hesabını kapatma sürecini başlatması (bkz.
+  // requestOwnerAccountDeletion) yüzünden mi yoksa hane sahibi kendisini
+  // hane listesinden çıkardığı için mi erişimini kaybetti — bu ikisini
+  // ayırt edip handleHouseholdAccessRevoked()'a doğru mesajı verebilmek
+  // için son görülen pendingDeletion durumunu burada saklıyoruz.
+  var lastKnownHouseholdWasPendingDeletion = false;
   function subscribeHousehold(householdId) {
     if (unsubscribeHouseholdDoc) { unsubscribeHouseholdDoc(); unsubscribeHouseholdDoc = null; }
     state.householdId = householdId;
+    lastKnownHouseholdWasPendingDeletion = false;
     var ref = db.collection("users").doc(householdId);
     unsubscribeHouseholdDoc = ref.onSnapshot(function (snap) {
       if (!snap.exists) return;
       var data = snap.data() || {};
+      lastKnownHouseholdWasPendingDeletion = !!data.pendingDeletion;
       applyHouseholdData(data);
       ensureSelfInHousehold(householdId, data);
       render();
     }, function (err) {
       console.error(err);
-      // Hane sahibi bizi ortak haneden çıkarmış olabilir: o durumda bu
+      // Hane sahibi bizi ortak haneden çıkarmış olabilir, ya da hane sahibi
+      // hesabını kapatma sürecini tamamlamış (bekleme süresi doldu ve
+      // veriler kalıcı olarak silindi) olabilir: her iki durumda da bu
       // dokümanı okuma iznimiz kesilir (permission-denied). Sessizce takılı
       // kalmak yerine kendi (boş) hanemize otomatik dönelim.
       if (err && err.code === "permission-denied") {
-        handleHouseholdAccessRevoked();
+        handleHouseholdAccessRevoked(lastKnownHouseholdWasPendingDeletion);
       }
     });
   }
 
-  function handleHouseholdAccessRevoked() {
+  function handleHouseholdAccessRevoked(householdWasBeingDeleted) {
     if (!state.currentUser) return;
     var myUid = state.currentUser.id;
     if (state.householdId === myUid) return; // zaten kendi hanemizdeyiz, alakasız bir hata
@@ -1598,7 +1609,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         var ownData = snap.data() || {};
         applyHouseholdData(ownData);
         ensureSelfInHousehold(myUid, ownData);
-        toast("Ortak haneden çıkarıldın, kendi hanene döndürüldün.");
+        toast(householdWasBeingDeleted
+          ? "Ortak hanenin sahibi hesabını kapattı. Verilerine artık erişilemiyor; kendi hanene döndürüldün."
+          : "Ortak haneden çıkarıldın, kendi hanene döndürüldün.");
         render();
       })
       .catch(function (err) { console.error(err); });
@@ -1976,6 +1989,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   var LICENSE_LIST_URL = "https://aracim-mu.vercel.app/api/list-licenses";
   var LICENSE_REDEEM_URL = "https://aracim-mu.vercel.app/api/redeem-license";
   var LICENSE_REVOKE_URL = "https://aracim-mu.vercel.app/api/revoke-license";
+  var ACCOUNT_DELETION_CANCEL_URL = "https://aracim-mu.vercel.app/api/cancel-account-deletion";
   var APP_SHARE_URL = "https://correctisis-rgb.github.io/aracim/";
   // ?a2hs=1 ile açılan link, sayfa yüklenir yüklenmez otomatik olarak
   // "Ana Ekrana Ekle" akışını tetikler (bkz. maybeAutoTriggerAddToHomeScreen).
@@ -2016,7 +2030,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     supportRequests: null, supportRequestsLoading: false, supportRequestsError: null,
     openSupportCount: 0,
     mySupportRequests: null, mySupportRequestsError: null,
-    myLogins: null
+    myLogins: null,
+    pendingDeletions: null, pendingDeletionsLoading: false, pendingDeletionsError: null
   };
   // --- Admin: Lisans Yönetimi ---
   var licenseAdmin = {
@@ -2104,6 +2119,76 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       toast("İstek gönderilemedi: " + (err && err.message ? err.message : err));
     });
   }
+  // Admin: "Bekleyen Hesap Kapatma İşlemleri" — pendingDeletion alanı
+  // dolu olan tüm hane belgelerini canlı olarak listeler. Bu, hem "kim,
+  // ne zaman hesabını kapatmaya başladı" sorusunun anlık cevabı, hem de
+  // aşağıdaki cancelAccountDeletionAsAdmin() ile iptal edebilmenin
+  // ön koşuludur. firestore.rules'da users/{userId} okuma kuralına
+  // eklenen isAdmin() sayesinde çalışır.
+  function fetchPendingDeletions(force) {
+    if (!state.currentUser || !isAdminUser(state.currentUser)) return;
+    if (monitoring.pendingDeletionsLoading) return;
+    if (monitoring.pendingDeletions && !force) return;
+    monitoring.pendingDeletionsLoading = true;
+    monitoring.pendingDeletionsError = null;
+    if (state.modal && state.modal.type === "health") render();
+    db.collection("users").where("pendingDeletion.deleteAt", ">", new Date(0)).get()
+      .then(function (snap) {
+        var rows = [];
+        snap.forEach(function (doc) {
+          var d = doc.data() || {};
+          var pd = d.pendingDeletion || {};
+          rows.push({
+            uid: doc.id,
+            name: d.name || d.email || doc.id,
+            email: d.email || "",
+            requestedByName: pd.requestedByName || "",
+            memberCount: (d.members || []).filter(function (m) { return m !== doc.id; }).length,
+            daysLeft: pendingDeletionDaysLeft(pd)
+          });
+        });
+        rows.sort(function (a, b) { return (a.daysLeft == null ? 999 : a.daysLeft) - (b.daysLeft == null ? 999 : b.daysLeft); });
+        monitoring.pendingDeletions = rows;
+        monitoring.pendingDeletionsLoading = false;
+        if (state.modal && state.modal.type === "health") render();
+      })
+      .catch(function (err) {
+        console.error(err);
+        monitoring.pendingDeletionsLoading = false;
+        monitoring.pendingDeletionsError = err && err.message ? err.message : String(err);
+        if (state.modal && state.modal.type === "health") render();
+      });
+  }
+
+  // Admin: bir hane sahibinin bekleyen hesap kapatma işlemini, hane sahibi
+  // kendisi giriş yapmadan da iptal edebilmesi için (bkz.
+  // api/cancel-account-deletion.js). Veri henüz gerçekten silinmediği için
+  // bu bir "geri yükleme" değil, süreci durdurma işlemidir.
+  function cancelAccountDeletionAsAdmin(targetUid, targetName) {
+    if (!state.currentUser || !isAdminUser(state.currentUser)) return;
+    if (!auth.currentUser) { toast("Oturum bulunamadı, tekrar giriş yapın."); return; }
+    toast("İptal ediliyor…");
+    auth.currentUser.getIdToken().then(function (idToken) {
+      return fetch(ACCOUNT_DELETION_CANCEL_URL, {
+        method: "POST",
+        headers: { "Authorization": "Bearer " + idToken, "Content-Type": "application/json" },
+        body: JSON.stringify({ uid: targetUid })
+      });
+    }).then(function (r) {
+      return r.json().then(function (data) { return { ok: r.ok, data: data }; });
+    }).then(function (result) {
+      if (result.ok && result.data && result.data.ok) {
+        toast((targetName || "Hesabın") + " kapatma süreci iptal edildi.");
+        fetchPendingDeletions(true);
+      } else {
+        toast((result.data && result.data.error) ? result.data.error : "İptal edilemedi.");
+      }
+    }).catch(function (err) {
+      console.error(err);
+      toast("İstek gönderilemedi: " + (err && err.message ? err.message : err));
+    });
+  }
+
   function revokeHouseholdLicense(householdId) {
     if (!state.currentUser || !isAdminUser(state.currentUser)) return;
     if (!auth.currentUser) { toast("Oturum bulunamadı, tekrar giriş yapın."); return; }
@@ -2234,7 +2319,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       { id: "faq-hane", q: "Eşimle/ailemle aynı verileri nasıl paylaşırım?", a: "Hesabım bölümündeki hane paylaşımı özelliğiyle bir davet kodu veya QR oluşturabilir, bunu paylaşabileceğin kişi kendi hesabından okutarak aynı hanede araç ve masrafları görebilir." },
       { id: "faq-disa-aktar", q: "Verilerimi dışa aktarabilir miyim?", a: "Evet. Ana ekranın üst kısmındaki '⬇️ Yedekle' butonuyla tüm araç ve masraf kayıtlarını bir dosya olarak cihazına indirebilir, gerektiğinde '⬆️ Geri Yükle' ile aynı dosyadan geri yükleyebilirsin." },
       { id: "faq-tema", q: "Karanlık/aydınlık temayı nasıl değiştiririm?", a: "Üst sağ köşedeki güneş/ay simgesine dokunarak açık ve koyu tema arasında geçiş yapabilirsin." },
-      { id: "faq-hesap-sil", q: "Hesabımı veya bir aracı nasıl silerim?", a: "Bir aracı silmek için ilgili aracın düzenleme ekranındaki 'Sil' seçeneğini kullanabilirsin. Hesabını tamamen ve kalıcı olarak silmek istersen: Hesabım → Hesabı Kapat → '🗑️ Hesabımı ve Tüm Verilerimi Kalıcı Olarak Sil' seçeneğinden kendin gerçekleştirebilirsin." }
+      { id: "faq-hesap-sil", q: "Hesabımı veya bir aracı nasıl silerim?", a: "Bir aracı silmek için ilgili aracın düzenleme ekranındaki 'Sil' seçeneğini kullanabilirsin. Hesabını tamamen ve kalıcı olarak silmek istersen: Hesabım → Hesabı Kapat → '🗑️ Hesabımı ve Tüm Verilerimi Kalıcı Olarak Sil' seçeneğinden kendin gerçekleştirebilirsin. Eğer ortak bir hanenin sahibiysen ve hanende başka üyeler varsa, hesabın hemen değil, 10 günlük bir bekleme süresinin ardından (hem senin hem diğer üyelerin tüm verileriyle birlikte) silinir; bu süre içinde tekrar giriş yapıp işlemi iptal edebilirsin." }
     ];
   }
 
@@ -5158,6 +5243,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     modal.__avatar = user.avatar || null;
 
     var isOwnHousehold = state.householdId === user.id;
+    var ownerHasOtherMembers = isOwnHousehold && state.householdMembers && state.householdMembers.some(function (m) { return m.uid !== user.id; });
+    var myPendingDeletion = isOwnHousehold ? state.householdPendingDeletion : null;
     var memberListHtml;
     if (state.householdMembers && state.householdMembers.length) {
       memberListHtml = state.householdMembers.map(function (m) {
@@ -5281,11 +5368,24 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       '</div>' +
 
       '<p class="profile-section-title" style="color:var(--red)">Hesabı Kapat</p>' +
+      (state.householdPendingDeletion ? (
+        '<div class="danger-zone" style="border-color:var(--amber)">' +
+          (isOwnHousehold ?
+            ('<p class="field-hint" style="margin-top:0; color:var(--amber)">⏳ Hesabını kapatma sürecin devam ediyor. <strong>' + (pendingDeletionDaysLeft(state.householdPendingDeletion) != null ? (pendingDeletionDaysLeft(state.householdPendingDeletion) + ' gün') : 'Bekleme süresi') + '</strong> içinde hanendeki tüm veriler (senin ve diğer üyelerin) kalıcı olarak silinecek. Fikrini değiştirdiysen aşağıdan iptal edebilirsin.</p>' +
+             '<button type="button" class="btn-secondary full" id="p-cancel-deletion">↩️ Hesabı Kapatmaktan Vazgeç</button>')
+            :
+            ('<p class="field-hint" style="margin-top:0; color:var(--amber)">⏳ Bu ortak hanenin sahibi hesabını kapatma sürecini başlattı. <strong>' + (pendingDeletionDaysLeft(state.householdPendingDeletion) != null ? (pendingDeletionDaysLeft(state.householdPendingDeletion) + ' gün') : 'Bekleme süresi') + '</strong> içinde tüm hane verileri kalıcı olarak silinecek ve erişimin sona erecek. Önemli verilerini şimdiden yedeklemeni öneririz.</p>')
+          ) +
+        '</div>'
+      ) : '') +
+      (!state.householdPendingDeletion ?
       '<div class="danger-zone">' +
-        '<p class="field-hint" style="margin-top:0">Hesabını sildiğinde; profilin, tüm araçların, masraf kayıtların ve yüklediğin fotoğraflar (plaka, ruhsat, fatura görselleri dahil) kalıcı olarak silinir. Bu işlem <strong>geri alınamaz</strong>.' + (isOwnHousehold && memberListHtml.indexOf("empty-hint") === -1 ? ' Ortak hanende başka üyeler varsa onların erişimi de sona erer.' : '') + '</p>' +
+        '<p class="field-hint" style="margin-top:0">Hesabını sildiğinde; profilin, tüm araçların, masraf kayıtların ve yüklediğin fotoğraflar (plaka, ruhsat, fatura görselleri dahil) kalıcı olarak silinir. Bu işlem <strong>geri alınamaz</strong>.' +
+          (ownerHasOtherMembers ? (' Ortak hanende başka üyeler olduğu için hesabın hemen değil, ' + ACCOUNT_DELETION_GRACE_DAYS + ' günlük bir bekleme süresinin ardından — ve hem senin hem de diğer üyelerin TÜM verileri (araçlar, masraflar, fotoğraflar) ile birlikte — silinecek. Bu süre içinde tekrar giriş yapıp işlemi iptal edebilirsin.') : '') +
+        '</p>' +
         '<label class="field"><span>Devam etmek için şifreni gir</span><input id="p-del-pass" type="password" autocomplete="current-password" placeholder="Şifren" /></label>' +
-        '<button type="button" class="btn-danger full" id="p-delete-account">🗑️ Hesabımı ve Tüm Verilerimi Kalıcı Olarak Sil</button>' +
-      '</div>';
+        '<button type="button" class="btn-danger full" id="p-delete-account">' + (ownerHasOtherMembers ? '🕒 Hesabımı Kapat (Bekleme Süreli)' : '🗑️ Hesabımı ve Tüm Verilerimi Kalıcı Olarak Sil') + '</button>' +
+      '</div>' : '');
 
     var appShareBtn = modal.querySelector("#app-share");
     if (appShareBtn) appShareBtn.addEventListener("click", function () { shareApp(); });
@@ -5452,17 +5552,30 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       });
     });
 
-    modal.querySelector("#p-delete-account").addEventListener("click", function () {
+    var deleteBtn = modal.querySelector("#p-delete-account");
+    if (deleteBtn) deleteBtn.addEventListener("click", function () {
       var pass = modal.querySelector("#p-del-pass").value;
       if (!pass) { toast("Devam etmek için şifreni gir."); return; }
-      showConfirm({
-        title: "Hesabı Kalıcı Olarak Sil",
-        message: "Bu işlem GERİ ALINAMAZ. Hesabın, araçların, tüm masraf kayıtların, fotoğrafların ve diğer verilerin kalıcı olarak silinecek. Devam etmek istediğine emin misin?",
-        confirmLabel: "Evet, Kalıcı Olarak Sil",
-        danger: true,
-        onConfirm: function () { deleteAccountAndData(pass); }
-      });
+      if (ownerHasOtherMembers) {
+        showConfirm({
+          title: "Hesabı Kapat (Bekleme Süreli)",
+          message: "Hanende başka üyeler olduğu için hesabın hemen değil, " + ACCOUNT_DELETION_GRACE_DAYS + " günlük bir bekleme süresinin ardından silinecek. Bu süre boyunca sen ve diğer üyeler verilere erişmeye devam edebilir, istersen tekrar giriş yapıp işlemi iptal edebilirsin. Süre dolduğunda hanedeki TÜM veriler (senin ve diğer üyelerin) kalıcı olarak silinecek. Devam etmek istediğine emin misin?",
+          confirmLabel: "Evet, Kapatma Sürecini Başlat",
+          danger: true,
+          onConfirm: function () { requestOwnerAccountDeletion(pass); }
+        });
+      } else {
+        showConfirm({
+          title: "Hesabı Kalıcı Olarak Sil",
+          message: "Bu işlem GERİ ALINAMAZ. Hesabın, araçların, tüm masraf kayıtların, fotoğrafların ve diğer verilerin kalıcı olarak silinecek. Devam etmek istediğine emin misin?",
+          confirmLabel: "Evet, Kalıcı Olarak Sil",
+          danger: true,
+          onConfirm: function () { deleteAccountAndData(pass); }
+        });
+      }
     });
+    var cancelDeletionBtn = modal.querySelector("#p-cancel-deletion");
+    if (cancelDeletionBtn) cancelDeletionBtn.addEventListener("click", function () { cancelAccountDeletion(); });
 
     var licenseActivateBtn = modal.querySelector("#license-activate");
     if (licenseActivateBtn) {
@@ -5619,7 +5732,30 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return modal;
   }
 
+  // Hane sahibinin hesabını kapatması, kendi verisi dışında ortak hanedeki
+  // TÜM üyelerin verisini de anında ve geri döndürülemez şekilde sildiği
+  // için (bkz. users/{householdId} = tüm hanenin ortak belgesi), bu süre
+  // içinde bekleme (grace period) uygulanır. Bekleme süresi boyunca:
+  //  - Veriler ve tüm üyelerin erişimi olduğu gibi kalır (sadece bir uyarı
+  //    banner'ı gösterilir), böylece kimse aniden veri kaybetmez.
+  //  - Hane sahibi bu süre içinde tekrar giriş yapıp işlemi iptal edebilir.
+  //  - Süre dolduğunda gerçek/kalıcı silme işlemi backend tarafında
+  //    (planlı bir Cloud Function ile) gerçekleştirilir — bkz. aşağıdaki not.
+  var ACCOUNT_DELETION_GRACE_DAYS = 10;
+
+  function pendingDeletionDaysLeft(pd) {
+    if (!pd || !pd.deleteAt) return null;
+    var deleteAtMs = typeof pd.deleteAt.toMillis === "function" ? pd.deleteAt.toMillis() : new Date(pd.deleteAt).getTime();
+    if (isNaN(deleteAtMs)) return null;
+    var msLeft = deleteAtMs - Date.now();
+    return Math.max(0, Math.ceil(msLeft / (24 * 60 * 60 * 1000)));
+  }
+
   // KVKK "unutulma hakkı" — hesabı ve tüm ilişkili verileri kalıcı olarak siler.
+  // Sadece kendi verisi silinen durumlar için kullanılır: (a) ortak hanenin
+  // sıradan bir üyesi kendi hesabını kapatıyor, ya da (b) hane sahibi ama
+  // hanesinde başka hiç üye yok. Her iki durumda da işlem yalnızca kendi
+  // users/{myUid} belgesini etkiler, başka kimsenin verisine dokunmaz.
   function deleteAccountAndData(currentPassword) {
     var fbUser = auth.currentUser;
     if (!fbUser) return;
@@ -5661,6 +5797,60 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       } else {
         toast("Hesap silinirken bir hata oluştu: " + authErrorMessage(err));
       }
+    });
+  }
+
+  // Hane sahibi, hanesinde başka üyeler VARKEN hesabını kapatmak istediğinde
+  // kullanılır. Ortak veriyi anında silmek yerine bir bekleme süresi
+  // (ACCOUNT_DELETION_GRACE_DAYS gün) başlatır; bu süre boyunca diğer
+  // üyeler verilerine erişmeye devam eder ve bir uyarı banner'ı görür. Hane
+  // sahibi bu süre içinde tekrar giriş yapıp cancelAccountDeletion() ile
+  // işlemi iptal edebilir. Süre dolunca kalıcı silme, backend'de çalışan
+  // planlı bir Cloud Function tarafından gerçekleştirilmelidir (bkz. not).
+  function requestOwnerAccountDeletion(currentPassword) {
+    var fbUser = auth.currentUser;
+    if (!fbUser) return;
+    var myUid = fbUser.uid;
+
+    toast("Hesabın kapatma süreci başlatılıyor…");
+    var credential = firebase.auth.EmailAuthProvider.credential(fbUser.email, currentPassword);
+    fbUser.reauthenticateWithCredential(credential).then(function () {
+      var deleteAt = new Date(Date.now() + ACCOUNT_DELETION_GRACE_DAYS * 24 * 60 * 60 * 1000);
+      return db.collection("users").doc(myUid).set({
+        pendingDeletion: {
+          requestedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          requestedByName: (state.currentUser && state.currentUser.name) || "",
+          deleteAt: deleteAt
+        }
+      }, { merge: true });
+    }).then(function () {
+      closeModal();
+      toast("Hesabın kapatma sürecine alındı. " + ACCOUNT_DELETION_GRACE_DAYS + " gün içinde tüm hane verileri kalıcı olarak silinecek. Fikrini değiştirirsen bu süre içinde tekrar giriş yapıp iptal edebilirsin.");
+      return auth.signOut();
+    }).catch(function (err) {
+      console.error(err);
+      if (err && err.code === "auth/wrong-password") {
+        toast("Şifre hatalı. Hesabın kapatılmadı.");
+      } else {
+        toast("İşlem başlatılırken bir hata oluştu: " + authErrorMessage(err));
+      }
+    });
+  }
+
+  // Bekleme süresi dolmadan önce hane sahibinin fikrini değiştirmesi
+  // durumunda çağrılır; pendingDeletion alanını temizler, hane ve tüm
+  // üyelerin verisi/erişimi normal şekilde devam eder.
+  function cancelAccountDeletion() {
+    var fbUser = auth.currentUser;
+    if (!fbUser) return;
+    db.collection("users").doc(fbUser.uid).set({
+      pendingDeletion: firebase.firestore.FieldValue.delete()
+    }, { merge: true }).then(function () {
+      toast("Hesabını kapatma işlemi iptal edildi. Verilerin ve hanen olduğu gibi duruyor.");
+      render();
+    }).catch(function (err) {
+      console.error(err);
+      toast("İptal edilirken bir hata oluştu: " + authErrorMessage(err));
     });
   }
 
@@ -5955,6 +6145,29 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       (state.online ? '<span class="mon-badge ok">🟢 Çevrimiçi</span>' : '<span class="mon-badge bad">🔴 Çevrimdışı</span>') + '</span></div>';
     html += '<div class="mon-row"><span class="mon-label">Uygulama Sürümü</span><span class="mon-value">' + esc(APP_VERSION) + '</span></div>';
     html += '<div class="mon-row"><span class="mon-label">Bildirim İzni</span><span class="mon-value">' + esc(state.notifStatus || "—") + '</span></div>';
+
+    html += '<p class="profile-section-title">⏳ Bekleyen Hesap Kapatma İşlemleri</p>';
+    html += '<p class="field-hint" style="margin-top:-4px">Başka üyeleri olan bir hane sahibi hesabını kapattığında veri hemen silinmez; burada listelenir. Bekleme süresi dolunca otomatik olarak kalıcı silinir (bkz. runLogs\'ta "accountPurge" kaydı) — o noktadan sonra geri alma yoktur, bu yüzden gerekirse süreyi dolmadan burada iptal edebilirsin.</p>';
+    if (monitoring.pendingDeletionsLoading && !monitoring.pendingDeletions) {
+      html += '<p class="mon-loading">Yükleniyor…</p>';
+    } else if (monitoring.pendingDeletionsError) {
+      html += '<p class="mon-empty">Veriler alınamadı: ' + esc(monitoring.pendingDeletionsError) + '</p>';
+    } else if (monitoring.pendingDeletions && monitoring.pendingDeletions.length) {
+      html += '<ul class="err-list">';
+      monitoring.pendingDeletions.forEach(function (p) {
+        html += '<li class="err-item">' +
+          '<div class="err-item-head">' +
+            '<span class="err-item-time">' + esc(p.name) + (p.email ? ' <span class="mon-recipient-sub">(' + esc(p.email) + ')</span>' : '') + '</span>' +
+            (p.daysLeft != null ? ('<span class="mon-badge warn">⏳ ' + p.daysLeft + ' gün kaldı</span>') : '<span class="mon-badge warn">⏳ Bekliyor</span>') +
+          '</div>' +
+          '<div class="err-item-msg">' + p.memberCount + ' üye etkilenecek' + (p.requestedByName ? (' — isteyen: ' + esc(p.requestedByName)) : '') + '</div>' +
+          '<button type="button" class="btn-secondary" style="margin-top:6px;" data-action="cancel-pending-deletion" data-uid="' + esc(p.uid) + '" data-name="' + esc(p.name) + '">↩️ İptal Et</button>' +
+        '</li>';
+      });
+      html += '</ul>';
+    } else {
+      html += '<p class="mon-empty">Bekleyen bir hesap kapatma işlemi yok.</p>';
+    }
 
     if (monitoring.healthLoading && !monitoring.health) {
       html += '<p class="mon-loading">Yükleniyor…</p>';
@@ -8053,6 +8266,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           state.accountMenuOpen = false;
           render();
           loadHealthData();
+          fetchPendingDeletions();
         }
         else if (action === "open-errors") {
           ev.stopPropagation();
@@ -8078,7 +8292,19 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           render();
           loadLoginAuditLogs();
         }
-        else if (action === "refresh-health") { loadHealthData(true); }
+        else if (action === "refresh-health") { loadHealthData(true); fetchPendingDeletions(true); }
+        else if (action === "cancel-pending-deletion") {
+          ev.stopPropagation();
+          if (!isAdminUser(state.currentUser)) return;
+          var targetUid = el.getAttribute("data-uid");
+          var targetName = el.getAttribute("data-name");
+          showConfirm({
+            title: "Hesap Kapatmayı İptal Et",
+            message: (targetName || "Bu hesabın") + " kapatma sürecini iptal etmek istediğine emin misin? Veriler ve hane olduğu gibi kalmaya devam edecek.",
+            confirmLabel: "Evet, İptal Et",
+            onConfirm: function () { cancelAccountDeletionAsAdmin(targetUid, targetName); }
+          });
+        }
         else if (action === "refresh-errors") { loadErrorLogs(true); }
         else if (action === "refresh-support-requests") { loadSupportRequests(true); }
         else if (action === "support-mark-resolved") { setSupportRequestStatus(el.getAttribute("data-id"), "resolved"); }
