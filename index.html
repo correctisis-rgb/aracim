@@ -190,6 +190,42 @@
   .view-tab.active { background: var(--surface-2); color: var(--text); }
   .view-tab-flag { position: absolute; top: 4px; right: 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--red); }
 
+  /* ---------- Admin Panel sekme çubuğu ---------- */
+  /* Az sayıda (5) sekme olduğu için yatay kaydırma yerine gerektiğinde
+     ikinci satıra sarar; böylece hem alt tarafta çirkin bir yatay scrollbar
+     görünmez hem de son sekme (Girişler) kesilip gizlenmez. */
+  .admin-tab-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+  .admin-tab-btn {
+    display: inline-flex; align-items: center; gap: 6px; flex: 1 1 auto; justify-content: center;
+    background: var(--surface-2); border: 1px solid var(--border); color: var(--muted);
+    padding: 9px 12px; border-radius: 9px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+    font-family: inherit; white-space: nowrap; transition: all .15s ease;
+  }
+  .admin-tab-btn:hover { color: var(--text); border-color: var(--amber); }
+  .admin-tab-btn.active { color: #1B1F24; background: var(--amber); border-color: var(--amber); }
+  .admin-tab-btn .mon-badge { pointer-events: none; }
+  .admin-tab-btn.active .mon-badge.warn { background: #1B1F2426; color: #1B1F24; }
+
+  /* ---------- İnce, temaya uygun kaydırma çubukları ---------- */
+  /* Tarayıcının varsayılan kalın gri scrollbar'ı koyu temada göze
+     batıyordu (bkz. Admin Panel ekran görüntüsü); modal ve liste gibi
+     kendi overflow'u olan alanlarda daha zarif, ince bir çubuk kullanılır. */
+  .modal, .err-list, .expense-list, .car-checklist, .mon-recipients {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .modal::-webkit-scrollbar, .err-list::-webkit-scrollbar, .expense-list::-webkit-scrollbar,
+  .car-checklist::-webkit-scrollbar, .mon-recipients::-webkit-scrollbar { width: 6px; height: 6px; }
+  .modal::-webkit-scrollbar-track, .err-list::-webkit-scrollbar-track, .expense-list::-webkit-scrollbar-track,
+  .car-checklist::-webkit-scrollbar-track, .mon-recipients::-webkit-scrollbar-track { background: transparent; }
+  .modal::-webkit-scrollbar-thumb, .err-list::-webkit-scrollbar-thumb, .expense-list::-webkit-scrollbar-thumb,
+  .car-checklist::-webkit-scrollbar-thumb, .mon-recipients::-webkit-scrollbar-thumb {
+    background: var(--border); border-radius: 999px;
+  }
+  .modal::-webkit-scrollbar-thumb:hover, .err-list::-webkit-scrollbar-thumb:hover, .expense-list::-webkit-scrollbar-thumb:hover,
+  .car-checklist::-webkit-scrollbar-thumb:hover, .mon-recipients::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+
   .gd-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
   .span-2 { grid-column: 1 / -1; }
   @media (max-width: 640px) { .gd-grid { grid-template-columns: 1fr; } }
@@ -336,6 +372,7 @@
   .modal-backdrop { position: fixed; inset: 0; background: #00000090; display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
   .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px; width: 100%; max-width: 400px; max-height: 90vh; overflow-y: auto; }
   .modal.wide { max-width: 460px; }
+  .modal.modal-admin { max-width: 560px; }
   .modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
   .modal-head h3 { margin: 0; font-family: 'Oswald', sans-serif; font-weight: 600; font-size: 18px; }
   .icon-btn { background: none; border: none; color: var(--muted); cursor: pointer; padding: 8px; font-size: 18px; line-height: 1; min-width: 40px; min-height: 40px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; }
@@ -918,7 +955,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.0.6"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.0.7"; // Dynamic Version Tracking
   var APP_UPDATED = "24 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -6157,7 +6194,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   function buildAdminPanelModal() {
     var modal = document.createElement("div");
-    modal.className = "modal wide";
+    modal.className = "modal wide modal-admin";
     modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
 
     var activeTab = state.adminPanelTab || "health";
@@ -6165,13 +6202,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     var html = '<div class="modal-head"><h3>🧰 Admin Panel</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>';
 
-    html += '<nav class="view-tabs" aria-label="Admin bölümleri" style="margin-bottom:14px; overflow-x:auto; flex-wrap:nowrap;">';
+    html += '<nav class="admin-tab-bar" aria-label="Admin bölümleri">';
     ADMIN_TABS.forEach(function (t) {
       var badge = "";
       if (t.key === "support" && monitoring.openSupportCount > 0) {
-        badge = ' <span class="mon-badge warn" style="margin-left:2px">' + monitoring.openSupportCount + '</span>';
+        badge = ' <span class="mon-badge warn">' + monitoring.openSupportCount + '</span>';
       }
-      html += '<button type="button" class="view-tab ' + (activeTab === t.key ? "active" : "") + '" data-action="switch-admin-tab" data-tab="' + t.key + '" style="white-space:nowrap">' + t.label + badge + '</button>';
+      html += '<button type="button" class="admin-tab-btn ' + (activeTab === t.key ? "active" : "") + '" data-action="switch-admin-tab" data-tab="' + t.key + '" aria-selected="' + (activeTab === t.key ? "true" : "false") + '">' + t.label + badge + '</button>';
     });
     html += '</nav>';
 
