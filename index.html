@@ -918,7 +918,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.0.1"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.0.2"; // Dynamic Version Tracking
   var APP_UPDATED = "24 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1394,7 +1394,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // izinler. Bu alan hiç ayarlanmamışsa (özellik eklenmeden önce katılmış
   // üyeler dahil) eski "role" alanından ("edit"/"view") makul bir varsayılan
   // türetilir, böylece mevcut üyelerin erişimi aniden değişmez.
-  var ALL_HOUSEHOLD_PERMS = ["seeCars", "seeDrivers", "seeExpenses", "addExpense", "manage", "backup", "report", "bulkImport", "activityLog"];
+  var ALL_HOUSEHOLD_PERMS = ["seeCars", "seeDrivers", "seeExpenses", "addExpense", "manage", "backup", "report", "bulkImport", "activityLog", "offline"];
   function normalizeMemberPerms(p) {
     if (p && p.perms && typeof p.perms === "object") {
       var pr = p.perms;
@@ -1407,7 +1407,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         backup: pr.backup !== false,
         report: pr.report !== false,
         bulkImport: pr.bulkImport !== false,
-        activityLog: pr.activityLog !== false
+        activityLog: pr.activityLog !== false,
+        offline: pr.offline !== false
       };
     }
     // Geriye dönük uyumluluk: perms hiç yoksa eski role alanına bak.
@@ -1421,14 +1422,15 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       backup: true,
       report: true,
       bulkImport: true,
-      activityLog: true
+      activityLog: true,
+      offline: true
     };
   }
   function myHouseholdPermsRaw() {
     if (!state.currentUser) return normalizeMemberPerms(null);
     // Hane sahibi her zaman tam yetkilidir; kendine kısıtlama koyamaz.
     if (state.householdId === state.currentUser.id) {
-      return { seeCars: true, seeDrivers: true, seeExpenses: true, addExpense: true, manage: true, backup: true, report: true, bulkImport: true, activityLog: true };
+      return { seeCars: true, seeDrivers: true, seeExpenses: true, addExpense: true, manage: true, backup: true, report: true, bulkImport: true, activityLog: true, offline: true };
     }
     var mine = (state.householdMembers || []).find(function (m) { return m.uid === state.currentUser.id; });
     return mine ? mine.perms : normalizeMemberPerms(null);
@@ -1480,6 +1482,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var s = getLicenseStatus().state;
     return s === "none" || s === "expired";
   }
+  function isOfflineLockedForMe() {
+    if (!state.currentUser) return false;
+    if (state.householdId === state.currentUser.id) return false; // hane sahibi her zaman muaf
+    if (state.online) return false;
+    return !myHouseholdPermsRaw().offline;
+  }
   function myHouseholdPerms() {
     var perms = myHouseholdPermsRaw();
     // Lisans yoksa/süresi dolmuşsa hane genelinde salt-okunur moda geç:
@@ -1488,6 +1496,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     // activityLog) etkilenmez, "dosyaları görsün" gereksinimi bu şekilde
     // karşılanır.
     if (isLicenseLocked()) {
+      perms = Object.assign({}, perms, { manage: false, addExpense: false, backup: false, bulkImport: false });
+    }
+    // Çevrimdışıyken: sadece "offline" yetkisi açık olan üyeler işlem
+    // yapabilir. Hane sahibi bu kısıtlamadan her zaman muaftır.
+    if (isOfflineLockedForMe()) {
       perms = Object.assign({}, perms, { manage: false, addExpense: false, backup: false, bulkImport: false });
     }
     return perms;
@@ -3939,6 +3952,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     msg += isOwn ? " Hesabım bölümünden yeni bir lisans kodu girebilirsin." : " Hane sahibinin Hesabım bölümünden yeni bir lisans kodu girmesi gerekiyor.";
     return '<div class="' + cls + '" data-action="open-profile">' + msg + '</div>';
   }
+  function buildOfflineLockBannerHtml() {
+    if (!isOfflineLockedForMe()) return "";
+    return '<div class="license-banner warn">📴 Çevrimdışısın ve çevrimdışı işlem yapma yetkin yok. Verileri görüntüleyebilirsin; eklemek/düzenlemek için internet gelmesini bekle.</div>';
+  }
   function render() {
     var app = document.getElementById("app");
     var carsList = visibleCarsForMe();
@@ -4044,6 +4061,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       '</div>' +
       '</header>';
     html += buildLicenseBannerHtml();
+    html += buildOfflineLockBannerHtml();
 
     if (user) html += renderOnboardingCard();
 
@@ -5457,7 +5475,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     { key: "backup", icon: "💾", label: "Yedekleme yapabilir", hint: "Verileri dışa aktarabilir (⬇️ Yedekle) ve içe aktarabilir (⬆️ Geri Yükle)." },
     { key: "report", icon: "📊", label: "Rapor alabilir", hint: "Masraf raporunu indirebilir (Excel/PDF) ve paylaşabilir (📤 Rapor Paylaş)." },
     { key: "bulkImport", icon: "📥", label: "Toplu içe aktarabilir", hint: "Excel/CSV ile toplu araç veya şoför içe aktarabilir. Not: gerçekleşmesi için ayrıca 'Araç/şoför ekleyip düzenleyebilir' ya da 'Yedekleme' yetkisi de gerekir." },
-    { key: "activityLog", icon: "🕒", label: "Aktivite geçmişini görebilir", hint: "Hanedeki eklenen/düzenlenen/silinen kayıtların geçmiş dökümünü görebilir." }
+    { key: "activityLog", icon: "🕒", label: "Aktivite geçmişini görebilir", hint: "Hanedeki eklenen/düzenlenen/silinen kayıtların geçmiş dökümünü görebilir." },
+    { key: "offline", icon: "📴", label: "Çevrimdışı işlem yapabilir", hint: "Kapalıysa, internet bağlantısı yokken hiçbir ekleme/düzenleme/silme/yedekleme yapamaz — sadece verileri görüntüleyebilir. İnternet gelince normal yetkilerine döner." }
   ];
   function buildMemberPermsModal() {
     var uid = state.modal.uid;
@@ -5479,7 +5498,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       copySources.push({
         uid: state.householdId,
         label: "👑 Hane Sahibi (tam yetki)",
-        perms: { seeCars: true, seeDrivers: true, seeExpenses: true, addExpense: true, manage: true, backup: true, report: true, bulkImport: true, activityLog: true }
+        perms: { seeCars: true, seeDrivers: true, seeExpenses: true, addExpense: true, manage: true, backup: true, report: true, bulkImport: true, activityLog: true, offline: true }
       });
     }
     (state.householdMembers || []).forEach(function (m) {
@@ -7750,6 +7769,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           toast("Lisans süreniz doldu. Devam etmek için Hesabım bölümünden yeni bir lisans kodu girin.");
           state.modal = { type: "profile" };
           render();
+          return;
+        }
+        if (isOfflineLockedForMe() && LICENSE_LOCKED_ACTIONS.indexOf(action) !== -1) {
+          toast("Çevrimdışıyken işlem yapma yetkin yok. İnternet bağlantısı gelince tekrar dene.");
           return;
         }
         var actionPerms = myHouseholdPerms();
