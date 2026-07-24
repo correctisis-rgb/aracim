@@ -918,7 +918,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.0.5"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.0.6"; // Dynamic Version Tracking
   var APP_UPDATED = "24 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1205,7 +1205,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     activityLog: getLocalData("activity_log", []),
     theme: getLocalData("theme", "dark"),
     license: null,
-    licenseBannerDismissedFor: null
+    licenseBannerDismissedFor: null,
+    adminPanelTab: "health"
   };
   document.documentElement.setAttribute("data-theme", state.theme === "light" ? "light" : "dark");
   function applyThemeColorMeta() {
@@ -1983,6 +1984,22 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return !!(user && user.email && user.email.toLowerCase() === ADMIN_EMAIL);
   }
 
+  // --- Admin Panel: sekmeye göre ilgili verinin yüklenmesi ---
+  // Tek bir "Admin Panel" ekranı altında toplanan sekmeler (Sağlık, Hata
+  // İzleme, Destek Talepleri, Lisans Yönetimi, Giriş Kayıtları) arasında
+  // geçiş yapıldığında veya panel ilk açıldığında, sadece o an aktif olan
+  // sekmenin verisini çeker (diğer sekmelerin verisi zaten önbellekte kalır
+  // ve tekrar sekmeye dönüldüğünde tekrar sorgu atılmaz — bkz. load*(force)
+  // fonksiyonlarındaki "if (X && !force) return;" kısa devresi).
+  function loadAdminTabData(tab) {
+    if (!state.currentUser || !isAdminUser(state.currentUser)) return;
+    if (tab === "health") { loadHealthData(); fetchPendingDeletions(); }
+    else if (tab === "errors") { loadErrorLogs(); }
+    else if (tab === "support") { loadSupportRequests(); }
+    else if (tab === "licenses") { loadLicenseAdminData(); }
+    else if (tab === "loginAudit") { loadLoginAuditLogs(); }
+  }
+
   var REMINDER_TRIGGER_URL = "https://aracim-mu.vercel.app/api/trigger-reminder";
   var ANNOUNCEMENT_TRIGGER_URL = "https://aracim-mu.vercel.app/api/trigger-announcement";
   var LICENSE_CREATE_URL = "https://aracim-mu.vercel.app/api/create-license";
@@ -2044,7 +2061,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (licenseAdmin.licenses && !force) return;
     licenseAdmin.loading = true;
     licenseAdmin.error = null;
-    if (state.modal && state.modal.type === "licenses") render();
+    if (state.modal && state.modal.type === "adminPanel") render();
     if (!auth.currentUser) { licenseAdmin.loading = false; licenseAdmin.error = "Oturum bulunamadı."; render(); return; }
     auth.currentUser.getIdToken().then(function (idToken) {
       return fetch(LICENSE_LIST_URL, {
@@ -2061,11 +2078,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       } else {
         licenseAdmin.error = (result.data && result.data.error) ? result.data.error : "Veriler alınamadı.";
       }
-      if (state.modal && state.modal.type === "licenses") render();
+      if (state.modal && state.modal.type === "adminPanel") render();
     }).catch(function (err) {
       licenseAdmin.loading = false;
       licenseAdmin.error = err && err.message ? err.message : String(err);
-      if (state.modal && state.modal.type === "licenses") render();
+      if (state.modal && state.modal.type === "adminPanel") render();
     });
   }
   function createLicense(days) {
@@ -2131,7 +2148,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (monitoring.pendingDeletions && !force) return;
     monitoring.pendingDeletionsLoading = true;
     monitoring.pendingDeletionsError = null;
-    if (state.modal && state.modal.type === "health") render();
+    if (state.modal && state.modal.type === "adminPanel") render();
     db.collection("users").where("pendingDeletion.deleteAt", ">", new Date(0)).get()
       .then(function (snap) {
         var rows = [];
@@ -2150,13 +2167,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         rows.sort(function (a, b) { return (a.daysLeft == null ? 999 : a.daysLeft) - (b.daysLeft == null ? 999 : b.daysLeft); });
         monitoring.pendingDeletions = rows;
         monitoring.pendingDeletionsLoading = false;
-        if (state.modal && state.modal.type === "health") render();
+        if (state.modal && state.modal.type === "adminPanel") render();
       })
       .catch(function (err) {
         console.error(err);
         monitoring.pendingDeletionsLoading = false;
         monitoring.pendingDeletionsError = err && err.message ? err.message : String(err);
-        if (state.modal && state.modal.type === "health") render();
+        if (state.modal && state.modal.type === "adminPanel") render();
       });
   }
 
@@ -2289,19 +2306,19 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (monitoring.loginAudit && !force) return;
     monitoring.loginAuditLoading = true;
     monitoring.loginAuditError = null;
-    if (state.modal && state.modal.type === "loginAudit") render();
+    if (state.modal && state.modal.type === "adminPanel") render();
     db.collection("loginAudit").orderBy("createdAt", "desc").limit(80).get()
       .then(function (snap) {
         var rows = [];
         snap.forEach(function (d) { rows.push(Object.assign({ id: d.id }, d.data())); });
         monitoring.loginAudit = rows;
         monitoring.loginAuditLoading = false;
-        if (state.modal && state.modal.type === "loginAudit") render();
+        if (state.modal && state.modal.type === "adminPanel") render();
       })
       .catch(function (err) {
         monitoring.loginAuditLoading = false;
         monitoring.loginAuditError = err && err.message ? err.message : String(err);
-        if (state.modal && state.modal.type === "loginAudit") render();
+        if (state.modal && state.modal.type === "adminPanel") render();
       });
   }
   // Aktivite geçmişi penceresinde hangi kayıtların detayı açık — sadece
@@ -2329,7 +2346,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (monitoring.health && !force) return;
     monitoring.healthLoading = true;
     monitoring.healthError = null;
-    if (state.modal && state.modal.type === "health") render();
+    if (state.modal && state.modal.type === "adminPanel") render();
 
     var triggerDocP = db.collection("admin").doc("reminderTrigger").get()
       .then(function (doc) { return doc.exists ? doc.data() : null; })
@@ -2346,11 +2363,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     Promise.all([triggerDocP, runLogsP]).then(function (results) {
       monitoring.health = { trigger: results[0], runLogs: results[1], fetchedAt: Date.now() };
       monitoring.healthLoading = false;
-      if (state.modal && state.modal.type === "health") render();
+      if (state.modal && state.modal.type === "adminPanel") render();
     }).catch(function (err) {
       monitoring.healthLoading = false;
       monitoring.healthError = err && err.message ? err.message : String(err);
-      if (state.modal && state.modal.type === "health") render();
+      if (state.modal && state.modal.type === "adminPanel") render();
     });
   }
 
@@ -2360,7 +2377,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (monitoring.errors && !force) return;
     monitoring.errorsLoading = true;
     monitoring.errorsError = null;
-    if (state.modal && state.modal.type === "errors") render();
+    if (state.modal && state.modal.type === "adminPanel") render();
 
     db.collection("errorLogs").orderBy("createdAt", "desc").limit(50).get()
       .then(function (snap) {
@@ -2368,12 +2385,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         snap.forEach(function (d) { rows.push(Object.assign({ id: d.id }, d.data())); });
         monitoring.errors = rows;
         monitoring.errorsLoading = false;
-        if (state.modal && state.modal.type === "errors") render();
+        if (state.modal && state.modal.type === "adminPanel") render();
       })
       .catch(function (err) {
         monitoring.errorsLoading = false;
         monitoring.errorsError = err && err.message ? err.message : String(err);
-        if (state.modal && state.modal.type === "errors") render();
+        if (state.modal && state.modal.type === "adminPanel") render();
       });
   }
 
@@ -2383,7 +2400,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (monitoring.supportRequests && !force) return;
     monitoring.supportRequestsLoading = true;
     monitoring.supportRequestsError = null;
-    if (state.modal && state.modal.type === "supportRequests") render();
+    if (state.modal && state.modal.type === "adminPanel") render();
 
     db.collection("supportRequests").orderBy("createdAt", "desc").limit(50).get()
       .then(function (snap) {
@@ -2391,12 +2408,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         snap.forEach(function (d) { rows.push(Object.assign({ id: d.id }, d.data())); });
         monitoring.supportRequests = rows;
         monitoring.supportRequestsLoading = false;
-        if (state.modal && state.modal.type === "supportRequests") render();
+        if (state.modal && state.modal.type === "adminPanel") render();
       })
       .catch(function (err) {
         monitoring.supportRequestsLoading = false;
         monitoring.supportRequestsError = err && err.message ? err.message : String(err);
-        if (state.modal && state.modal.type === "supportRequests") render();
+        if (state.modal && state.modal.type === "adminPanel") render();
       });
   }
 
@@ -2408,7 +2425,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           var row = monitoring.supportRequests.find(function (r) { return r.id === id; });
           if (row) row.status = status;
         }
-        if (state.modal && state.modal.type === "supportRequests") render();
+        if (state.modal && state.modal.type === "adminPanel") render();
       })
       .catch(function (err) { toast("Güncellenemedi: " + (err && err.message ? err.message : err)); });
   }
@@ -4136,12 +4153,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             (isAdminUser(user) ?
               '<div class="account-menu-divider"></div>' +
               '<button type="button" class="account-menu-item" data-action="open-announcement">📢 Duyuru / Bakım Mesajı Gönder</button>' +
-              '<button type="button" class="account-menu-item" data-action="open-licenses">🔑 Lisans Yönetimi</button>' +
               '<button type="button" class="account-menu-item" data-action="trigger-reminders">🛠️ Bildirimleri Tetikle</button>' +
-              '<button type="button" class="account-menu-item" data-action="open-health">🩺 Sağlık</button>' +
-              '<button type="button" class="account-menu-item" data-action="open-errors">🐞 Hata İzleme</button>' +
-              '<button type="button" class="account-menu-item" data-action="open-support-requests">📮 Destek Talepleri' + (monitoring.openSupportCount > 0 ? ' <span class="mon-badge warn" style="margin-left:4px">' + monitoring.openSupportCount + '</span>' : '') + '</button>' +
-              '<button type="button" class="account-menu-item" data-action="open-login-audit">🔐 Giriş Kayıtları</button>'
+              '<button type="button" class="account-menu-item" data-action="open-admin-panel">🧰 Admin Panel' + (monitoring.openSupportCount > 0 ? ' <span class="mon-badge warn" style="margin-left:4px">' + monitoring.openSupportCount + '</span>' : '') + '</button>'
               : '') +
             '<div class="account-menu-divider"></div>' +
             '<button type="button" class="account-menu-item danger" data-action="logout">🚪 Çıkış Yap</button>' +
@@ -5050,16 +5063,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       backdrop.appendChild(buildActivityLogModal());
     } else if (state.modal.type === "help") {
       backdrop.appendChild(buildHelpModal());
-    } else if (state.modal.type === "health") {
-      backdrop.appendChild(buildHealthModal());
-    } else if (state.modal.type === "errors") {
-      backdrop.appendChild(buildErrorsModal());
-    } else if (state.modal.type === "supportRequests") {
-      backdrop.appendChild(buildSupportRequestsModal());
-    } else if (state.modal.type === "loginAudit") {
-      backdrop.appendChild(buildLoginAuditModal());
-    } else if (state.modal.type === "licenses") {
-      backdrop.appendChild(buildLicensesModal());
+    } else if (state.modal.type === "adminPanel") {
+      backdrop.appendChild(buildAdminPanelModal());
     } else if (state.modal.type === "announcement") {
       backdrop.appendChild(buildAnnouncementModal());
     } else if (state.modal.type === "householdQR") {
@@ -6133,13 +6138,55 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return modal;
   }
 
-  function buildHealthModal() {
+  // ---------- Admin Panel: tek ekran, sekmeli ----------
+  // Önceden Sağlık / Hata İzleme / Destek Talepleri / Lisans Yönetimi /
+  // Giriş Kayıtları ayrı ayrı modallar olarak hesap menüsünden açılıyordu.
+  // Artık hepsi tek bir "Admin Panel" modalı içinde sekmeler halinde
+  // gösteriliyor (bkz. open-admin-panel / switch-admin-tab aksiyonları ve
+  // state.adminPanelTab). Her sekmenin içerik üretimi kendi
+  // build*TabContent() fonksiyonunda, sadece modal gövdesine eklenecek HTML
+  // parçası olarak tutulur; dış çerçeve (başlık + kapat düğmesi + sekme
+  // çubuğu) buildAdminPanelModal() içinde tek yerden yönetilir.
+  var ADMIN_TABS = [
+    { key: "health", label: "🩺 Sağlık" },
+    { key: "errors", label: "🐞 Hatalar" },
+    { key: "support", label: "📮 Destek" },
+    { key: "licenses", label: "🔑 Lisanslar" },
+    { key: "loginAudit", label: "🔐 Girişler" }
+  ];
+
+  function buildAdminPanelModal() {
     var modal = document.createElement("div");
     modal.className = "modal wide";
     modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
 
-    var html = '<div class="modal-head"><h3>🩺 Sağlık</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>';
-    html += '<div class="mon-refresh-row"><button type="button" data-action="refresh-health">↻ Yenile</button></div>';
+    var activeTab = state.adminPanelTab || "health";
+    if (!ADMIN_TABS.some(function (t) { return t.key === activeTab; })) activeTab = "health";
+
+    var html = '<div class="modal-head"><h3>🧰 Admin Panel</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>';
+
+    html += '<nav class="view-tabs" aria-label="Admin bölümleri" style="margin-bottom:14px; overflow-x:auto; flex-wrap:nowrap;">';
+    ADMIN_TABS.forEach(function (t) {
+      var badge = "";
+      if (t.key === "support" && monitoring.openSupportCount > 0) {
+        badge = ' <span class="mon-badge warn" style="margin-left:2px">' + monitoring.openSupportCount + '</span>';
+      }
+      html += '<button type="button" class="view-tab ' + (activeTab === t.key ? "active" : "") + '" data-action="switch-admin-tab" data-tab="' + t.key + '" style="white-space:nowrap">' + t.label + badge + '</button>';
+    });
+    html += '</nav>';
+
+    if (activeTab === "health") html += buildHealthTabContent();
+    else if (activeTab === "errors") html += buildErrorsTabContent();
+    else if (activeTab === "support") html += buildSupportRequestsTabContent();
+    else if (activeTab === "licenses") html += buildLicensesTabContent();
+    else if (activeTab === "loginAudit") html += buildLoginAuditTabContent();
+
+    modal.innerHTML = html;
+    return modal;
+  }
+
+  function buildHealthTabContent() {
+    var html = '<div class="mon-refresh-row"><button type="button" data-action="refresh-health">↻ Yenile</button></div>';
 
     html += '<div class="mon-row"><span class="mon-label">Bağlantı Durumu</span><span class="mon-value">' +
       (state.online ? '<span class="mon-badge ok">🟢 Çevrimiçi</span>' : '<span class="mon-badge bad">🔴 Çevrimdışı</span>') + '</span></div>';
@@ -6213,17 +6260,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       }
     }
 
-    modal.innerHTML = html;
-    return modal;
+    return html;
   }
 
-  function buildErrorsModal() {
-    var modal = document.createElement("div");
-    modal.className = "modal wide";
-    modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
-
-    var html = '<div class="modal-head"><h3>🐞 Hata İzleme</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>';
-    html += '<div class="mon-refresh-row"><button type="button" data-action="refresh-errors">↻ Yenile</button></div>';
+  function buildErrorsTabContent() {
+    var html = '<div class="mon-refresh-row"><button type="button" data-action="refresh-errors">↻ Yenile</button></div>';
 
     if (monitoring.errorsLoading && !monitoring.errors) {
       html += '<p class="mon-loading">Yükleniyor…</p>';
@@ -6249,17 +6290,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       }
     }
 
-    modal.innerHTML = html;
-    return modal;
+    return html;
   }
 
-  function buildSupportRequestsModal() {
-    var modal = document.createElement("div");
-    modal.className = "modal wide";
-    modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
-
-    var html = '<div class="modal-head"><h3>📮 Destek Talepleri</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>';
-    html += '<div class="mon-refresh-row"><button type="button" data-action="refresh-support-requests">↻ Yenile</button></div>';
+  function buildSupportRequestsTabContent() {
+    var html = '<div class="mon-refresh-row"><button type="button" data-action="refresh-support-requests">↻ Yenile</button></div>';
 
     if (monitoring.supportRequestsLoading && !monitoring.supportRequests) {
       html += '<p class="mon-loading">Yükleniyor…</p>';
@@ -6291,17 +6326,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       }
     }
 
-    modal.innerHTML = html;
-    return modal;
+    return html;
   }
 
-  function buildLoginAuditModal() {
-    var modal = document.createElement("div");
-    modal.className = "modal wide";
-    modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
-
-    var html = '<div class="modal-head"><h3>🔐 Giriş Kayıtları</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>';
-    html += '<div class="mon-refresh-row"><button type="button" data-action="refresh-login-audit">↻ Yenile</button></div>';
+  function buildLoginAuditTabContent() {
+    var html = '<div class="mon-refresh-row"><button type="button" data-action="refresh-login-audit">↻ Yenile</button></div>';
 
     if (monitoring.loginAuditLoading && !monitoring.loginAudit) {
       html += '<p class="mon-loading">Yükleniyor…</p>';
@@ -6327,8 +6356,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       }
     }
 
-    modal.innerHTML = html;
-    return modal;
+    return html;
   }
   function fmtDateShort(ms) {
     if (!ms) return "—";
@@ -6342,13 +6370,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var t = new Date(lic.expiresAt).getTime();
     return isNaN(t) ? null : t;
   }
-  function buildLicensesModal() {
-    var modal = document.createElement("div");
-    modal.className = "modal wide";
-    modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
-
-    var html = '<div class="modal-head"><h3>🔑 Lisans Yönetimi</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>';
-    html += '<div class="mon-refresh-row"><button type="button" data-action="refresh-licenses">↻ Yenile</button></div>';
+  function buildLicensesTabContent() {
+    var html = '<div class="mon-refresh-row"><button type="button" data-action="refresh-licenses">↻ Yenile</button></div>';
 
     html += '<p class="profile-section-title">Yeni Lisans Kodu Oluştur</p>';
     html += '<div class="budget-row">' +
@@ -6421,8 +6444,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       }
     }
 
-    modal.innerHTML = html;
-    return modal;
+    return html;
   }
   function buildAnnouncementModal() {
     var modal = document.createElement("div");
@@ -8259,38 +8281,21 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           expandedActivityIds[actId] = !expandedActivityIds[actId];
           render();
         }
-        else if (action === "open-health") {
+        else if (action === "open-admin-panel") {
           ev.stopPropagation();
           if (!isAdminUser(state.currentUser)) return;
-          state.modal = { type: "health" };
+          if (!state.adminPanelTab) state.adminPanelTab = "health";
+          state.modal = { type: "adminPanel" };
           state.accountMenuOpen = false;
           render();
-          loadHealthData();
-          fetchPendingDeletions();
+          loadAdminTabData(state.adminPanelTab);
         }
-        else if (action === "open-errors") {
+        else if (action === "switch-admin-tab") {
           ev.stopPropagation();
           if (!isAdminUser(state.currentUser)) return;
-          state.modal = { type: "errors" };
-          state.accountMenuOpen = false;
+          state.adminPanelTab = el.getAttribute("data-tab");
           render();
-          loadErrorLogs();
-        }
-        else if (action === "open-support-requests") {
-          ev.stopPropagation();
-          if (!isAdminUser(state.currentUser)) return;
-          state.modal = { type: "supportRequests" };
-          state.accountMenuOpen = false;
-          render();
-          loadSupportRequests();
-        }
-        else if (action === "open-login-audit") {
-          ev.stopPropagation();
-          if (!isAdminUser(state.currentUser)) return;
-          state.modal = { type: "loginAudit" };
-          state.accountMenuOpen = false;
-          render();
-          loadLoginAuditLogs();
+          loadAdminTabData(state.adminPanelTab);
         }
         else if (action === "refresh-health") { loadHealthData(true); fetchPendingDeletions(true); }
         else if (action === "cancel-pending-deletion") {
@@ -8310,14 +8315,6 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         else if (action === "support-mark-resolved") { setSupportRequestStatus(el.getAttribute("data-id"), "resolved"); }
         else if (action === "support-mark-open") { setSupportRequestStatus(el.getAttribute("data-id"), "open"); }
         else if (action === "refresh-login-audit") { loadLoginAuditLogs(true); }
-        else if (action === "open-licenses") {
-          ev.stopPropagation();
-          if (!isAdminUser(state.currentUser)) return;
-          state.modal = { type: "licenses" };
-          state.accountMenuOpen = false;
-          render();
-          loadLicenseAdminData();
-        }
         else if (action === "refresh-licenses") { loadLicenseAdminData(true); }
         else if (action === "create-license") {
           var presetDays = parseInt(el.getAttribute("data-days"), 10);
