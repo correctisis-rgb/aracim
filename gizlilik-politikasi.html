@@ -34,7 +34,7 @@
 <div class="wrap">
   <a class="back-link" href="index.html">← Uygulamaya dön</a>
   <h1>Gizlilik Politikası ve KVKK Aydınlatma Metni</h1>
-  <p class="updated">Yürürlük tarihi: 21 Temmuz 2026 · Belge sürümü: 2026-07-21</p>
+  <p class="updated">Yürürlük tarihi: 24 Temmuz 2026 · Belge sürümü: 2026-07-24</p>
 
   <div class="box">
     Bu metin, Garaj Defteri ("Uygulama") üzerinden kişisel verilerinizin 6698 sayılı Kişisel Verilerin Korunması Kanunu ("KVKK") kapsamında hangi amaçlarla, nasıl işlendiğini ve haklarınızı açıklar. Aşağıdaki
@@ -61,7 +61,7 @@
     <tr><td>Görsel veri</td><td>Profil fotoğrafı; araca ait fotoğraf, ruhsat görseli; masraf kaydına eklenen fatura/fiş fotoğrafları (bu görsellerde plaka, isim, adres gibi üçüncü kişilere ait veriler bulunabilir)</td></tr>
     <tr><td>Araç ve masraf verisi</td><td>Araç marka/model, plaka, kilometre, yakıt/bakım/masraf tutarları ve tarihleri, servis notları</td></tr>
     <tr><td>Paylaşım / ortak hesap</td><td>"Ortak Hane" özelliğini kullanırsanız, davet ettiğiniz veya sizi davet eden kişilerin ad ve e-posta bilgisi, rol bilgisi (düzenleyebilir/görüntüleyebilir)</td></tr>
-    <tr><td>İşlem güvenliği ve kullanım kaydı</td><td>Uygulama içi aktivite geçmişi (kim, ne zaman, hangi kaydı ekledi/değiştirdi/sildi), hata/performans günlükleri</td></tr>
+    <tr><td>İşlem güvenliği ve kullanım kaydı</td><td>Uygulama içi aktivite geçmişi (kim, ne zaman, hangi kaydı ekledi/değiştirdi/sildi), hata/performans günlükleri, hesap kapatma talebiniz varsa bu talebin oluşturulma zamanı ve durumu (bkz. Madde 9)</td></tr>
     <tr><td>Bildirim verisi</td><td>Push bildirim izni verdiyseniz, cihazınıza özel bildirim belirteci (FCM token)</td></tr>
     <tr><td>Teknik veri</td><td>Uygulama sürümü, çevrimiçi/çevrimdışı durum, senkronizasyon zaman bilgisi</td></tr>
   </table>
@@ -85,6 +85,7 @@
 
   <h2>6. Saklama Süresi</h2>
   <p>Verileriniz, hesabınız aktif olduğu sürece veya işleme amacının gerektirdiği süre boyunca saklanır. Hesabınızı Uygulama içinden kalıcı olarak sildiğinizde, ilişkili tüm veriler (araçlar, masraflar, fotoğraflar, aktivite geçmişi) makul bir süre içinde sistemlerimizden silinir; yalnızca yasal saklama yükümlülüğü doğuran veriler (varsa) mevzuatın öngördüğü süre kadar saklanır.</p>
+  <p>İstisna: Bir "Ortak Hane"nin sahibi olarak hesabınızı kapattığınızda ve hanenizde başka üyeler varsa, veriler anında silinmez; olası bir yanlış işlemi geri almanız için 10 günlük bir bekleme süresi boyunca değişmeden saklanır (bkz. Madde 9). Bu süre boyunca veriler, hesabınız hâlâ aktifmiş gibi işlenmeye devam eder; süre dolduğunda (talep iptal edilmediyse) kalıcı olarak silinir.</p>
 
   <h2>7. Veri Güvenliği</h2>
   <p>Kişisel verileriniz, yetkisiz erişime ve kayba karşı Firebase'in sağladığı şifreli iletişim (HTTPS/TLS), erişim kontrolü ve kimlik doğrulama mekanizmalarıyla korunur. Buna rağmen internet üzerinden hiçbir aktarımın veya saklamanın %100 güvenli olamayacağını hatırlatırız.</p>
@@ -105,7 +106,12 @@
   <p>haklarına sahipsiniz.</p>
 
   <h2>9. Başvuru Yöntemi ve Hesap/Veri Silme</h2>
-  <p>Yukarıdaki haklarınızı kullanmak için <span class="placeholder">garaj.defterii@gmail.com</span> adresine kimliğinizi doğrulayan bilgilerle yazılı olarak başvurabilirsiniz. Ayrıca hesabınızı ve tüm verilerinizi dilediğiniz zaman, herhangi bir başvuruya gerek kalmadan, Uygulama içinde <strong>Hesabım → Hesabı Kapat → "Hesabımı ve Tüm Verilerimi Kalıcı Olarak Sil"</strong> adımlarıyla kendiniz kalıcı olarak silebilirsiniz. Bu işlem geri alınamaz.</p>
+  <p>Yukarıdaki haklarınızı kullanmak için <span class="placeholder">garaj.defterii@gmail.com</span> adresine kimliğinizi doğrulayan bilgilerle yazılı olarak başvurabilirsiniz. Ayrıca hesabınızı ve tüm verilerinizi dilediğiniz zaman, herhangi bir başvuruya gerek kalmadan, Uygulama içinde <strong>Hesabım → Hesabı Kapat</strong> adımlarıyla kendiniz silebilirsiniz:</p>
+  <ul>
+    <li>Tek başınıza kullanıyorsanız ya da bir "Ortak Hane"nin sıradan bir üyesiyseniz, <strong>"Hesabımı ve Tüm Verilerimi Kalıcı Olarak Sil"</strong> seçeneği hesabınızı anında ve kalıcı olarak siler; bu işlem geri alınamaz.</li>
+    <li>Bir "Ortak Hane"nin sahibiyseniz ve hanenizde başka üyeler varsa, <strong>"Hesabımı Kapat (Bekleme Süreli)"</strong> seçeneği talebinizi 10 günlük bir bekleme sürecine alır; bu süre içinde tekrar giriş yaparak talebi iptal edebilirsiniz, süre dolduğunda hem sizin hem hanenizdeki tüm üyelerin verileri kalıcı olarak silinir.</li>
+  </ul>
+  <p>Bekleme süreci boyunca, talebi kimin ve ne zaman oluşturduğu bilgisi ile sürecin durumu, kullanıcı taleplerinin yönetimi ve hizmetin güvenliği amacıyla Hizmet Sağlayıcı tarafından görülebilir. Hesabınıza bir daha erişemediğiniz gibi istisnai durumlarda (ör. yanlışlıkla tetiklenen bir talep hakkında bize ulaşmanız hâlinde), Hizmet Sağlayıcı bu süre dolmadan talebi sizin adınıza da iptal edebilir. Bekleme süresi dolup veriler kalıcı olarak silindikten sonra hiçbir geri alma imkânı yoktur.</p>
 
   <h2>10. Bildirim İzni</h2>
   <p>Bakım/vade hatırlatmaları gönderebilmemiz için tarayıcınız/cihazınız size ayrıca bildirim izni sorar. Bu izni istediğiniz zaman cihaz ayarlarınızdan veya Uygulama içindeki bildirim ayarından geri alabilirsiniz; bildirimleri kapatmanız Uygulamanın diğer özelliklerini kullanmanızı engellemez.</p>
