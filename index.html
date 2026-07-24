@@ -918,8 +918,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v1.9.9"; // Dynamic Version Tracking
-  var APP_UPDATED = "23 Temmuz 2026";
+  var APP_VERSION = "v2.0.0"; // Dynamic Version Tracking
+  var APP_UPDATED = "24 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -1930,6 +1930,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   var LICENSE_CREATE_URL = "https://aracim-mu.vercel.app/api/create-license";
   var LICENSE_LIST_URL = "https://aracim-mu.vercel.app/api/list-licenses";
   var LICENSE_REDEEM_URL = "https://aracim-mu.vercel.app/api/redeem-license";
+  var LICENSE_REVOKE_URL = "https://aracim-mu.vercel.app/api/revoke-license";
   var APP_SHARE_URL = "https://correctisis-rgb.github.io/aracim/";
   // ?a2hs=1 ile açılan link, sayfa yüklenir yüklenmez otomatik olarak
   // "Ana Ekrana Ekle" akışını tetikler (bkz. maybeAutoTriggerAddToHomeScreen).
@@ -2029,6 +2030,52 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       } else {
         var msg = (result.data && result.data.error) ? result.data.error : "bilinmeyen hata";
         toast("Oluşturulamadı: " + msg);
+      }
+    }).catch(function (err) {
+      console.error(err);
+      toast("İstek gönderilemedi: " + (err && err.message ? err.message : err));
+    });
+  }
+  function revokeLicense(code) {
+    if (!state.currentUser || !isAdminUser(state.currentUser)) return;
+    if (!auth.currentUser) { toast("Oturum bulunamadı, tekrar giriş yapın."); return; }
+    auth.currentUser.getIdToken().then(function (idToken) {
+      return fetch(LICENSE_REVOKE_URL, {
+        method: "POST",
+        headers: { "Authorization": "Bearer " + idToken, "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "code", code: code })
+      });
+    }).then(function (r) {
+      return r.json().then(function (data) { return { ok: r.ok, data: data }; });
+    }).then(function (result) {
+      if (result.ok && result.data && result.data.ok) {
+        toast("Lisans kodu iptal edildi.");
+        loadLicenseAdminData(true);
+      } else {
+        toast((result.data && result.data.error) ? result.data.error : "İptal edilemedi.");
+      }
+    }).catch(function (err) {
+      console.error(err);
+      toast("İstek gönderilemedi: " + (err && err.message ? err.message : err));
+    });
+  }
+  function revokeHouseholdLicense(householdId) {
+    if (!state.currentUser || !isAdminUser(state.currentUser)) return;
+    if (!auth.currentUser) { toast("Oturum bulunamadı, tekrar giriş yapın."); return; }
+    auth.currentUser.getIdToken().then(function (idToken) {
+      return fetch(LICENSE_REVOKE_URL, {
+        method: "POST",
+        headers: { "Authorization": "Bearer " + idToken, "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "household", householdId: householdId })
+      });
+    }).then(function (r) {
+      return r.json().then(function (data) { return { ok: r.ok, data: data }; });
+    }).then(function (result) {
+      if (result.ok && result.data && result.data.ok) {
+        toast("Hanenin lisansı iptal edildi.");
+        loadLicenseAdminData(true);
+      } else {
+        toast((result.data && result.data.error) ? result.data.error : "İptal edilemedi.");
       }
     }).catch(function (err) {
       console.error(err);
@@ -6009,6 +6056,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
               badge +
             '</div>' +
             '<div class="err-item-meta">Kod: ' + esc((h.license && h.license.code) || "—") + ' · Bitiş: ' + fmtDateShort(ms) + '</div>' +
+            '<div class="mon-refresh-row" style="margin:8px 0 0">' +
+              '<button type="button" class="btn-danger" data-action="revoke-license-household" data-household="' + esc(h.id) + '">🚫 Lisansı İptal Et</button>' +
+            '</div>' +
           '</li>';
         });
         html += '</ul>';
@@ -6022,14 +6072,21 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         html += '<ul class="err-list">';
         licenses.forEach(function (l) {
           var isUsed = !!l.used;
+          var isRevoked = !!l.revoked;
+          var statusBadge = isUsed
+            ? '<span class="mon-badge bad">Kullanıldı</span>'
+            : isRevoked
+            ? '<span class="mon-badge bad">İptal Edildi</span>'
+            : '<span class="mon-badge ok">Boşta</span>';
           html += '<li class="err-item">' +
             '<div class="err-item-head">' +
               '<span class="err-item-time">' + esc(l.id) + '</span>' +
-              (isUsed ? '<span class="mon-badge bad">Kullanıldı</span>' : '<span class="mon-badge ok">Boşta</span>') +
+              statusBadge +
             '</div>' +
             '<div class="err-item-meta">' + (l.days || 0) + ' gün' + (l.label ? (" · " + esc(l.label)) : "") + (isUsed && l.usedByHousehold ? (" · Kullanan hane: " + esc(l.usedByHousehold)) : "") + '</div>' +
             '<div class="mon-refresh-row" style="margin:8px 0 0">' +
               '<button type="button" data-action="copy-license-code" data-code="' + esc(l.id) + '">📋 Kodu Kopyala</button>' +
+              (!isUsed && !isRevoked ? '<button type="button" class="btn-danger" data-action="revoke-license-code" data-code="' + esc(l.id) + '">🚫 İptal Et</button>' : '') +
             '</div>' +
           '</li>';
         });
@@ -7935,6 +7992,26 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           } else {
             toast("Kopyalanamadı, kod: " + codeVal);
           }
+        }
+        else if (action === "revoke-license-code") {
+          var revokeCode = el.getAttribute("data-code") || "";
+          showConfirm({
+            title: "Lisans Kodunu İptal Et",
+            message: "\"" + revokeCode + "\" kodunu iptal etmek istediğine emin misin? İptal edilen kod bir daha kullanılamaz.",
+            confirmLabel: "İptal Et",
+            danger: true,
+            onConfirm: function () { revokeLicense(revokeCode); }
+          });
+        }
+        else if (action === "revoke-license-household") {
+          var revokeHouseholdId = el.getAttribute("data-household") || "";
+          showConfirm({
+            title: "Hanenin Lisansını İptal Et",
+            message: "Bu hanenin lisansını hemen iptal etmek istediğine emin misin? Hane anında salt-okunur moda geçecek.",
+            confirmLabel: "İptal Et",
+            danger: true,
+            onConfirm: function () { revokeHouseholdLicense(revokeHouseholdId); }
+          });
         }
         else if (action === "logout") {
           ev.stopPropagation();
