@@ -970,7 +970,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.1.0"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.1.1"; // Dynamic Version Tracking
   var APP_UPDATED = "25 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -4109,6 +4109,30 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   // ---------- rendering ----------
   var charts = { donut: null, trend: null, consumption: null, price: null };
+  var chartDataSig = { donut: null, trend: null, consumption: null, price: null };
+  var preservedCanvasEls = {};
+
+  // render() her seferinde app.innerHTML'i tamamen yeniden kurduğu için
+  // canvas elementleri de dahil tüm DOM düğümleri yok olup yeniden yaratılır.
+  // Chart.js instance'ını canlı tutup update() ile beslemek isteniyorsa,
+  // innerHTML atamasından önce mevcut canvas düğümünü hafızada saklayıp
+  // atamadan sonra yeni (boş) canvas'ın yerine geri takmak gerekiyor.
+  function preserveChartCanvases() {
+    preservedCanvasEls = {};
+    ["donutChart", "trendChart", "consumptionChart", "priceChart"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) preservedCanvasEls[id] = el;
+    });
+  }
+  function restoreChartCanvases() {
+    Object.keys(preservedCanvasEls).forEach(function (id) {
+      var freshEl = document.getElementById(id);
+      var oldEl = preservedCanvasEls[id];
+      if (freshEl && oldEl && freshEl !== oldEl && freshEl.parentNode) {
+        freshEl.parentNode.replaceChild(oldEl, freshEl);
+      }
+    });
+  }
 
   function buildLicenseBannerHtml() {
     if (!state.currentUser || isAdminUser(state.currentUser)) return "";
@@ -4338,7 +4362,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         '</div>';
     }
 
+    preserveChartCanvases();
     app.innerHTML = html;
+    restoreChartCanvases();
 
     if (state.mainSection !== "drivers" && state.mainSection !== "calendar" && (state.view === "panel" || state.view === "analiz")) drawCharts();
     if (state.modal) renderModal();
@@ -4690,14 +4716,34 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       '</svg>';
   }
 
+  // Chart oluşturmak/güncellemek yerine sadece gerekliyse dokunur:
+  // - veri (signature) değişmemişse ve canvas hâlâ aynı chart'a bağlıysa: hiçbir şey yapma
+  // - veri değişmişse ve chart zaten o canvas'a bağlıysa: destroy+new yerine data+update()
+  // - canvas yeni (view ilk kez açıldı, farklı bir DOM düğümü vs.): destroy (varsa) + new Chart()
+  function updateOrCreateChart(key, canvasEl, sig, config) {
+    if (!canvasEl) return;
+    if (chartDataSig[key] === sig && charts[key] && charts[key].canvas === canvasEl) {
+      return; // veri aynı, canvas aynı -> yeniden çizmeye gerek yok
+    }
+    if (charts[key] && charts[key].canvas === canvasEl) {
+      charts[key].data = config.data;
+      if (config.options) charts[key].options = config.options;
+      charts[key].update();
+    } else {
+      if (charts[key]) charts[key].destroy();
+      charts[key] = new Chart(canvasEl, config);
+    }
+    chartDataSig[key] = sig;
+  }
+
   function drawCharts() {
     if (typeof Chart === "undefined") return;
 
     var d = window.__dashboardData;
     var donutEl = document.getElementById("donutChart");
     if (d && donutEl && d.categoryData.length) {
-      if (charts.donut) charts.donut.destroy();
-      charts.donut = new Chart(donutEl, {
+      var donutSig = JSON.stringify(d.categoryData);
+      updateOrCreateChart("donut", donutEl, donutSig, {
         type: "doughnut",
         data: {
           labels: d.categoryData.map(function (c) { return c.name; }),
@@ -4712,8 +4758,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     var trendEl = document.getElementById("trendChart");
     if (trendEl && a.months && a.months.some(function (m) { return m.total > 0; })) {
-      if (charts.trend) charts.trend.destroy();
-      charts.trend = new Chart(trendEl, {
+      var trendSig = JSON.stringify(a.months);
+      updateOrCreateChart("trend", trendEl, trendSig, {
         type: "bar",
         data: {
           labels: a.months.map(function (m) { return m.label; }),
@@ -4734,8 +4780,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (consumptionEl && a.fuelSeries) {
       var consPts = a.fuelSeries.consumptionSeries.filter(function (p) { return p.consumption != null; });
       if (consPts.length) {
-        if (charts.consumption) charts.consumption.destroy();
-        charts.consumption = new Chart(consumptionEl, {
+        var consSig = JSON.stringify(consPts);
+        updateOrCreateChart("consumption", consumptionEl, consSig, {
           type: "line",
           data: {
             labels: consPts.map(function (p) { return p.dateLabel; }),
@@ -4755,8 +4801,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     var priceEl = document.getElementById("priceChart");
     if (priceEl && a.fuelSeries && a.fuelSeries.priceSeries.length > 1) {
-      if (charts.price) charts.price.destroy();
-      charts.price = new Chart(priceEl, {
+      var priceSig = JSON.stringify(a.fuelSeries.priceSeries);
+      updateOrCreateChart("price", priceEl, priceSig, {
         type: "line",
         data: {
           labels: a.fuelSeries.priceSeries.map(function (p) { return p.dateLabel; }),
