@@ -72,7 +72,8 @@ module.exports = async (req, res) => {
       licenses.push(Object.assign({}, data, {
         id: d.id,
         createdAt: tsToMillis(data.createdAt),
-        usedAt: tsToMillis(data.usedAt)
+        usedAt: tsToMillis(data.usedAt),
+        revokedAt: tsToMillis(data.revokedAt)
       }));
     });
 

@@ -89,6 +89,9 @@ module.exports = async (req, res) => {
       if (license.used) {
         throw new Error("ALREADY_USED");
       }
+      if (license.revoked) {
+        throw new Error("REVOKED");
+      }
 
       const days = Number(license.days) || 365;
       const now = new Date();
@@ -132,6 +135,10 @@ module.exports = async (req, res) => {
     }
     if (message === "ALREADY_USED") {
       res.status(409).json({ ok: false, error: "Bu lisans kodu daha önce kullanılmış." });
+      return;
+    }
+    if (message === "REVOKED") {
+      res.status(410).json({ ok: false, error: "Bu lisans kodu iptal edilmiş." });
       return;
     }
     console.error("Hata:", err);
