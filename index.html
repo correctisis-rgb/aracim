@@ -918,7 +918,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.0.0"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.0.1"; // Dynamic Version Tracking
   var APP_UPDATED = "24 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1335,7 +1335,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       var p = (data.memberProfiles || {})[uidKey] || {};
       // Rol alanı yoksa (eski üyeler ya da hiç değiştirilmemişse) varsayılan
       // "edit" (tam yetki) kabul edilir — bkz. firestore.rules.
-      return { uid: uidKey, name: p.name || "Üye", email: p.email || "", role: p.role || "edit", perms: normalizeMemberPerms(p) };
+      return { uid: uidKey, name: p.name || "Üye", email: p.email || "", role: p.role || "edit", perms: normalizeMemberPerms(p), carIds: Array.isArray(p.carIds) ? p.carIds : null, driverIds: Array.isArray(p.driverIds) ? p.driverIds : null };
     });
     state.householdInviteToken = data.inviteToken || null;
     tryOpenPendingDeepLink();
@@ -1433,7 +1433,29 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var mine = (state.householdMembers || []).find(function (m) { return m.uid === state.currentUser.id; });
     return mine ? mine.perms : normalizeMemberPerms(null);
   }
-  // ---------- Lisans sistemi ----------
+  // ---------- Üyeye özel araç/şoför erişim kısıtlaması ----------
+  // Hane sahibi ve kısıtlaması olmayan üyeler için carIds/driverIds null
+  // döner (tam erişim). Kısıtlı bir üye içinse sadece kendisine atanan
+  // araç/şoför id dizisi döner (boş dizi dahil — hiçbirini görmez demektir).
+  function myAccessRestriction() {
+    if (!state.currentUser) return { carIds: null, driverIds: null };
+    if (state.householdId === state.currentUser.id) return { carIds: null, driverIds: null };
+    var mine = (state.householdMembers || []).find(function (m) { return m.uid === state.currentUser.id; });
+    if (!mine) return { carIds: null, driverIds: null };
+    return { carIds: mine.carIds || null, driverIds: mine.driverIds || null };
+  }
+  function visibleCarsForMe() {
+    var all = state.cars || [];
+    var r = myAccessRestriction();
+    if (!r.carIds) return all;
+    return all.filter(function (c) { return r.carIds.indexOf(c.id) !== -1; });
+  }
+  function visibleDriversForMe() {
+    var all = state.drivers || [];
+    var r = myAccessRestriction();
+    if (!r.driverIds) return all;
+    return all.filter(function (d) { return r.driverIds.indexOf(d.id) !== -1; });
+  }
   // Hane dokümanındaki license.expiresAt (Firestore Timestamp) alanına göre
   // durum hesaplar. Admin hesabı lisans kısıtlamasından her zaman muaftır.
   function licenseExpiresAtMillis() {
@@ -1494,14 +1516,21 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         toast("Rol güncellenemedi: " + (err && err.message ? err.message : err));
       });
   }
-  // Hane sahibinin, bir üyenin ayrıntılı (checkbox tabanlı) izinlerini
-  // güncellemesi için. memberProfiles alt-alanına sadece "perms" yazıldığı
-  // için üyenin mevcut name/email/role bilgisi silinmez.
-  function setMemberPerms(memberUid, permsObj) {
+  // Hane sahibinin, bir üyenin ayrıntılı (checkbox tabanlı) izinlerini ve
+  // araç/şoför erişim kısıtlamasını güncellemesi için. memberProfiles
+  // alt-alanına sadece bu üç anahtar yazıldığından üyenin mevcut
+  // name/email/role bilgisi silinmez (leaf-level merge).
+  // carIds/driverIds: null = kısıtlama yok (tüm araç/şoförleri görür),
+  // dizi (boş dahi) = sadece o dizideki id'leri görür.
+  function setMemberPerms(memberUid, permsObj, carIds, driverIds) {
     if (!state.currentUser || state.householdId !== state.currentUser.id) return;
     if (memberUid === state.currentUser.id) return; // hane sahibi kendi yetkisini kısıtlayamaz
     var patch = { memberProfiles: {} };
-    patch.memberProfiles[memberUid] = { perms: permsObj };
+    patch.memberProfiles[memberUid] = {
+      perms: permsObj,
+      carIds: Array.isArray(carIds) ? carIds : null,
+      driverIds: Array.isArray(driverIds) ? driverIds : null
+    };
     return db.collection("users").doc(state.currentUser.id).set(patch, { merge: true })
       .then(function () {
         toast("Üye yetkileri güncellendi.");
@@ -3426,8 +3455,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   function getVisibleExpenses() {
-    if (state.selectedCarId === "all") return state.expenses || [];
-    return (state.expenses || []).filter(function (e) { return e.carId === state.selectedCarId; });
+    var base = state.expenses || [];
+    var r = myAccessRestriction();
+    if (r.carIds) base = base.filter(function (e) { return r.carIds.indexOf(e.carId) !== -1; });
+    if (state.selectedCarId === "all") return base;
+    return base.filter(function (e) { return e.carId === state.selectedCarId; });
   }
 
   function logFiltersActive() {
@@ -3634,7 +3666,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   // ---------- şoför pasaport / vize hatırlatmaları ----------
   function computeDriverSummaryItems() {
-    var driversList = state.drivers || [];
+    var driversList = visibleDriversForMe();
     var items = [];
     driversList.forEach(function (d) {
       if (d.licenseExpiry) {
@@ -3909,7 +3941,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
   function render() {
     var app = document.getElementById("app");
-    var carsList = state.cars || [];
+    var carsList = visibleCarsForMe();
+    if (state.selectedCarId !== "all" && !carsList.some(function (c) { return c.id === state.selectedCarId; })) {
+      state.selectedCarId = "all";
+    }
     var expensesList = state.expenses || [];
     var myPerms = myHouseholdPerms();
 
@@ -4131,7 +4166,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   function getOnboardingSteps() {
-    var carsList = state.cars || [];
+    var carsList = visibleCarsForMe();
     var expensesList = state.expenses || [];
     return [
       { key: "car", label: "Aracını ekle", done: carsList.length > 0, actionLabel: "Araç Ekle", action: "open-add-car" },
@@ -4638,7 +4673,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   function renderAnalysisPanel() {
-    var carsList = state.cars || [];
+    var carsList = visibleCarsForMe();
     var selectedCar = carsList.find(function (c) { return c.id === state.selectedCarId; });
     var scopeLabel = selectedCar ? selectedCar.name : "Tüm Araçlar";
     var months = computeMonthlyTrend(6);
@@ -4723,7 +4758,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   function renderLogPanel() {
-    var carsList = state.cars || [];
+    var carsList = visibleCarsForMe();
     var totalCount = getVisibleExpenses().length;
     var visible = getFilteredLogExpenses().slice().sort(function (a, b) { return new Date(b.date) - new Date(a.date); });
     var f = state.logFilters || {};
@@ -5429,6 +5464,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var member = (state.householdMembers || []).find(function (m) { return m.uid === uid; });
     var perms = member ? (member.perms || normalizeMemberPerms(member)) : normalizeMemberPerms(null);
     var name = (member && member.name) || state.modal.name || "Üye";
+    var memberCarIds = member && Array.isArray(member.carIds) ? member.carIds : null;
+    var memberDriverIds = member && Array.isArray(member.driverIds) ? member.driverIds : null;
+    var allCars = state.cars || [];
+    var allDrivers = state.drivers || [];
 
     // Yetki kopyalama: hane sahibi dahil, düzenlenen üye HARİÇ diğer tüm
     // hane üyelerinin yetki setini tek tıkla buraya kopyalayabilmek için
@@ -5463,6 +5502,27 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           '</select>' +
         '</label>'
         : '') +
+      '<p class="profile-section-title" style="margin-top:0">🚗 Araç Erişimi</p>' +
+      '<label class="toggle-row" style="margin-bottom:8px"><input type="checkbox" id="mp-cars-all"' + (memberCarIds ? "" : " checked") + ' /><span>Tüm araçları görebilir</span></label>' +
+      '<div class="car-checklist" id="mp-cars-list" style="' + (memberCarIds ? "" : "display:none") + '">' +
+        (allCars.length
+          ? allCars.map(function (c) {
+              var checked = memberCarIds ? memberCarIds.indexOf(c.id) !== -1 : false;
+              return '<label class="car-checklist-item"><input type="checkbox" value="' + esc(c.id) + '"' + (checked ? " checked" : "") + ' />' + esc(c.name) + (c.plate ? ' <span style="color:var(--muted)">(' + esc(c.plate) + ')</span>' : '') + '</label>';
+            }).join("")
+          : '<span class="car-checklist-empty">Henüz araç eklenmemiş.</span>') +
+      '</div>' +
+      '<p class="profile-section-title">🧑‍✈️ Şoför Erişimi</p>' +
+      '<label class="toggle-row" style="margin-bottom:8px"><input type="checkbox" id="mp-drivers-all"' + (memberDriverIds ? "" : " checked") + ' /><span>Tüm şoförleri görebilir</span></label>' +
+      '<div class="car-checklist" id="mp-drivers-list" style="' + (memberDriverIds ? "" : "display:none") + '">' +
+        (allDrivers.length
+          ? allDrivers.map(function (d) {
+              var checked = memberDriverIds ? memberDriverIds.indexOf(d.id) !== -1 : false;
+              return '<label class="car-checklist-item"><input type="checkbox" value="' + esc(d.id) + '"' + (checked ? " checked" : "") + ' />' + esc(d.name) + '</label>';
+            }).join("")
+          : '<span class="car-checklist-empty">Henüz şoför eklenmemiş.</span>') +
+      '</div>' +
+      '<p class="field-hint" style="margin-top:-6px">Kısıtlarsan bu üye sadece işaretlediğin araç/şoförleri (ve onlara ait masrafları) görür; diğerleri kendisine hiç görünmez.</p>' +
       '<div class="car-checklist" id="mp-checklist" style="max-height:none">' +
         HOUSEHOLD_PERM_DEFS.map(function (def) {
           var checked = perms[def.key] !== false;
@@ -5474,6 +5534,21 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         }).join("") +
       '</div>' +
       '<button type="button" class="btn-primary full" id="mp-save">Kaydet</button>';
+
+    var carsAllCb = modal.querySelector("#mp-cars-all");
+    var carsListEl = modal.querySelector("#mp-cars-list");
+    if (carsAllCb && carsListEl) {
+      carsAllCb.addEventListener("change", function () {
+        carsListEl.style.display = carsAllCb.checked ? "none" : "";
+      });
+    }
+    var driversAllCb = modal.querySelector("#mp-drivers-all");
+    var driversListEl = modal.querySelector("#mp-drivers-list");
+    if (driversAllCb && driversListEl) {
+      driversAllCb.addEventListener("change", function () {
+        driversListEl.style.display = driversAllCb.checked ? "none" : "";
+      });
+    }
 
     var copySelect = modal.querySelector("#mp-copy-from");
     if (copySelect) {
@@ -5497,9 +5572,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         var cb = modal.querySelector('[data-perm="' + def.key + '"]');
         newPerms[def.key] = !!(cb && cb.checked);
       });
+      var newCarIds = carsAllCb && carsAllCb.checked ? null : Array.prototype.slice.call(modal.querySelectorAll("#mp-cars-list input:checked")).map(function (cb) { return cb.value; });
+      var newDriverIds = driversAllCb && driversAllCb.checked ? null : Array.prototype.slice.call(modal.querySelectorAll("#mp-drivers-list input:checked")).map(function (cb) { return cb.value; });
       var btn = modal.querySelector("#mp-save");
       btn.disabled = true; btn.textContent = "Kaydediliyor…";
-      setMemberPerms(uid, newPerms);
+      setMemberPerms(uid, newPerms, newCarIds, newDriverIds);
     });
 
     return modal;
@@ -6168,7 +6245,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   function buildCarModal() {
     var isEdit = state.modal.type === "editCar";
-    var carsList = state.cars || [];
+    var carsList = visibleCarsForMe();
     var car = isEdit ? carsList.find(function (c) { return c.id === state.modal.carId; }) : null;
 
     var modal = document.createElement("div");
@@ -6389,7 +6466,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
 
   function renderDriversSection() {
-    var list = state.drivers || [];
+    var list = visibleDriversForMe();
     var html = '<section class="panel">';
     html += '<div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:4px;"><h2 style="margin:0; font-family:\'Oswald\', sans-serif; font-size:16px; letter-spacing:0.02em;">🧑‍✈️ Şoförler</h2></div>';
     html += '<p class="field-hint" style="margin-top:2px">Şoförlerini ekle, hangi araç(lar)ı kullandıklarını belirle. Ehliyet, SRC, psikoteknik ve sağlık raporu tarihlerini, yurtdışına çıkacaklar için pasaport ve vize bilgilerini de burada tutabilirsin.</p>';
@@ -6480,9 +6557,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   function buildDriverModal() {
     var isEdit = state.modal.type === "editDriver";
-    var driversList = state.drivers || [];
+    var driversList = visibleDriversForMe();
     var driver = isEdit ? driversList.find(function (d) { return d.id === state.modal.driverId; }) : null;
-    var carsList = state.cars || [];
+    var carsList = visibleCarsForMe();
 
     var modal = document.createElement("div");
     modal.className = "modal wide";
@@ -7463,7 +7540,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   function buildExpenseModal() {
     var isEdit = state.modal.type === "editExpense";
     var editingExpense = isEdit ? (state.expenses || []).find(function (e) { return e.id === state.modal.expenseId; }) : null;
-    var carsList = state.cars || [];
+    var carsList = visibleCarsForMe();
     var defaultCarId = editingExpense ? editingExpense.carId : (state.selectedCarId !== "all" ? state.selectedCarId : (carsList[0] ? carsList[0].id : null));
     var modal = document.createElement("div");
     modal.className = "modal";
