@@ -918,7 +918,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.0.2"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.0.3"; // Dynamic Version Tracking
   var APP_UPDATED = "24 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -3400,7 +3400,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     });
     window.addEventListener("offline", function () { 
       state.online = false; 
-      if (state.currentUser) { toast("Çevrimdışısınız. Değişiklikleriniz internet gelince otomatik senkronize edilecek."); render(); }
+      if (state.currentUser) {
+        toast(isOfflineLockedForMe()
+          ? "Çevrimdışısınız. Çevrimdışı işlem yapma yetkin olmadığından sadece verileri görüntüleyebilirsin."
+          : "Çevrimdışısınız. Değişiklikleriniz internet gelince otomatik senkronize edilecek.");
+        render();
+      }
     });
     auth.onAuthStateChanged(function (fbUser) {
       if (fbUser) {
@@ -3956,6 +3961,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (!isOfflineLockedForMe()) return "";
     return '<div class="license-banner warn">📴 Çevrimdışısın ve çevrimdışı işlem yapma yetkin yok. Verileri görüntüleyebilirsin; eklemek/düzenlemek için internet gelmesini bekle.</div>';
   }
+  function offlineStatusLabel() {
+    // Yetkisi olmayan üye çevrimdışıyken hiçbir şey kaydedemediği için
+    // "kaydediliyor / senkronize edilecek" gibi ifadeler yanıltıcı olur.
+    return isOfflineLockedForMe() ? "🔴 Çevrimdışı — sadece görüntüleme" : "🔴 Çevrimdışı (Kaydediliyor)";
+  }
   function render() {
     var app = document.getElementById("app");
     var carsList = visibleCarsForMe();
@@ -4047,9 +4057,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         '<button type="button" class="theme-toggle" data-action="toggle-theme" aria-label="' + (state.theme === "light" ? "Koyu temaya geç" : "Açık temaya geç") + '" title="' + (state.theme === "light" ? "Koyu temaya geç" : "Açık temaya geç") + '">' + (state.theme === "light" ? "🌙" : "☀️") + '</button>' +
         '</div>' +
       '</div>' +
-      '<p class="storage-note">Veriler Firebase üzerinden buluta kaydedilir ve çevrimdışı olsanız dahi tarayıcıda yedeklenerek internet gelince senkronize edilir.</p>' +
+      '<p class="storage-note">' + (isOfflineLockedForMe() ? "Veriler Firebase üzerinden buluta kaydedilir. Çevrimdışı işlem yapma yetkin olmadığından, internet yokken sadece verileri görüntüleyebilirsin." : "Veriler Firebase üzerinden buluta kaydedilir ve çevrimdışı olsanız dahi tarayıcıda yedeklenerek internet gelince senkronize edilir.") + '</p>' +
       '<div class="header-actions">' +
-        (user ? '<span class="sync-badge" style="color:' + (state.online ? "#7BC67E" : "#E2574C") + ';border-color:' + (state.online ? "#7BC67E" : "#E2574C") + '55;background:' + (state.online ? "#7BC67E" : "#E2574C") + '18">' + (state.online ? "🟢 Çevrimiçi" : "🔴 Çevrimdışı (Kaydediliyor)") + '</span>' : '') +
+        (user ? '<span class="sync-badge" style="color:' + (state.online ? "#7BC67E" : "#E2574C") + ';border-color:' + (state.online ? "#7BC67E" : "#E2574C") + '55;background:' + (state.online ? "#7BC67E" : "#E2574C") + '18">' + (state.online ? "🟢 Çevrimiçi" : offlineStatusLabel()) + '</span>' : '') +
         (user && state.pendingSyncCount > 0 ? '<span class="sync-badge" title="İnternet gelince otomatik yüklenecek" style="color:#F2A93B;border-color:#F2A93B55;background:#F2A93B18">⏳ ' + state.pendingSyncCount + ' kayıt senkronize edilecek</span>' : '') +
         (user && state.notifStatus !== "unsupported" ?
           (state.notifStatus === "granted"
@@ -4155,7 +4165,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (user && (!state.online || state.pendingSyncCount > 0)) {
       html += '<div class="floating-sync-pill" role="status" style="' + (!state.online ? 'background:#E2574C;color:#fff' : 'background:var(--amber);color:#1B1F24') + '">' +
         (!state.online
-          ? '🔴 Çevrimdışı — kaydediliyor'
+          ? offlineStatusLabel()
           : '⏳ ' + state.pendingSyncCount + ' kayıt senkronize edilecek') +
         '</div>';
     }
