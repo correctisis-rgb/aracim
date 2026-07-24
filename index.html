@@ -918,7 +918,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.0.3"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.0.4"; // Dynamic Version Tracking
   var APP_UPDATED = "24 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1482,11 +1482,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var s = getLicenseStatus().state;
     return s === "none" || s === "expired";
   }
-  function isOfflineLockedForMe() {
+  function lacksOfflinePerm() {
     if (!state.currentUser) return false;
     if (state.householdId === state.currentUser.id) return false; // hane sahibi her zaman muaf
-    if (state.online) return false;
     return !myHouseholdPermsRaw().offline;
+  }
+  function isOfflineLockedForMe() {
+    if (!state.online) return lacksOfflinePerm();
+    return false;
   }
   function myHouseholdPerms() {
     var perms = myHouseholdPermsRaw();
@@ -2515,9 +2518,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         activityLog: state.activityLog
       }, { merge: true }).then(function() {
         clearPendingSync();
-        toast(pendingCount > 0
-          ? ("Çevrimdışıyken yapılan " + pendingCount + " değişiklik buluta yüklendi ✅")
-          : "Çevrimdışı yapılan değişiklikler buluta yüklendi!");
+        if (pendingCount > 0) {
+          toast("Çevrimdışıyken yapılan " + pendingCount + " değişiklik buluta yüklendi ✅");
+        } else if (lacksOfflinePerm()) {
+          // Çevrimdışı işlem yetkisi yoktu, dolayısıyla zaten hiçbir
+          // değişiklik yapılmamıştı — "buluta yüklendi" demek yanıltıcı
+          // olur; bunun yerine artık işlem yapabileceğini bildiriyoruz.
+          toast("🟢 İnternet bağlantısı sağlandı, işlem yapabilirsin.");
+        }
         render();
       }).catch(function (err) {
         console.error(err);
