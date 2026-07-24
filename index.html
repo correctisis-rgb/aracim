@@ -970,8 +970,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.0.9"; // Dynamic Version Tracking
-  var APP_UPDATED = "24 Temmuz 2026";
+  var APP_VERSION = "v2.1.0"; // Dynamic Version Tracking
+  var APP_UPDATED = "25 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -3621,17 +3621,27 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     });
   }
 
+  function debounce(fn, wait) {
+    var t = null;
+    return function () {
+      var args = arguments;
+      var ctx = this;
+      clearTimeout(t);
+      t = setTimeout(function () { fn.apply(ctx, args); }, wait);
+    };
+  }
+
   function bindEntitySearchFilters() {
     var carSearchEl = document.getElementById("car-filter-search");
-    if (carSearchEl) carSearchEl.addEventListener("input", function () {
+    if (carSearchEl) carSearchEl.addEventListener("input", debounce(function () {
       state.carFilterText = carSearchEl.value;
       render();
-    });
+    }, 200));
     var driverSearchEl = document.getElementById("driver-filter-search");
-    if (driverSearchEl) driverSearchEl.addEventListener("input", function () {
+    if (driverSearchEl) driverSearchEl.addEventListener("input", debounce(function () {
       state.driverFilterText = driverSearchEl.value;
       render();
-    });
+    }, 200));
   }
 
   function getVisibleExpenses() {
@@ -5026,11 +5036,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   function bindLogFilters() {
     var searchEl = document.getElementById("log-filter-search");
-    if (searchEl) searchEl.addEventListener("input", function () {
+    if (searchEl) searchEl.addEventListener("input", debounce(function () {
       state.logFilters.search = searchEl.value;
       state.logVisibleCount = 20;
       render();
-    });
+    }, 200));
     var catEl = document.getElementById("log-filter-cat");
     if (catEl) catEl.addEventListener("change", function () {
       state.logFilters.category = catEl.value;
