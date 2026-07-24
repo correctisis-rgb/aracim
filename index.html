@@ -51,6 +51,8 @@
     margin: 0; padding: 0;
     background: var(--bg); color: var(--text);
     font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+    overflow-x: hidden;
+    width: 100%;
   }
   html { transition: background .2s ease; }
   body, .panel, .car-tab, .view-tabs, .account-menu, .auth-card, .toast, .odometer, .exp-icon, .btn-secondary {
@@ -561,12 +563,13 @@
   .account-avatar-fallback { background: var(--amber); color: #1B1F24; text-align: center; font-weight: 700; font-size: 12px; }
   .account-name { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .account-chevron { color: var(--muted); font-size: 10px; }
-  .account-menu { position: absolute; top: calc(100% + 8px); right: 0; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 6px; min-width: 170px; box-shadow: 0 10px 30px #00000050; z-index: 40; }
+  .account-menu { position: absolute; top: calc(100% + 8px); right: 0; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 6px; min-width: 170px; max-width: calc(100vw - 24px); box-shadow: 0 10px 30px #00000050; z-index: 40; }
   .account-menu-item { display: flex; align-items: center; gap: 8px; width: 100%; background: none; border: none; color: var(--text); font-size: 13px; padding: 9px 10px; border-radius: 7px; cursor: pointer; text-align: left; font-family: inherit; }
   .account-menu-item:hover { background: var(--bg); }
   .account-menu-item.danger { color: var(--red); }
   .account-menu-divider { height: 1px; background: var(--border); margin: 4px 2px; }
-  .header-top-row { display: flex; align-items: flex-start; justify-content: space-between; width: 100%; gap: 10px; }
+  .header-top-row { display: flex; align-items: flex-start; justify-content: space-between; width: 100%; gap: 10px; flex-wrap: wrap; }
+  .header-top-row > div[style*="margin-left:auto"] { margin-top: 4px; }
 
   /* ---------- profile modal ---------- */
   .avatar-upload-row { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
@@ -955,7 +958,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.0.7"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.0.8"; // Dynamic Version Tracking
   var APP_UPDATED = "24 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
