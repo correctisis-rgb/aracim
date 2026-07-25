@@ -987,7 +987,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.2.9"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.3.0"; // Dynamic Version Tracking
   var APP_UPDATED = "25 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1811,6 +1811,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     db.collection("users").doc(docId).set(patch, { merge: true })
       .catch(function (err) { console.error(err); });
   }
+  // NOT: Bu kontrol sadece kullanıcıya anında geri bildirim vermek için
+  // (UX). Gerçek güvenlik sınırı Firestore Security Rules'ta olmalı,
+  // çünkü biri tarayıcı konsolundan bu fonksiyonu atlayıp doğrudan
+  // Firestore'a yazabilir. Bkz. firestore.rules — cars.size() <= maxVehicles.
+  function vehicleLimitReached(extraCount) {
+    extraCount = extraCount || 1;
+    var lic = state.license;
+    if (!lic || lic.maxVehicles == null) return false; // sınırsız plan ya da lisans henüz yüklenmedi
+    return ((state.cars || []).length + extraCount) > lic.maxVehicles;
+  }
   function persistCars() {
     setLocalData("cars", state.cars);
     if (!state.online) { markPendingSync(); return; }
@@ -2173,6 +2183,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   var LICENSE_LIST_URL = "https://aracim-mu.vercel.app/api/list-licenses";
   var LICENSE_REDEEM_URL = "https://aracim-mu.vercel.app/api/redeem-license";
   var LICENSE_REVOKE_URL = "https://aracim-mu.vercel.app/api/revoke-license";
+  var FREE_PLAN_ACTIVATE_URL = "https://aracim-mu.vercel.app/api/activate-free-plan";
   var ACCOUNT_DELETION_CANCEL_URL = "https://aracim-mu.vercel.app/api/cancel-account-deletion";
   var APP_SHARE_URL = "https://correctisis-rgb.github.io/aracim/";
   // ?a2hs=1 ile açılan link, sayfa yüklenir yüklenmez otomatik olarak
@@ -2252,24 +2263,28 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if (state.modal && state.modal.type === "adminPanel") render();
     });
   }
-  function createLicense(days) {
+  function createLicense(plan, days, fleetMaxVehicles) {
     if (!state.currentUser || !isAdminUser(state.currentUser)) return;
-    var d = parseInt(days, 10);
-    if (!d || d <= 0) { toast("Geçerli bir gün sayısı gir."); return; }
+    var validPlans = ["free", "standard", "fleet"];
+    if (validPlans.indexOf(plan) === -1) { toast("Geçerli bir plan seç."); return; }
+    if (days != null && (!days || days <= 0)) { toast("Geçerli bir gün sayısı gir."); return; }
     if (!auth.currentUser) { toast("Oturum bulunamadı, tekrar giriş yapın."); return; }
     toast("Lisans oluşturuluyor...");
+    var body = { plan: plan, count: 1 };
+    if (days) body.days = days;
+    if (plan === "fleet" && fleetMaxVehicles) body.maxVehicles = fleetMaxVehicles;
     auth.currentUser.getIdToken().then(function (idToken) {
       return fetch(LICENSE_CREATE_URL, {
         method: "POST",
         headers: { "Authorization": "Bearer " + idToken, "Content-Type": "application/json" },
-        body: JSON.stringify({ days: d, count: 1 })
+        body: JSON.stringify(body)
       });
     }).then(function (r) {
       return r.json().then(function (data) { return { ok: r.ok, data: data }; });
     }).then(function (result) {
       if (result.ok && result.data && result.data.ok) {
         var code = (result.data.codes || [])[0] || "";
-        toast("Lisans oluşturuldu: " + code);
+        toast("Lisans oluşturuldu (" + plan + "): " + code);
         loadLicenseAdminData(true);
       } else {
         var msg = (result.data && result.data.error) ? result.data.error : "bilinmeyen hata";
@@ -2428,6 +2443,27 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // --- Oturum/cihaz denetimi: giriş anında kim, hangi cihazdan bağlandı ---
   var pendingAuthAction = null; // loginAs() tarafından okunur; sayfa yenilemede (sessiz oturum geri yükleme) log YAZILMAZ.
   var autoBackupCheckedThisSession = false; // applyHouseholdData() içinde bir oturumda bir kez kontrol edilsin diye.
+  var freePlanCheckedThisSession = false; // her oturumda bir kez /api/activate-free-plan çağrılsın diye.
+  // Ücretsiz plan self-serve aktivasyonu / otomatik yenilemesi.
+  // Sadece hane sahibi için anlamlı (redeem-license.js ile aynı kısıt:
+  // "Sadece hane sahibi lisans girebilir"), bu yüzden sadece
+  // loginAs() içindeki "kendi hanesi" dalından çağrılır. Ücretli bir plan
+  // aktifse endpoint zaten dokunmuyor (bkz. activate-free-plan.js), bu
+  // yüzden her oturumda sessizce çağırmak güvenlidir; sadece gereksiz ağ
+  // isteğini önlemek için oturum başına bir kez sınırlıyoruz.
+  function ensureFreePlanActive() {
+    if (freePlanCheckedThisSession) return;
+    freePlanCheckedThisSession = true;
+    if (!auth.currentUser) return;
+    auth.currentUser.getIdToken().then(function (idToken) {
+      return fetch(FREE_PLAN_ACTIVATE_URL, {
+        method: "POST",
+        headers: { "Authorization": "Bearer " + idToken, "Content-Type": "application/json" },
+        body: JSON.stringify({})
+      });
+    }).then(function (r) { return r.json().catch(function () { return null; }); })
+      .catch(function (err) { console.error("Ücretsiz plan kontrolü başarısız:", err); });
+  }
   function simpleDeviceLabel() {
     var ua = navigator.userAgent || "";
     var os = /Android/i.test(ua) ? "Android" : /iPhone|iPad|iPod/i.test(ua) ? "iOS" : /Windows/i.test(ua) ? "Windows" : /Mac OS/i.test(ua) ? "macOS" : /Linux/i.test(ua) ? "Linux" : "Bilinmeyen cihaz";
@@ -3257,6 +3293,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         if (unsubscribeHouseholdDoc) { unsubscribeHouseholdDoc(); unsubscribeHouseholdDoc = null; }
         state.householdId = fbUser.uid;
         applyHouseholdData(data);
+        ensureFreePlanActive();
       } else if (state.householdId !== targetHousehold) {
         subscribeHousehold(targetHousehold);
       }
@@ -3669,6 +3706,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     // tekrar tetikle.
     setInterval(function () {
       autoBackupCheckedThisSession = false;
+      freePlanCheckedThisSession = false;
       maybeRunAutoBackup();
     }, 6 * 60 * 60 * 1000);
     window.addEventListener("online", function () { 
@@ -3697,6 +3735,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         monitoring.mySupportRequests = null;
         state.currentUser = null;
         autoBackupCheckedThisSession = false;
+        freePlanCheckedThisSession = false;
         renderAuth();
       }
     });
@@ -6629,14 +6668,18 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     html += '<p class="profile-section-title">Yeni Lisans Kodu Oluştur</p>';
     html += '<div class="budget-row">' +
-      '<button type="button" class="btn-secondary" data-action="create-license" data-days="3">3 Günlük</button>' +
-      '<button type="button" class="btn-secondary" data-action="create-license" data-days="7">7 Günlük</button>' +
-      '<button type="button" class="btn-secondary" data-action="create-license" data-days="14">14 Günlük</button>' +
-      '<button type="button" class="btn-primary" data-action="create-license" data-days="365">Yıllık (365)</button>' +
+      '<select id="license-plan-select" style="background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:8px 10px; font-size:16px; width:100%;">' +
+        '<option value="standard">Standart — Yıllık, sınırsız araç, 2 kullanıcı</option>' +
+        '<option value="fleet">Filo / Kurumsal — Yıllık, sınırsız araç ve kullanıcı</option>' +
+        '<option value="free">Ücretsiz (manuel/promosyon) — 30 gün, 1 araç</option>' +
+      '</select>' +
     '</div>';
     html += '<div class="budget-row" style="margin-top:8px">' +
-      '<input id="license-custom-days" type="number" min="1" max="3650" placeholder="Özel gün sayısı" style="background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:8px 10px; font-size:16px; width:140px;" />' +
-      '<button type="button" class="btn-secondary" data-action="create-license-custom">Oluştur</button>' +
+      '<input id="license-custom-days" type="number" min="1" max="3650" placeholder="Gün sayısı (boş = plan varsayılanı)" style="background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:8px 10px; font-size:16px; width:140px;" />' +
+      '<input id="license-fleet-maxvehicles" type="number" min="1" placeholder="Filo araç limiti (opsiyonel)" style="background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:8px 10px; font-size:16px; width:170px;" />' +
+    '</div>';
+    html += '<div class="budget-row" style="margin-top:8px">' +
+      '<button type="button" class="btn-primary" data-action="create-license-custom">Lisans Kodu Oluştur</button>' +
     '</div>';
 
     if (licenseAdmin.loading && !licenseAdmin.licenses) {
@@ -6674,6 +6717,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         html += '<p class="mon-empty">Henüz kod oluşturulmadı.</p>';
       } else {
         html += '<ul class="err-list">';
+        var PLAN_LABELS = { free: "Ücretsiz", standard: "Standart", fleet: "Filo/Kurumsal" };
         licenses.forEach(function (l) {
           var isUsed = !!l.used;
           var isRevoked = !!l.revoked;
@@ -6682,12 +6726,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             : isRevoked
             ? '<span class="mon-badge bad">İptal Edildi</span>'
             : '<span class="mon-badge ok">Boşta</span>';
+          var planLabel = PLAN_LABELS[l.plan] || l.plan || "Standart (eski kod)";
           html += '<li class="err-item">' +
             '<div class="err-item-head">' +
               '<span class="err-item-time">' + esc(l.id) + '</span>' +
               statusBadge +
             '</div>' +
-            '<div class="err-item-meta">' + (l.days || 0) + ' gün' + (l.label ? (" · " + esc(l.label)) : "") + (isUsed && l.usedByHousehold ? (" · Kullanan hane: " + esc(l.usedByHousehold)) : "") + '</div>' +
+            '<div class="err-item-meta">' + esc(planLabel) + ' · ' + (l.days || 0) + ' gün' + (l.label ? (" · " + esc(l.label)) : "") + (isUsed && l.usedByHousehold ? (" · Kullanan hane: " + esc(l.usedByHousehold)) : "") + '</div>' +
             '<div class="mon-refresh-row" style="margin:8px 0 0">' +
               '<button type="button" data-action="copy-license-code" data-code="' + esc(l.id) + '">📋 Kodu Kopyala</button>' +
               (!isUsed && !isRevoked ? '<button type="button" class="btn-danger" data-action="revoke-license-code" data-code="' + esc(l.id) + '">🚫 İptal Et</button>' : '') +
@@ -6885,6 +6930,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     modal.querySelector("#f-save").addEventListener("click", function () {
       var name = modal.querySelector("#f-name").value.trim();
       if (!name) { toast("Araç adı gerekli."); return; }
+      if (!isEdit && vehicleLimitReached(1)) {
+        toast("Plan limitinize ulaştınız (" + state.license.maxVehicles + " araç). Daha fazla araç eklemek için planınızı yükseltin.");
+        return;
+      }
       var selectedDriverId = modal.querySelector("#f-driver").value || null;
       var patch = {
         name: name,
@@ -7514,6 +7563,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (!rows || !rows.length) return;
     if (entity === "cars") {
       var startLen = (state.cars || []).length;
+      if (vehicleLimitReached(rows.length)) {
+        var lic = state.license;
+        var remaining = lic && lic.maxVehicles != null ? Math.max(lic.maxVehicles - startLen, 0) : 0;
+        toast("Plan limitiniz " + (lic ? lic.maxVehicles : "?") + " araç. " + remaining + " araç daha ekleyebilirsiniz; " + rows.length + " araçlık içe aktarma iptal edildi. Planınızı yükseltin veya listeyi kısaltın.");
+        return;
+      }
       var newCars = rows.map(function (r, i) {
         return {
           id: uid(),
@@ -8868,14 +8923,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         else if (action === "support-mark-open") { setSupportRequestStatus(el.getAttribute("data-id"), "open"); }
         else if (action === "refresh-login-audit") { loadLoginAuditLogs(true); }
         else if (action === "refresh-licenses") { loadLicenseAdminData(true); }
-        else if (action === "create-license") {
-          var presetDays = parseInt(el.getAttribute("data-days"), 10);
-          createLicense(presetDays);
-        }
         else if (action === "create-license-custom") {
+          var planSelect = document.getElementById("license-plan-select");
+          var plan = planSelect ? planSelect.value : "standard";
           var customInput = document.getElementById("license-custom-days");
-          var customDays = customInput ? parseInt(customInput.value, 10) : NaN;
-          createLicense(customDays);
+          var customDays = customInput && customInput.value ? parseInt(customInput.value, 10) : null;
+          var fleetVehiclesInput = document.getElementById("license-fleet-maxvehicles");
+          var fleetMaxVehicles = fleetVehiclesInput && fleetVehiclesInput.value ? parseInt(fleetVehiclesInput.value, 10) : null;
+          createLicense(plan, customDays, fleetMaxVehicles);
         }
         else if (action === "copy-license-code") {
           var codeVal = el.getAttribute("data-code") || "";
