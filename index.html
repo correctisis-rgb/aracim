@@ -978,7 +978,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.1.9"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.2.0"; // Dynamic Version Tracking
   var APP_UPDATED = "25 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -7226,6 +7226,30 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       { key: "visaExpiry", label: "Vize geçerlilik tarihi", type: "date" }
     ];
   }
+  function expenseImportFieldDefs() {
+    return [
+      { key: "plate", label: "Araç plakası", required: true },
+      { key: "category", label: "Kategori" },
+      { key: "amount", label: "Tutar (TL)", type: "number", required: true },
+      { key: "date", label: "Tarih", type: "date", required: true },
+      { key: "km", label: "Kilometre", type: "number" },
+      { key: "liter", label: "Litre (Yakıt)", type: "number" },
+      { key: "payerName", label: "Ödeyen" },
+      { key: "note", label: "Not" }
+    ];
+  }
+  function matchCategoryId(label) {
+    var norm = normalizeHeaderKey(label);
+    if (!norm) return "diger";
+    for (var i = 0; i < CATEGORIES.length; i++) {
+      if (normalizeHeaderKey(CATEGORIES[i].label) === norm) return CATEGORIES[i].id;
+    }
+    for (var j = 0; j < CATEGORIES.length; j++) {
+      var cl = normalizeHeaderKey(CATEGORIES[j].label);
+      if (cl && (cl.indexOf(norm) !== -1 || norm.indexOf(cl) !== -1)) return CATEGORIES[j].id;
+    }
+    return "diger";
+  }
   function normalizeHeaderKey(s) {
     return String(s || "").toLowerCase()
       .replace(/ı/g, "i").replace(/İ/g, "i").replace(/ğ/g, "g").replace(/ü/g, "u")
@@ -7278,11 +7302,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return null;
   }
   function downloadImportTemplate(entity) {
-    var fields = entity === "drivers" ? driverImportFieldDefs() : carImportFieldDefs();
+    var fields = entity === "drivers" ? driverImportFieldDefs() : (entity === "expenses" ? expenseImportFieldDefs() : carImportFieldDefs());
     var headers = fields.map(function (f) { return f.label; });
     var exampleCar = ["Kamyon 1", "Kamyon", "34 AB 123", "Mercedes Actros", "2019", "Dizel", "Manuel", 400, "15.08.2026", "15.09.2026", "01.12.2026", "01.12.2026", "ABC Sigorta", "POL123456", "01.01.2027", "01.10.2026", "WDB1234567890", 125000, 135000];
     var exampleDriver = ["Ahmet Yılmaz", "0532 000 00 00", "34 AB 123, 34 CD 456", "B", "01.01.2029", "SRC2", "01.06.2027", "01.03.2027", "01.03.2027", "Hayır", "", "", "", "", ""];
-    var example = entity === "drivers" ? exampleDriver : exampleCar;
+    var exampleExpense = ["34 AB 123", "Yakıt", 1250.5, "15.07.2026", 125400, 45, "Ahmet Yılmaz", "Otoyol dönüşü tam depo"];
+    var example = entity === "drivers" ? exampleDriver : (entity === "expenses" ? exampleExpense : exampleCar);
     var ws = XLSX.utils.aoa_to_sheet([headers, example]);
     ws["!cols"] = headers.map(function (h) { return { wch: Math.max(14, h.length + 2) }; });
     var infoRows = [
@@ -7293,15 +7318,18 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     ];
     if (entity === "drivers") {
       infoRows.push(["4. \"Atanan araç plaka(ları)\" sütununa, şoförün kullandığı aracın/araçların plakasını virgülle ayırarak yazın (araç önce sisteme eklenmiş olmalı)."]);
+    } else if (entity === "expenses") {
+      infoRows.push(["4. \"Araç plakası\" sütununa, masrafın ait olduğu aracın plakasını yazın (araç önce sisteme eklenmiş olmalı, plaka eşleşmezse satır atlanır)."]);
+      infoRows.push(["5. \"Kategori\" sütununa şunlardan birini yazın: " + CATEGORIES.map(function (c) { return c.label; }).join(", ") + " (boş bırakılır veya tanınmazsa \"Diğer\" olarak kaydedilir)."]);
     } else {
       infoRows.push(["4. Plaka alanı boş bırakılabilir ama doldurulması önerilir."]);
     }
-    infoRows.push(["5. Dosyayı kaydedip Hesap Menüsü > Toplu İçe Aktar ekranından yükleyin."]);
+    infoRows.push([(entity === "expenses" ? "6" : "5") + ". Dosyayı kaydedip Hesap Menüsü > Toplu İçe Aktar ekranından yükleyin."]);
     var infoWs = XLSX.utils.aoa_to_sheet(infoRows);
     var wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, entity === "drivers" ? "Şoförler" : "Araçlar");
+    XLSX.utils.book_append_sheet(wb, ws, entity === "drivers" ? "Şoförler" : (entity === "expenses" ? "Masraflar" : "Araçlar"));
     XLSX.utils.book_append_sheet(wb, infoWs, "Nasıl Kullanılır");
-    XLSX.writeFile(wb, (entity === "drivers" ? "sofor-sablonu" : "arac-sablonu") + ".xlsx");
+    XLSX.writeFile(wb, (entity === "drivers" ? "sofor-sablonu" : (entity === "expenses" ? "masraf-sablonu" : "arac-sablonu")) + ".xlsx");
   }
   function parseImportWorkbook(arrayBuffer, entity) {
     var wb = XLSX.read(arrayBuffer, { type: "array", cellDates: true });
@@ -7309,7 +7337,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: "" });
     if (!rows.length) return { records: [], errors: ["Dosyada veri bulunamadı."] };
 
-    var fieldDefs = entity === "drivers" ? driverImportFieldDefs() : carImportFieldDefs();
+    var fieldDefs = entity === "drivers" ? driverImportFieldDefs() : (entity === "expenses" ? expenseImportFieldDefs() : carImportFieldDefs());
     var usedKeys = {};
     var colMap = rows[0].map(function (h) {
       var f = matchFieldForHeader(h, fieldDefs, usedKeys);
@@ -7368,7 +7396,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       persistCars();
       logActivity("car", "add", { summary: "Excel ile " + newCars.length + " araç toplu içe aktarıldı." });
       toast(newCars.length + " araç içe aktarıldı.");
-    } else {
+    } else if (entity === "drivers") {
       var newDrivers = rows.map(function (r) {
         var carIds = (r.plates || []).map(function (plate) {
           var norm = plate.replace(/\s+/g, "").toUpperCase();
@@ -7392,6 +7420,37 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       persistDrivers();
       logActivity("driver", "add", { summary: "Excel ile " + newDrivers.length + " şoför toplu içe aktarıldı." });
       toast(newDrivers.length + " şoför içe aktarıldı.");
+    } else if (entity === "expenses") {
+      var skippedCount = 0;
+      var touchedCarIds = {};
+      var newExpenses = rows.map(function (r) {
+        var norm = String(r.plate || "").replace(/\s+/g, "").toUpperCase();
+        var car = (state.cars || []).find(function (c) { return (c.plate || "").replace(/\s+/g, "").toUpperCase() === norm; });
+        if (!car) { skippedCount++; return null; }
+        var catId = matchCategoryId(r.category);
+        var payerId = null;
+        if (r.payerName) {
+          var pNorm = normalizeHeaderKey(r.payerName);
+          if (state.currentUser && normalizeHeaderKey(state.currentUser.name) === pNorm) payerId = state.currentUser.id;
+          else {
+            var member = (state.familyMembers || []).find(function (m) { return normalizeHeaderKey(m.name) === pNorm; });
+            if (member) payerId = member.id;
+          }
+        }
+        touchedCarIds[car.id] = true;
+        return {
+          id: uid(), carId: car.id, category: catId, amount: r.amount, date: r.date,
+          note: r.note || "", km: r.km != null ? r.km : null, liter: catId === "yakit" ? (r.liter != null ? r.liter : null) : null,
+          payerId: payerId, receipt: null,
+          addedByUid: state.currentUser ? state.currentUser.id : null,
+          addedByName: state.currentUser ? state.currentUser.name : null
+        };
+      }).filter(Boolean);
+      state.expenses = newExpenses.concat(state.expenses || []);
+      persistExpenses();
+      Object.keys(touchedCarIds).forEach(function (carId) { recalcCarCurrentKm(carId); });
+      logActivity("expense", "add", { summary: "Excel ile " + newExpenses.length + " masraf toplu içe aktarıldı." });
+      toast(newExpenses.length + " masraf içe aktarıldı." + (skippedCount ? (" " + skippedCount + " satır plaka eşleşmediği için atlandı.") : ""));
     }
     closeModal();
     render();
@@ -7410,9 +7469,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     html += '<div class="view-tabs" style="margin-bottom:12px">' +
       '<button type="button" class="view-tab' + (entity === "cars" ? " active" : "") + '" id="f-bi-cars">🚗 Araçlar</button>' +
       '<button type="button" class="view-tab' + (entity === "drivers" ? " active" : "") + '" id="f-bi-drivers">🧑‍✈️ Şoförler</button>' +
+      '<button type="button" class="view-tab' + (entity === "expenses" ? " active" : "") + '" id="f-bi-expenses">💰 Masraflar</button>' +
     '</div>';
-    html += '<p class="field-hint">Önce şablonu indirip Excel\'de doldurun, sonra aynı dosyayı buradan yükleyin. Onlarca araç ya da şoförü tek tek eklemek yerine tek seferde aktarabilirsiniz.</p>';
-    html += '<button type="button" class="btn-secondary full" id="f-bi-template" style="margin-bottom:10px">📄 ' + (entity === "drivers" ? "Şoför" : "Araç") + ' Şablonunu İndir</button>';
+    html += '<p class="field-hint">Önce şablonu indirip Excel\'de doldurun, sonra aynı dosyayı buradan yükleyin. Onlarca araç, şoför ya da masrafı tek tek eklemek yerine tek seferde aktarabilirsiniz.</p>';
+    html += '<button type="button" class="btn-secondary full" id="f-bi-template" style="margin-bottom:10px">📄 ' + (entity === "drivers" ? "Şoför" : (entity === "expenses" ? "Masraf" : "Araç")) + ' Şablonunu İndir</button>';
     html += '<label class="btn-secondary full" style="cursor:pointer;position:relative;overflow:hidden;display:block;text-align:center;margin-bottom:14px">📤 Excel Dosyası Seç<input type="file" accept=".xlsx,.xls,.csv" id="f-bi-file" style="position:absolute;inset:0;opacity:0;cursor:pointer;" /></label>';
 
     if (rows) {
@@ -7424,6 +7484,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       }
       if (rows.length) {
         html += '<ul class="err-list" style="max-height:220px; margin-top:6px">' + rows.slice(0, 50).map(function (row) {
+          if (entity === "expenses") {
+            var catLbl = catById(matchCategoryId(row.category)).label;
+            var title = fmtTL(row.amount) + " · " + catLbl;
+            var sub = (row.plate || "—") + (row.date ? (" · " + fmtDateTR(row.date)) : "");
+            return '<li class="err-item"><div class="err-item-head"><span class="driver-item-name">' + esc(title) + '</span></div><div class="err-item-meta">' + esc(sub) + '</div></li>';
+          }
           var sub = entity === "drivers"
             ? (row.plates && row.plates.length ? row.plates.join(", ") : "Araç eşleşmedi")
             : (row.plate || "—");
@@ -7442,6 +7508,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     });
     modal.querySelector("#f-bi-drivers").addEventListener("click", function () {
       state.modal = { type: "bulkImport", entity: "drivers", rows: null, errors: [] };
+      render();
+    });
+    modal.querySelector("#f-bi-expenses").addEventListener("click", function () {
+      state.modal = { type: "bulkImport", entity: "expenses", rows: null, errors: [] };
       render();
     });
     modal.querySelector("#f-bi-template").addEventListener("click", function () {
