@@ -1,5 +1,10 @@
 /**
  * Garaj Defteri — Lisans Kodu Kullanma (Vercel Serverless Function)
+ * DEĞİŞİKLİK: household.license artık plan/maxVehicles/maxUsers/features
+ * alanlarını da taşıyor. Süre eklemesi (stacking) SADECE aynı plan içinde
+ * yapılır — farklı bir plana geçişte (ör. free -> standard) süre eskisinin
+ * üzerine eklenmez, yeni süre "şu andan itibaren" başlar. Böylece bir
+ * kullanıcı ücretsiz planın kalan gününü standart plana "taşıyamaz".
  */
 
 const admin = require("firebase-admin");
@@ -93,13 +98,30 @@ module.exports = async (req, res) => {
         throw new Error("REVOKED");
       }
 
+      // Eski (plan eklenmeden önce üretilmiş) kodlarla geriye dönük uyumluluk
+      const plan = license.plan || "standard";
       const days = Number(license.days) || 365;
+      const maxVehicles = Object.prototype.hasOwnProperty.call(license, "maxVehicles")
+        ? license.maxVehicles
+        : null;
+      const maxUsers = Object.prototype.hasOwnProperty.call(license, "maxUsers")
+        ? license.maxUsers
+        : null;
+      const features = license.features || [];
+
       const now = new Date();
       const householdSnap = await tx.get(householdRef);
       const existing = (householdSnap.data() || {}).license;
 
       let baseDate = now;
-      if (existing && existing.expiresAt && existing.expiresAt.toDate) {
+      // Süre sadece AYNI plan yenilenirken üst üste eklenir.
+      // Farklı plana geçişte (upgrade/downgrade) süre şu andan başlar.
+      if (
+        existing &&
+        existing.plan === plan &&
+        existing.expiresAt &&
+        existing.expiresAt.toDate
+      ) {
         const currentExpiry = existing.expiresAt.toDate();
         if (currentExpiry > now) baseDate = currentExpiry;
       }
@@ -116,17 +138,28 @@ module.exports = async (req, res) => {
       tx.set(householdRef, {
         license: {
           code: code,
+          plan: plan,
           days: days,
+          maxVehicles: maxVehicles,
+          maxUsers: maxUsers,
+          features: features,
           activatedAt: admin.firestore.FieldValue.serverTimestamp(),
           expiresAt: admin.firestore.Timestamp.fromDate(expiresAt),
           active: true
         }
       }, { merge: true });
 
-      return { expiresAt: expiresAt.toISOString(), days };
+      return { expiresAt: expiresAt.toISOString(), days, plan, maxVehicles, maxUsers };
     });
 
-    res.status(200).json({ ok: true, expiresAt: result.expiresAt, days: result.days });
+    res.status(200).json({
+      ok: true,
+      expiresAt: result.expiresAt,
+      days: result.days,
+      plan: result.plan,
+      maxVehicles: result.maxVehicles,
+      maxUsers: result.maxUsers
+    });
   } catch (err) {
     const message = err && err.message ? err.message : String(err);
     if (message === "NOT_FOUND") {
