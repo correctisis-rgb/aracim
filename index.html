@@ -743,6 +743,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <!-- Türkçe karakter desteği için DejaVu Sans fontu jsPDF'e ekleniyor (ç, ğ, ı, ö, ş, ü) -->
@@ -978,7 +979,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.2.0"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.2.1"; // Dynamic Version Tracking
   var APP_UPDATED = "25 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -7187,12 +7188,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   function carImportFieldDefs() {
     return [
       { key: "name", label: "Araç adı", required: true },
-      { key: "vehicleType", label: "Araç türü" },
+      { key: "vehicleType", label: "Araç türü", options: VEHICLE_TYPES },
       { key: "plate", label: "Plaka" },
       { key: "brand", label: "Marka / Model" },
       { key: "year", label: "Model yılı" },
-      { key: "fuelType", label: "Yakıt tipi" },
-      { key: "transmission", label: "Vites" },
+      { key: "fuelType", label: "Yakıt tipi", options: ["Benzin", "Dizel", "LPG", "Hibrit", "Elektrik"] },
+      { key: "transmission", label: "Vites", options: ["Manuel", "Otomatik", "Yarı Otomatik"] },
       { key: "tankCapacity", label: "Depo hacmi (lt)", type: "number" },
       { key: "inspectionDate", label: "Muayene tarihi", type: "date" },
       { key: "maintenanceDate", label: "Sonraki bakım tarihi", type: "date" },
@@ -7218,7 +7219,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       { key: "srcExpiry", label: "SRC belgesi geçerlilik tarihi", type: "date" },
       { key: "psikoteknikExpiry", label: "Psikoteknik belgesi geçerlilik tarihi", type: "date" },
       { key: "healthReportExpiry", label: "Sağlık raporu geçerlilik tarihi", type: "date" },
-      { key: "worksAbroad", label: "Yurtdışında çalışıyor (Evet/Hayır)", type: "bool" },
+      { key: "worksAbroad", label: "Yurtdışında çalışıyor (Evet/Hayır)", type: "bool", options: ["Evet", "Hayır"] },
       { key: "passportNo", label: "Pasaport no" },
       { key: "passportExpiry", label: "Pasaport geçerlilik tarihi", type: "date" },
       { key: "visaCountry", label: "Vize ülkesi" },
@@ -7229,7 +7230,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   function expenseImportFieldDefs() {
     return [
       { key: "plate", label: "Araç plakası", required: true },
-      { key: "category", label: "Kategori" },
+      { key: "category", label: "Kategori", options: CATEGORIES.map(function (c) { return c.label; }) },
       { key: "amount", label: "Tutar (TL)", type: "number", required: true },
       { key: "date", label: "Tarih", type: "date", required: true },
       { key: "km", label: "Kilometre", type: "number" },
@@ -7308,8 +7309,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var exampleDriver = ["Ahmet Yılmaz", "0532 000 00 00", "34 AB 123, 34 CD 456", "B", "01.01.2029", "SRC2", "01.06.2027", "01.03.2027", "01.03.2027", "Hayır", "", "", "", "", ""];
     var exampleExpense = ["34 AB 123", "Yakıt", 1250.5, "15.07.2026", 125400, 45, "Ahmet Yılmaz", "Otoyol dönüşü tam depo"];
     var example = entity === "drivers" ? exampleDriver : (entity === "expenses" ? exampleExpense : exampleCar);
-    var ws = XLSX.utils.aoa_to_sheet([headers, example]);
-    ws["!cols"] = headers.map(function (h) { return { wch: Math.max(14, h.length + 2) }; });
+    var sheetName = entity === "drivers" ? "Şoförler" : (entity === "expenses" ? "Masraflar" : "Araçlar");
+    var fileName = (entity === "drivers" ? "sofor-sablonu" : (entity === "expenses" ? "masraf-sablonu" : "arac-sablonu")) + ".xlsx";
+
     var infoRows = [
       ["Nasıl kullanılır?"],
       ["1. İlk satırdaki başlıkları değiştirmeyin."],
@@ -7320,16 +7322,69 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       infoRows.push(["4. \"Atanan araç plaka(ları)\" sütununa, şoförün kullandığı aracın/araçların plakasını virgülle ayırarak yazın (araç önce sisteme eklenmiş olmalı)."]);
     } else if (entity === "expenses") {
       infoRows.push(["4. \"Araç plakası\" sütununa, masrafın ait olduğu aracın plakasını yazın (araç önce sisteme eklenmiş olmalı, plaka eşleşmezse satır atlanır)."]);
-      infoRows.push(["5. \"Kategori\" sütununa şunlardan birini yazın: " + CATEGORIES.map(function (c) { return c.label; }).join(", ") + " (boş bırakılır veya tanınmazsa \"Diğer\" olarak kaydedilir)."]);
+      infoRows.push(["5. \"Kategori\" sütununa, hücreye tıklayınca çıkan listeden bir seçenek seçin (boş bırakılır veya tanınmazsa \"Diğer\" olarak kaydedilir)."]);
     } else {
       infoRows.push(["4. Plaka alanı boş bırakılabilir ama doldurulması önerilir."]);
     }
-    infoRows.push([(entity === "expenses" ? "6" : "5") + ". Dosyayı kaydedip Hesap Menüsü > Toplu İçe Aktar ekranından yükleyin."]);
-    var infoWs = XLSX.utils.aoa_to_sheet(infoRows);
-    var wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, entity === "drivers" ? "Şoförler" : (entity === "expenses" ? "Masraflar" : "Araçlar"));
-    XLSX.utils.book_append_sheet(wb, infoWs, "Nasıl Kullanılır");
-    XLSX.writeFile(wb, (entity === "drivers" ? "sofor-sablonu" : (entity === "expenses" ? "masraf-sablonu" : "arac-sablonu")) + ".xlsx");
+    infoRows.push(["Sarı renkli sütunlarda hücreye tıklayınca açılan oktan hazır seçeneklerden birini seçebilirsiniz; yanlış yazım riskini önler."]);
+    infoRows.push(["Dosyayı kaydedip Hesap Menüsü > Toplu İçe Aktar ekranından yükleyin."]);
+
+    // ExcelJS ile üretiyoruz çünkü SheetJS'in ücretsiz sürümü açılır liste
+    // (data validation) yazmayı desteklemiyor; kullanıcı serbest metin yerine
+    // hazır seçeneklerden seçerek yanlış/typo veri girmesin diye.
+    var wb = new ExcelJS.Workbook();
+    var ws = wb.addWorksheet(sheetName);
+    ws.columns = fields.map(function (f, i) {
+      return { header: f.label, width: Math.max(14, f.label.length + 2) };
+    });
+    ws.addRow(example);
+    ws.getRow(1).font = { bold: true };
+    ws.getRow(1).eachCell(function (cell, colNum) {
+      var f = fields[colNum - 1];
+      if (f && f.options && f.options.length) {
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFCE9A8" } };
+      }
+    });
+
+    var LAST_ROW = 300;
+    fields.forEach(function (f, idx) {
+      if (!f.options || !f.options.length) return;
+      var colNum = idx + 1;
+      for (var r = 2; r <= LAST_ROW; r++) {
+        ws.getCell(r, colNum).dataValidation = {
+          type: "list",
+          allowBlank: true,
+          formulae: ["\"" + f.options.join(",") + "\""],
+          showErrorMessage: true,
+          errorStyle: "warning",
+          errorTitle: "Geçersiz değer",
+          error: "Lütfen listeden bir seçenek seçin: " + f.options.join(", ")
+        };
+        if (colNum <= 26) {
+          ws.getCell(r, colNum).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFBEE" } };
+        }
+      }
+    });
+
+    var infoWs = wb.addWorksheet("Nasıl Kullanılır");
+    infoWs.getColumn(1).width = 100;
+    infoRows.forEach(function (row) { infoWs.addRow(row); });
+    infoWs.getRow(1).font = { bold: true };
+
+    wb.xlsx.writeBuffer().then(function (buffer) {
+      var blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }).catch(function (err) {
+      console.error("Şablon oluşturma hatası:", err);
+      toast("Şablon oluşturulamadı, lütfen tekrar deneyin.");
+    });
   }
   function parseImportWorkbook(arrayBuffer, entity) {
     var wb = XLSX.read(arrayBuffer, { type: "array", cellDates: true });
