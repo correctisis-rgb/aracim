@@ -228,7 +228,7 @@
   .car-checklist::-webkit-scrollbar-thumb:hover, .mon-recipients::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 
 
-  .gd-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+  .gd-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; align-items: start; }
   .span-2 { grid-column: 1 / -1; }
   @media (max-width: 640px) { .gd-grid { grid-template-columns: 1fr; } }
 
@@ -238,7 +238,7 @@
   .panel-toggle:hover { color: var(--text); border-color: var(--amber); }
   .panel-body.collapsed { display: none; }
 
-  .instrument-panel { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .instrument-panel .panel-body { display: flex; flex-direction: column; align-items: center; justify-content: center; }
   .gauge-svg { width: 100%; max-width: 220px; }
   .gauge-value { font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; fill: var(--text); }
   .gauge-sub { font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.12em; fill: var(--muted); }
@@ -986,7 +986,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.2.5"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.2.8"; // Dynamic Version Tracking
   var APP_UPDATED = "25 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -4568,9 +4568,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var html = '<main class="gd-grid">';
 
     // gauge panel
-    html += '<section class="panel instrument-panel">' + gaugeSVG(d.gaugePct) +
+    html += '<section class="panel instrument-panel">' + panelSectionHeadHTML("gauge", "Harcama Göstergesi") + panelBodyOpenTagHTML("gauge") + gaugeSVG(d.gaugePct) +
       '<div class="odometer-row"><div class="odometer-label">TOPLAM (tüm zamanlar)</div>' +
-      '<div class="odometer">' + fmtTL(d.totalAllTime).replace("₺", "") + '<span class="odo-currency">₺</span></div></div></section>';
+      '<div class="odometer">' + fmtTL(d.totalAllTime).replace("₺", "") + '<span class="odo-currency">₺</span></div></div></div></section>';
 
     // category donut
     html += '<section class="panel">' + panelSectionHeadHTML("donut", "Kategori Dağılımı (tüm zamanlar)") + panelBodyOpenTagHTML("donut");
