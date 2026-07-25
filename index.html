@@ -233,7 +233,10 @@
   @media (max-width: 640px) { .gd-grid { grid-template-columns: 1fr; } }
 
   .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 18px; margin-bottom: 14px; }
-  .panel h2 { font-family: 'Oswald', sans-serif; font-size: 15px; font-weight: 500; margin: 0 0 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .panel h2 { font-family: 'Oswald', sans-serif; font-size: 15px; font-weight: 500; margin: 0 0 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .panel-toggle { background: none; border: 1px solid var(--border); color: var(--muted); cursor: pointer; font-size: 12px; padding: 3px 8px; border-radius: 7px; line-height: 1.4; flex-shrink: 0; font-family: inherit; }
+  .panel-toggle:hover { color: var(--text); border-color: var(--amber); }
+  .panel-body.collapsed { display: none; }
 
   .instrument-panel { display: flex; flex-direction: column; align-items: center; justify-content: center; }
   .gauge-svg { width: 100%; max-width: 220px; }
@@ -491,9 +494,6 @@
   .family-role-badge { font-size: 11px; color: var(--muted); background: var(--surface-2); padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
   .family-role-toggle { font-size: 11px; color: var(--blue); background: var(--surface-2); padding: 3px 8px; border-radius: 999px; white-space: nowrap; border: 1px solid var(--border); cursor: pointer; }
   .family-role-toggle:hover { border-color: var(--blue); }
-  .family-role-select { font-size: 11px; color: var(--blue); background: var(--surface-2); padding: 3px 22px 3px 8px; border-radius: 999px; white-space: nowrap; border: 1px solid var(--border); cursor: pointer; appearance: none; -webkit-appearance: none; -moz-appearance: none; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M1 3l4 4 4-4' stroke='%234A9EFF' stroke-width='1.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>"); background-repeat: no-repeat; background-position: right 7px center; font-family: inherit; }
-  .family-role-select:hover, .family-role-select:focus { border-color: var(--blue); outline: none; }
-  .family-role-select:disabled { opacity: 0.6; cursor: default; }
 
   /* ---------- "Sadece görüntüleyebilir" rolü: ekleme/düzenleme/silme
      eylemlerini üretecek her düğmeyi (hangi panelde render edildiğine
@@ -986,7 +986,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.2.7"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.2.5"; // Dynamic Version Tracking
   var APP_UPDATED = "25 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1341,6 +1341,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     notifHistory: getLocalData("notif_history", []),
     activityLog: getLocalData("activity_log", []),
     theme: getLocalData("theme", "dark"),
+    panelCollapsed: getLocalData("panel_collapsed", {}),
     license: null,
     licenseBannerDismissedFor: null,
     adminPanelTab: "health"
@@ -4249,6 +4250,20 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     });
   }
 
+  // ---------- Panel/Analiz grafik bölümlerini aç/kapa ----------
+  // Kullanıcı hangi grafikleri katlayıp kapattıysa (donut/trend/consumption/price),
+  // bu tercih localStorage'da tutulur ki sayfa yenilenince sıfırlanmasın.
+  function isPanelCollapsed(key) {
+    return !!(state.panelCollapsed && state.panelCollapsed[key]);
+  }
+  function panelSectionHeadHTML(key, title) {
+    var collapsed = isPanelCollapsed(key);
+    return '<h2><span>' + title + '</span><button type="button" class="panel-toggle" data-action="toggle-panel-section" data-panel-key="' + key + '" aria-expanded="' + (collapsed ? "false" : "true") + '" aria-label="' + title + (collapsed ? " grafiğini göster" : " grafiğini gizle") + '" title="' + (collapsed ? "Göster" : "Gizle") + '">' + (collapsed ? "▸" : "▾") + '</button></h2>';
+  }
+  function panelBodyOpenTagHTML(key) {
+    return '<div class="panel-body' + (isPanelCollapsed(key) ? " collapsed" : "") + '">';
+  }
+
   function buildLicenseBannerHtml() {
     if (!state.currentUser || isAdminUser(state.currentUser)) return "";
     var st = getLicenseStatus();
@@ -4558,7 +4573,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       '<div class="odometer">' + fmtTL(d.totalAllTime).replace("₺", "") + '<span class="odo-currency">₺</span></div></div></section>';
 
     // category donut
-    html += '<section class="panel"><h2>Kategori Dağılımı (tüm zamanlar)</h2>';
+    html += '<section class="panel">' + panelSectionHeadHTML("donut", "Kategori Dağılımı (tüm zamanlar)") + panelBodyOpenTagHTML("donut");
     if (d.categoryData.length === 0) {
       html += '<p class="empty-hint">Henüz masraf kaydı yok. Gösterge burada dolacak.</p>';
     } else {
@@ -4568,7 +4583,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       });
       html += '</ul></div>';
     }
-    html += '</section>';
+    html += '</div></section>';
 
     // upcoming events
     html += renderUpcomingPanel(summaryItems || []);
@@ -5040,13 +5055,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var html = '<main class="gd-grid">';
 
     // trend chart
-    html += '<section class="panel span-2"><h2>Aylık Harcama Trendi — ' + esc(scopeLabel) + ' (Son 6 Ay)</h2>';
+    html += '<section class="panel span-2">' + panelSectionHeadHTML("trend", "Aylık Harcama Trendi — " + esc(scopeLabel) + " (Son 6 Ay)") + panelBodyOpenTagHTML("trend");
     if (!months.some(function (m) { return m.total > 0; })) {
       html += '<p class="empty-hint">Henüz masraf kaydı yok. Trend grafiği burada dolacak.</p>';
     } else {
       html += '<div class="chart-box"><canvas id="trendChart"></canvas></div>';
     }
-    html += '</section>';
+    html += '</div></section>';
 
     // budget panel
     html += '<section class="panel"><h2>Aylık Bütçe — ' + esc(scopeLabel) + '</h2>' +
@@ -5072,13 +5087,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       var hasConsumption = fuelSeries.consumptionSeries.some(function (p) { return p.consumption != null; });
       var hasPrice = fuelSeries.priceSeries.length > 1;
       if (hasConsumption) {
-        html += '<section class="panel span-2"><h2>Yakıt Tüketimi (L/100km) — ' + esc(selectedCar.name) + '</h2>' +
-          '<div class="chart-box short"><canvas id="consumptionChart"></canvas></div></section>';
+        html += '<section class="panel span-2">' + panelSectionHeadHTML("consumption", "Yakıt Tüketimi (L/100km) — " + esc(selectedCar.name)) +
+          panelBodyOpenTagHTML("consumption") + '<div class="chart-box short"><canvas id="consumptionChart"></canvas></div></div></section>';
       }
       if (hasPrice) {
-        html += '<section class="panel span-2"><h2>Litre Fiyatı Değişimi — ' + esc(selectedCar.name) + '</h2>' +
-          '<div class="chart-box short"><canvas id="priceChart"></canvas></div>' +
-          '<p class="fuel-chart-note">Her dolumun tutar/litre oranını gösterir; fiyat artışlarını ve istasyon farklarını takip etmene yardımcı olur.</p></section>';
+        html += '<section class="panel span-2">' + panelSectionHeadHTML("price", "Litre Fiyatı Değişimi — " + esc(selectedCar.name)) +
+          panelBodyOpenTagHTML("price") + '<div class="chart-box short"><canvas id="priceChart"></canvas></div>' +
+          '<p class="fuel-chart-note">Her dolumun tutar/litre oranını gösterir; fiyat artışlarını ve istasyon farklarını takip etmene yardımcı olur.</p></div></section>';
       }
       if (!hasConsumption && !hasPrice) {
         html += '<section class="panel span-2"><p class="empty-hint">Bu araç için yakıt grafiklerini görmek üzere en az iki yakıt kaydını km ve litre bilgisiyle girmen gerekiyor.</p></section>';
@@ -5511,8 +5526,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       '<p class="profile-section-title">Profil Bilgileri</p>' +
       '<div class="avatar-upload-row">' +
         '<div class="avatar-upload" id="pu-avatar">' +
-          (user.avatar ? '<img src="' + user.avatar + '" alt="" />' : '<span class="pu-label">📷<br/>Ekle</span>') +
-          '<input type="file" accept="image/*" id="avatar-file" />' +
+          (user.avatar ? '<img src="' + user.avatar + '" alt="Profil fotoğrafı" />' : '<span class="pu-label">📷<br/>Ekle</span>') +
+          '<input type="file" accept="image/*" id="avatar-file" aria-label="Profil fotoğrafı yükle" />' +
         '</div>' +
         '<p class="avatar-upload-hint">Profil fotoğrafı ekle veya değiştir. Fotoğraflar otomatik küçültülerek saklanır.</p>' +
       '</div>' +
@@ -5729,7 +5744,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       bindPhotoUploadInput(input, function (dataUrl) {
         modal.__avatar = dataUrl;
         var box = modal.querySelector("#pu-avatar");
-        box.innerHTML = '<img src="' + dataUrl + '" alt="" /><input type="file" accept="image/*" id="avatar-file" />';
+        box.innerHTML = '<img src="' + dataUrl + '" alt="Profil fotoğrafı" /><input type="file" accept="image/*" id="avatar-file" aria-label="Profil fotoğrafı yükle" />';
         bindAvatarInput();
       }, 300, 0.8);
     }
@@ -8278,12 +8293,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   function photoUploadHTML(key, label, existing) {
     var content = existing
-      ? '<img src="' + existing + '" alt="" data-action="open-lightbox" data-src="' + existing + '" data-caption="' + label + '" />' +
-        '<button class="photo-remove" data-key="' + key + '" type="button" title="Kaldır">✕</button>' +
-        '<button class="photo-edit" data-key="' + key + '" type="button" title="Fotoğrafı değiştir">✏️</button>'
+      ? '<img src="' + existing + '" alt="' + esc(label) + '" data-action="open-lightbox" data-src="' + existing + '" data-caption="' + label + '" />' +
+        '<button class="photo-remove" data-key="' + key + '" type="button" title="Kaldır" aria-label="' + esc(label) + ' fotoğrafını kaldır">✕</button>' +
+        '<button class="photo-edit" data-key="' + key + '" type="button" title="Fotoğrafı değiştir" aria-label="' + esc(label) + ' fotoğrafını değiştir">✏️</button>'
       : '<span class="pu-label">📷<br/>' + label + ' ekle</span>';
     return '<div class="photo-upload' + (existing ? ' has-photo' : '') + '" data-key="' + key + '" id="pu-' + key + '">' + content +
-      '<input type="file" accept="image/*" data-key="' + key + '" /></div>';
+      '<input type="file" accept="image/*" data-key="' + key + '" aria-label="' + esc(label) + ' yükle" /></div>';
   }
 
   function refreshPhotoBox(modal, key) {
@@ -8292,11 +8307,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var val = modal.__photos[key];
     box.className = "photo-upload" + (val ? " has-photo" : "");
     box.innerHTML = (val
-      ? '<img src="' + val + '" alt="" data-action="open-lightbox" data-src="' + val + '" data-caption="' + label + '" />' +
-        '<button class="photo-remove" data-key="' + key + '" type="button" title="Kaldır">✕</button>' +
-        '<button class="photo-edit" data-key="' + key + '" type="button" title="Fotoğrafı değiştir">✏️</button>'
+      ? '<img src="' + val + '" alt="' + esc(label) + '" data-action="open-lightbox" data-src="' + val + '" data-caption="' + label + '" />' +
+        '<button class="photo-remove" data-key="' + key + '" type="button" title="Kaldır" aria-label="' + esc(label) + ' fotoğrafını kaldır">✕</button>' +
+        '<button class="photo-edit" data-key="' + key + '" type="button" title="Fotoğrafı değiştir" aria-label="' + esc(label) + ' fotoğrafını değiştir">✏️</button>'
       : '<span class="pu-label">📷<br/>' + label + ' ekle</span>') +
-      '<input type="file" accept="image/*" data-key="' + key + '" />';
+      '<input type="file" accept="image/*" data-key="' + key + '" aria-label="' + esc(label) + ' yükle" />';
     var fileInput = box.querySelector("input[type=file]");
     bindPhotoUploadInput(fileInput, function (dataUrl) {
       modal.__photos[key] = dataUrl;
@@ -8590,6 +8605,19 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           window.scrollTo(0, prevScrollYForLog);
         }
         else if (action === "clear-driver-filter") { state.driverFilterText = ""; render(); }
+        else if (action === "toggle-panel-section") {
+          ev.stopPropagation();
+          var pKey = el.getAttribute("data-panel-key");
+          state.panelCollapsed = state.panelCollapsed || {};
+          state.panelCollapsed[pKey] = !state.panelCollapsed[pKey];
+          setLocalData("panel_collapsed", state.panelCollapsed);
+          render();
+          // Kapalıyken boyutu 0 olarak hesaplanmış olabilecek bir grafiği
+          // tekrar açınca doğru boyuta getir.
+          if (!state.panelCollapsed[pKey] && charts[pKey] && typeof charts[pKey].resize === "function") {
+            setTimeout(function () { charts[pKey].resize(); }, 0);
+          }
+        }
         else if (action === "set-view") { state.view = el.getAttribute("data-view"); render(); }
         else if (action === "set-main-section") {
           ev.stopPropagation();
