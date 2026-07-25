@@ -247,6 +247,29 @@ async function runFullScan(db, bypassDedup, triggerSource) {
       actionData = { multiAppt: dateBasedItems.map((t) => `${t.carId}:${t.fieldKey}`).join(",") };
     }
 
+    // ---------- Uygulama içi bildirim geçmişi ("gelen kutusu") ----------
+    // send-reminders.js (günlük otomatik tarama) ile BİREBİR AYNI mantık:
+    // her gönderimi hane dokümanındaki notifHistory dizisine ekliyoruz ki
+    // "Geçmiş Hatırlatmalar" ekranında admin tetiklemesiyle gönderilen
+    // bildirimler de görünsün ve tıklanabilir olsun. items artık düz metin
+    // değil, { label, carId, apptKey } biçiminde bir obje: index.html bu
+    // alanlar doluysa (yani tek bir tarihe bağlı, henüz randevusu
+    // girilmemiş bir hatırlatmaysa) "Randevu / Tarih Gir" düğmesi gösterir;
+    // km bazlı bakım uyarısı gibi fieldKey'i olmayan öğeler düz metin
+    // olarak kalır.
+    const newNotifHistory = [
+      {
+        title,
+        body: bodyBase,
+        items: triggered.map((t) => ({
+          label: t.text,
+          carId: t.fieldKey ? t.carId : null,
+          apptKey: t.fieldKey || null
+        })),
+        sentAt: admin.firestore.Timestamp.now()
+      }
+    ].concat(user.notifHistory || []).slice(0, 40);
+
     // --- Hane sahibine gönder ---
     const ownerTokens = user.fcmTokens || [];
     const ownerResult = await sendToTokens(db, ownerId, ownerTokens, title, bodyBase, actionData);
@@ -305,10 +328,11 @@ async function runFullScan(db, bypassDedup, triggerSource) {
 
     recipients.push({ household: ownerName, members: recipientMembers });
 
-    // notifState tüm hane için ortak/tek bir yerde (hane sahibinin
-    // dokümanında) tutulur, böylece aynı eşik tekrar tekrar herkese
-    // gönderilmez.
-    await db.collection("users").doc(ownerId).set({ notifState: newNotifState }, { merge: true });
+    // notifState ve notifHistory her zaman hane sahibinin dokümanına yazılır.
+    await db.collection("users").doc(ownerId).set({
+      notifState: newNotifState,
+      notifHistory: newNotifHistory
+    }, { merge: true });
   }
 
   await writeRunLog(db, Object.assign({
