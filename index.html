@@ -972,7 +972,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.1.5"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.1.6"; // Dynamic Version Tracking
   var APP_UPDATED = "25 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -2058,7 +2058,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var out = [];
     fieldDefs.forEach(function (f) {
       var val = obj ? obj[f.key] : undefined;
-      if (val === null || val === undefined || val === "") return;
+      var isEmpty = (val === null || val === undefined || val === "");
+      if (isEmpty && f.type !== "payer") return;
       out.push({ label: f.label, value: formatActivityFieldValue(f.type, val) });
     });
     return out;
@@ -7621,6 +7622,44 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // sığdırmak için küçük font + dar hücre aralığı kullanılır.
   var pdfDenseTableStyles = { fontSize: 6.3, font: "DejaVuSans", fontStyle: "normal", cellPadding: { top: 3, right: 2, bottom: 3, left: 2 }, overflow: "linebreak", valign: "middle", minCellWidth: 0 };
   function pdfDenseHeadStyles(color) { return { fillColor: pdfTint(color, 0.78), textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold", fontSize: 6.3, lineWidth: 0, halign: "left" }; }
+  // Plaka/tarih gibi kısa değerlerin bile satır satır bölünmemesi için her
+  // sütuna alan tipine göre okunabilir sabit bir genişlik (mm) veriliyor.
+  // "auto" bırakılan sütunlar, çok sütunlu tablolarda (19/15 sütun) diğer
+  // sütunlar tarafından ezilip tek harfe kadar daralabiliyordu; bunun yerine
+  // her sütuna gerçekçi bir minimum verilip tablo gerekirse yatayda ek
+  // sayfalara taşıyor (horizontalPageBreak).
+  function pdfFieldColWidth(f) {
+    var key = f.key, type = f.type;
+    if (type === "date") return 20;
+    if (type === "number") return 18;
+    if (type === "bool") return 16;
+    if (type === "carList") return 30;
+    if (key === "plate") return 20;
+    if (key === "vin") return 26;
+    if (key === "name") return 24;
+    if (key === "vehicleType") return 18;
+    if (key === "brand") return 28;
+    if (key === "year") return 12;
+    if (key === "fuelType") return 16;
+    if (key === "transmission") return 16;
+    if (key === "insuranceCompany") return 26;
+    if (key === "policyNo") return 22;
+    if (key === "phone") return 24;
+    if (key === "licenseClass") return 16;
+    if (key === "srcType") return 20;
+    if (key === "passportNo") return 22;
+    if (key === "visaCountry") return 18;
+    if (key === "visaNo") return 20;
+    return 20;
+  }
+  function pdfBuildColumnStyles(fields) {
+    var styles = {};
+    fields.forEach(function (f, i) {
+      styles[i] = { cellWidth: pdfFieldColWidth(f) };
+      if (i === 0) styles[i].fontStyle = "bold";
+    });
+    return styles;
+  }
   function buildPdfGenelReport(dateFrom, dateTo) {
     var doc = new jspdf.jsPDF({ orientation: "landscape" });
     // Türkçe karakterler (ç, ğ, ı, ö, ş, ü) için varsayılan Helvetica yerine
@@ -7653,10 +7692,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       styles: pdfDenseTableStyles,
       headStyles: pdfDenseHeadStyles("#F2A93B"),
       alternateRowStyles: { fillColor: [245, 246, 248] },
-      columnStyles: { 0: { fontStyle: "bold" } },
+      columnStyles: pdfBuildColumnStyles(carFields),
       margin: { top: 40, left: margin, right: margin, bottom: 24 },
-      tableWidth: "auto",
-      horizontalPageBreak: false,
+      horizontalPageBreak: true,
+      horizontalPageBreakRepeat: 0,
       showHead: "everyPage",
       didDrawPage: function (data) {
         if (data.pageNumber > 1) {
@@ -7677,10 +7716,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       styles: pdfDenseTableStyles,
       headStyles: pdfDenseHeadStyles("#4FA8D8"),
       alternateRowStyles: { fillColor: [245, 246, 248] },
-      columnStyles: { 0: { fontStyle: "bold" } },
+      columnStyles: pdfBuildColumnStyles(driverFields),
       margin: { top: 40, left: margin, right: margin, bottom: 24 },
-      tableWidth: "auto",
-      horizontalPageBreak: false,
+      horizontalPageBreak: true,
+      horizontalPageBreakRepeat: 0,
       showHead: "everyPage",
       didDrawPage: function (data) {
         if (data.pageNumber > 1) {
@@ -7757,10 +7796,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       styles: pdfDenseTableStyles,
       headStyles: pdfDenseHeadStyles("#F2A93B"),
       alternateRowStyles: { fillColor: [245, 246, 248] },
-      columnStyles: { 0: { fontStyle: "bold" } },
+      columnStyles: pdfBuildColumnStyles(carFields),
       margin: { top: 40, left: margin, right: margin, bottom: 24 },
-      tableWidth: "auto",
-      horizontalPageBreak: false,
+      horizontalPageBreak: true,
+      horizontalPageBreakRepeat: 0,
       showHead: "everyPage",
       didDrawPage: function (data) {
         if (data.pageNumber > 1) {
@@ -7786,10 +7825,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       styles: pdfDenseTableStyles,
       headStyles: pdfDenseHeadStyles("#4FA8D8"),
       alternateRowStyles: { fillColor: [245, 246, 248] },
-      columnStyles: { 0: { fontStyle: "bold" } },
+      columnStyles: pdfBuildColumnStyles(driverFields),
       margin: { top: 40, left: margin, right: margin, bottom: 24 },
-      tableWidth: "auto",
-      horizontalPageBreak: false,
+      horizontalPageBreak: true,
+      horizontalPageBreakRepeat: 0,
       showHead: "everyPage",
       didDrawPage: function (data) {
         if (data.pageNumber > 1) {
