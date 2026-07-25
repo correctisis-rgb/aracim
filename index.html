@@ -986,7 +986,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.2.5"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.2.6"; // Dynamic Version Tracking
   var APP_UPDATED = "25 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -8486,6 +8486,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var returnTo = (state.modal && state.modal.type === "quickAppt") ? state.modal.returnTo : null;
     state.modal = returnTo || null;
     document.querySelectorAll(".modal-backdrop").forEach(function (el) { el.remove(); });
+    // Geri dönülecek bir pencere varsa, burada kendimiz yeniden çiziyoruz;
+    // bu fonksiyonu çağıran yerlerin çoğu closeModal()'dan sonra render()
+    // çağırsa da, bazı yerler (ör. "close-modal" aksiyonu) çağırmıyor —
+    // onlarda da geri dönüş penceresinin görünmesi için burada garanti ediyoruz.
+    if (state.modal) render();
   }
 
   function stopQrScan() {
