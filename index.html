@@ -972,7 +972,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.1.6"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.1.7"; // Dynamic Version Tracking
   var APP_UPDATED = "25 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -7618,16 +7618,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     "Vize ülkesi": "Vize Ülke", "Vize no": "Vize No", "Vize geçerlilik tarihi": "Vize Bitiş"
   };
   function pdfLabel(l) { return pdfLabelOverrides[l] || l; }
-  // Çok sütunlu tabloları (Araçlar: 19, Şoförler: 15 sütun) tek sayfa genişliğine
-  // sığdırmak için küçük font + dar hücre aralığı kullanılır.
-  var pdfDenseTableStyles = { fontSize: 6.3, font: "DejaVuSans", fontStyle: "normal", cellPadding: { top: 3, right: 2, bottom: 3, left: 2 }, overflow: "linebreak", valign: "middle", minCellWidth: 0 };
-  function pdfDenseHeadStyles(color) { return { fillColor: pdfTint(color, 0.78), textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold", fontSize: 6.3, lineWidth: 0, halign: "left" }; }
-  // Plaka/tarih gibi kısa değerlerin bile satır satır bölünmemesi için her
-  // sütuna alan tipine göre okunabilir sabit bir genişlik (mm) veriliyor.
-  // "auto" bırakılan sütunlar, çok sütunlu tablolarda (19/15 sütun) diğer
-  // sütunlar tarafından ezilip tek harfe kadar daralabiliyordu; bunun yerine
-  // her sütuna gerçekçi bir minimum verilip tablo gerekirse yatayda ek
-  // sayfalara taşıyor (horizontalPageBreak).
+  // Çok sütunlu tabloları (Araçlar: 19, Şoförler: 15 sütun) TEK sayfa
+  // genişliğine sığdırmak için: her sütuna alan tipine göre "ideal" bir
+  // genişlik (mm) veriliyor, sonra toplam sayfa genişliğini aşıyorsa tüm
+  // sütunlar (ve font boyutu) aynı oranda küçültülüp tam sayfaya oturtuluyor.
+  // Böylece plaka/tarih gibi değerler farklı oranlarda ezilip alt alta
+  // bölünmek yerine, tüm tablo tutarlı şekilde küçülüp tek sayfada kalıyor.
   function pdfFieldColWidth(f) {
     var key = f.key, type = f.type;
     if (type === "date") return 20;
@@ -7652,13 +7648,42 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (key === "visaNo") return 20;
     return 20;
   }
-  function pdfBuildColumnStyles(fields) {
-    var styles = {};
-    fields.forEach(function (f, i) {
-      styles[i] = { cellWidth: pdfFieldColWidth(f) };
-      if (i === 0) styles[i].fontStyle = "bold";
+  // fields dizisindeki sütunları, verilen (margin çıkarılmış) sayfa
+  // genişliğine tam oturacak şekilde ölçekler; gerekirse fontu da küçültür.
+  function pdfFitTableStyles(fields, availableWidth) {
+    var baseWidths = fields.map(pdfFieldColWidth);
+    var totalWidth = baseWidths.reduce(function (a, b) { return a + b; }, 0);
+    var scale = totalWidth > availableWidth ? (availableWidth / totalWidth) : 1;
+    var minColW = 7;
+    var scaledWidths = baseWidths.map(function (w) { return Math.max(w * scale, minColW); });
+    var scaledTotal = scaledWidths.reduce(function (a, b) { return a + b; }, 0);
+    // Alt sınıra çarpan sütunlar yüzünden toplam hâlâ sığmıyorsa,
+    // aşan miktarı diğer (alt sınırda olmayan) sütunlardan orantılı düş.
+    if (scaledTotal > availableWidth) {
+      var flexIdx = scaledWidths.map(function (w, i) { return w > minColW + 0.01 ? i : -1; }).filter(function (i) { return i >= 0; });
+      var flexTotal = flexIdx.reduce(function (s, i) { return s + scaledWidths[i]; }, 0);
+      var overflow = scaledTotal - availableWidth;
+      if (flexTotal > 0) {
+        flexIdx.forEach(function (i) {
+          scaledWidths[i] = Math.max(minColW, scaledWidths[i] - overflow * (scaledWidths[i] / flexTotal));
+        });
+      }
+    }
+    var columnStyles = {};
+    scaledWidths.forEach(function (w, i) {
+      columnStyles[i] = { cellWidth: w };
+      if (i === 0) columnStyles[i].fontStyle = "bold";
     });
-    return styles;
+    var fontSize = Math.max(4, Math.min(6.3, 6.3 * scale));
+    var padScale = Math.max(0.35, scale);
+    var cellPadding = { top: Math.max(1, 3 * padScale), right: Math.max(0.7, 2 * padScale), bottom: Math.max(1, 3 * padScale), left: Math.max(0.7, 2 * padScale) };
+    return { columnStyles: columnStyles, fontSize: fontSize, cellPadding: cellPadding };
+  }
+  function pdfDenseStylesFor(fit) {
+    return { fontSize: fit.fontSize, font: "DejaVuSans", fontStyle: "normal", cellPadding: fit.cellPadding, overflow: "linebreak", valign: "middle", minCellWidth: 0 };
+  }
+  function pdfDenseHeadStylesFor(color, fit) {
+    return { fillColor: pdfTint(color, 0.78), textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold", fontSize: fit.fontSize, lineWidth: 0, halign: "left", cellPadding: fit.cellPadding };
   }
   function buildPdfGenelReport(dateFrom, dateTo) {
     var doc = new jspdf.jsPDF({ orientation: "landscape" });
@@ -7685,17 +7710,18 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     var carFields = carActivityFieldDefs().filter(function (f) { return f.type !== "photo"; });
     var carPageMeta = { title: "Garaj Defteri — Genel Rapor", subtitle: "Araçlar", color: "#F2A93B" };
+    var carFit = pdfFitTableStyles(carFields, doc.internal.pageSize.getWidth() - 2 * margin);
     doc.autoTable({
       startY: kpiY + kpiH + 18,
       head: [carFields.map(function (f) { return pdfLabel(f.label); })],
       body: (state.cars || []).map(function (c) { return carFields.map(function (f) { return String(excelCellValue(f.type, c[f.key]) || "—"); }); }),
-      styles: pdfDenseTableStyles,
-      headStyles: pdfDenseHeadStyles("#F2A93B"),
+      styles: pdfDenseStylesFor(carFit),
+      headStyles: pdfDenseHeadStylesFor("#F2A93B", carFit),
       alternateRowStyles: { fillColor: [245, 246, 248] },
-      columnStyles: pdfBuildColumnStyles(carFields),
+      columnStyles: carFit.columnStyles,
       margin: { top: 40, left: margin, right: margin, bottom: 24 },
-      horizontalPageBreak: true,
-      horizontalPageBreakRepeat: 0,
+      tableWidth: doc.internal.pageSize.getWidth() - 2 * margin,
+      horizontalPageBreak: false,
       showHead: "everyPage",
       didDrawPage: function (data) {
         if (data.pageNumber > 1) {
@@ -7709,17 +7735,18 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     pdfAddBanner(doc, { title: "Şoförler", subtitle: (state.drivers || []).length + " şoför kayıtlı", right: dateLabel, color: "#4FA8D8", margin: margin });
     var driverFields = driverActivityFieldDefs();
     var driverPageMeta = { title: "Şoförler", subtitle: (state.drivers || []).length + " şoför kayıtlı", color: "#4FA8D8" };
+    var driverFit = pdfFitTableStyles(driverFields, doc.internal.pageSize.getWidth() - 2 * margin);
     doc.autoTable({
       startY: 54,
       head: [driverFields.map(function (f) { return pdfLabel(f.label); })],
       body: (state.drivers || []).map(function (d) { return driverFields.map(function (f) { return String(excelCellValue(f.type, d[f.key]) || "—"); }); }),
-      styles: pdfDenseTableStyles,
-      headStyles: pdfDenseHeadStyles("#4FA8D8"),
+      styles: pdfDenseStylesFor(driverFit),
+      headStyles: pdfDenseHeadStylesFor("#4FA8D8", driverFit),
       alternateRowStyles: { fillColor: [245, 246, 248] },
-      columnStyles: pdfBuildColumnStyles(driverFields),
+      columnStyles: driverFit.columnStyles,
       margin: { top: 40, left: margin, right: margin, bottom: 24 },
-      horizontalPageBreak: true,
-      horizontalPageBreakRepeat: 0,
+      tableWidth: doc.internal.pageSize.getWidth() - 2 * margin,
+      horizontalPageBreak: false,
       showHead: "everyPage",
       didDrawPage: function (data) {
         if (data.pageNumber > 1) {
@@ -7789,17 +7816,18 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var dateLabel = fmtDateTR(todayStr());
     var carFields = carActivityFieldDefs().filter(function (f) { return f.type !== "photo"; });
     pdfAddBanner(doc, { title: "Garaj Defteri — Araçlar Raporu", subtitle: (state.cars || []).length + " araç kayıtlı", right: "Oluşturulma tarihi: " + dateLabel, color: "#F2A93B", margin: margin });
+    var carFit = pdfFitTableStyles(carFields, doc.internal.pageSize.getWidth() - 2 * margin);
     doc.autoTable({
       startY: 40,
       head: [carFields.map(function (f) { return pdfLabel(f.label); })],
       body: (state.cars || []).map(function (c) { return carFields.map(function (f) { return String(excelCellValue(f.type, c[f.key]) || "—"); }); }),
-      styles: pdfDenseTableStyles,
-      headStyles: pdfDenseHeadStyles("#F2A93B"),
+      styles: pdfDenseStylesFor(carFit),
+      headStyles: pdfDenseHeadStylesFor("#F2A93B", carFit),
       alternateRowStyles: { fillColor: [245, 246, 248] },
-      columnStyles: pdfBuildColumnStyles(carFields),
+      columnStyles: carFit.columnStyles,
       margin: { top: 40, left: margin, right: margin, bottom: 24 },
-      horizontalPageBreak: true,
-      horizontalPageBreakRepeat: 0,
+      tableWidth: doc.internal.pageSize.getWidth() - 2 * margin,
+      horizontalPageBreak: false,
       showHead: "everyPage",
       didDrawPage: function (data) {
         if (data.pageNumber > 1) {
@@ -7818,17 +7846,18 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var dateLabel = fmtDateTR(todayStr());
     var driverFields = driverActivityFieldDefs();
     pdfAddBanner(doc, { title: "Garaj Defteri — Şoförler Raporu", subtitle: (state.drivers || []).length + " şoför kayıtlı", right: "Oluşturulma tarihi: " + dateLabel, color: "#4FA8D8", margin: margin });
+    var driverFit = pdfFitTableStyles(driverFields, doc.internal.pageSize.getWidth() - 2 * margin);
     doc.autoTable({
       startY: 40,
       head: [driverFields.map(function (f) { return pdfLabel(f.label); })],
       body: (state.drivers || []).map(function (d) { return driverFields.map(function (f) { return String(excelCellValue(f.type, d[f.key]) || "—"); }); }),
-      styles: pdfDenseTableStyles,
-      headStyles: pdfDenseHeadStyles("#4FA8D8"),
+      styles: pdfDenseStylesFor(driverFit),
+      headStyles: pdfDenseHeadStylesFor("#4FA8D8", driverFit),
       alternateRowStyles: { fillColor: [245, 246, 248] },
-      columnStyles: pdfBuildColumnStyles(driverFields),
+      columnStyles: driverFit.columnStyles,
       margin: { top: 40, left: margin, right: margin, bottom: 24 },
-      horizontalPageBreak: true,
-      horizontalPageBreakRepeat: 0,
+      tableWidth: doc.internal.pageSize.getWidth() - 2 * margin,
+      horizontalPageBreak: false,
       showHead: "everyPage",
       didDrawPage: function (data) {
         if (data.pageNumber > 1) {
