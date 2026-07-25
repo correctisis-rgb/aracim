@@ -979,7 +979,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.2.1"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.2.2"; // Dynamic Version Tracking
   var APP_UPDATED = "25 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -7208,11 +7208,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       { key: "maintenanceKm", label: "Sonraki bakım km", type: "number" }
     ];
   }
+  function existingPlateOptions() {
+    return (state.cars || []).map(function (c) { return c.plate; }).filter(Boolean);
+  }
   function driverImportFieldDefs() {
     return [
       { key: "name", label: "Ad Soyad", required: true },
       { key: "phone", label: "Telefon" },
-      { key: "plates", label: "Atanan araç plaka(ları)", type: "plateList" },
+      { key: "plates", label: "Atanan araç plaka(ları)", type: "plateList", options: existingPlateOptions() },
       { key: "licenseClass", label: "Ehliyet sınıfı" },
       { key: "licenseExpiry", label: "Ehliyet geçerlilik tarihi", type: "date" },
       { key: "srcType", label: "SRC belgesi türü" },
@@ -7229,7 +7232,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
   function expenseImportFieldDefs() {
     return [
-      { key: "plate", label: "Araç plakası", required: true },
+      { key: "plate", label: "Araç plakası", required: true, options: existingPlateOptions() },
       { key: "category", label: "Kategori", options: CATEGORIES.map(function (c) { return c.label; }) },
       { key: "amount", label: "Tutar (TL)", type: "number", required: true },
       { key: "date", label: "Tarih", type: "date", required: true },
@@ -7319,9 +7322,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       ["3. Tarihleri GG.AA.YYYY veya YYYY-AA-GG olarak yazın."]
     ];
     if (entity === "drivers") {
-      infoRows.push(["4. \"Atanan araç plaka(ları)\" sütununa, şoförün kullandığı aracın/araçların plakasını virgülle ayırarak yazın (araç önce sisteme eklenmiş olmalı)."]);
+      infoRows.push(["4. \"Atanan araç plaka(ları)\" sütununa, şoförün kullandığı aracın/araçların plakasını virgülle ayırarak yazın; hücreye tıklayınca sistemdeki araçların plakaları listeden görünür (araç önce sisteme eklenmiş olmalı, birden fazla araç için virgülle ayırıp elle ekleyin)."]);
     } else if (entity === "expenses") {
-      infoRows.push(["4. \"Araç plakası\" sütununa, masrafın ait olduğu aracın plakasını yazın (araç önce sisteme eklenmiş olmalı, plaka eşleşmezse satır atlanır)."]);
+      infoRows.push(["4. \"Araç plakası\" sütununa, hücreye tıklayınca çıkan listeden masrafın ait olduğu aracı seçin (araç önce sisteme eklenmiş olmalı, plaka eşleşmezse satır atlanır)."]);
       infoRows.push(["5. \"Kategori\" sütununa, hücreye tıklayınca çıkan listeden bir seçenek seçin (boş bırakılır veya tanınmazsa \"Diğer\" olarak kaydedilir)."]);
     } else {
       infoRows.push(["4. Plaka alanı boş bırakılabilir ama doldurulması önerilir."]);
@@ -7331,7 +7334,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     // ExcelJS ile üretiyoruz çünkü SheetJS'in ücretsiz sürümü açılır liste
     // (data validation) yazmayı desteklemiyor; kullanıcı serbest metin yerine
-    // hazır seçeneklerden seçerek yanlış/typo veri girmesin diye.
+    // hazır seçeneklerden (araç plakaları dahil) seçerek yanlış/typo veri
+    // girmesin diye. Plaka listesi uzun olabileceği için (255 karakter
+    // sınırına takılmamak adına) inline liste yerine gizli bir "Listeler"
+    // sayfasındaki hücre aralığına referans veriyoruz.
     var wb = new ExcelJS.Workbook();
     var ws = wb.addWorksheet(sheetName);
     ws.columns = fields.map(function (f, i) {
@@ -7346,19 +7352,44 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       }
     });
 
+    function excelColLetter(n) {
+      var s = "";
+      while (n > 0) {
+        var m = (n - 1) % 26;
+        s = String.fromCharCode(65 + m) + s;
+        n = Math.floor((n - 1) / 26);
+      }
+      return s;
+    }
+
+    var optionFields = fields.filter(function (f) { return f.options && f.options.length; });
+    var listWs = null;
+    if (optionFields.length) {
+      listWs = wb.addWorksheet("Listeler");
+      optionFields.forEach(function (f, colIdx) {
+        f.options.forEach(function (opt, i) {
+          listWs.getCell(i + 1, colIdx + 1).value = opt;
+        });
+      });
+      listWs.state = "veryHidden";
+    }
+
     var LAST_ROW = 300;
     fields.forEach(function (f, idx) {
       if (!f.options || !f.options.length) return;
       var colNum = idx + 1;
+      var listColIdx = optionFields.indexOf(f);
+      var listColLetter = excelColLetter(listColIdx + 1);
+      var rangeRef = "Listeler!$" + listColLetter + "$1:$" + listColLetter + "$" + f.options.length;
       for (var r = 2; r <= LAST_ROW; r++) {
         ws.getCell(r, colNum).dataValidation = {
           type: "list",
           allowBlank: true,
-          formulae: ["\"" + f.options.join(",") + "\""],
+          formulae: [rangeRef],
           showErrorMessage: true,
           errorStyle: "warning",
           errorTitle: "Geçersiz değer",
-          error: "Lütfen listeden bir seçenek seçin: " + f.options.join(", ")
+          error: "Lütfen listeden bir seçenek seçin."
         };
         if (colNum <= 26) {
           ws.getCell(r, colNum).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFBEE" } };
