@@ -466,7 +466,7 @@
 
   /* ---------- Analiz / Bütçe ---------- */
   .budget-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
-  .budget-row input { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); padding: 8px 10px; font-size: 14px; font-family: inherit; width: 140px; }
+  .budget-row input { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); padding: 8px 10px; font-size: 16px; font-family: inherit; width: 140px; }
   .budget-row input:focus { outline: 2px solid var(--amber); outline-offset: 1px; }
   .budget-bar-track { background: var(--bg); border: 1px solid var(--border); border-radius: 999px; height: 14px; overflow: hidden; margin-bottom: 8px; }
   .budget-bar-fill { height: 100%; border-radius: 999px; transition: width .25s ease; }
@@ -594,6 +594,13 @@
   .mon-recipient-group-title { font-size: 11.5px; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
   .notif-history-items { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
   .notif-history-items li { font-size: 12px; color: var(--muted); padding-left: 2px; }
+  .notif-history-item-btn {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%;
+    background: none; border: none; color: var(--muted); font-size: 12px; font-family: inherit;
+    padding: 4px 2px; text-align: left; cursor: pointer; border-radius: 6px;
+  }
+  .notif-history-item-btn:hover, .notif-history-item-btn:focus-visible { background: var(--surface-2); color: var(--text); }
+  .notif-history-item-arrow { color: var(--amber); flex-shrink: 0; }
   .account-chip-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); flex-shrink: 0; display: inline-block; }
   .mon-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 999px; font-family: 'JetBrains Mono', monospace; }
   .mon-badge.ok { color: #7BC67E; background: #7BC67E1A; }
@@ -979,7 +986,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.2.3"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.2.4"; // Dynamic Version Tracking
   var APP_UPDATED = "25 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -5455,7 +5462,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       expiresLine +
       (st.state !== "active" ? '<p class="field-hint" style="margin-top:-4px; color:var(--amber)">' + hintText + '</p>' : '') +
       '<div class="budget-row">' +
-        '<input id="license-code-input" placeholder="Lisans kodu (örn. LIC-XXXXX-XXXXX)" style="flex:1; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:8px 10px; font-size:14px;" />' +
+        '<input id="license-code-input" placeholder="Lisans kodu (örn. LIC-XXXXX-XXXXX)" style="flex:1; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:8px 10px; font-size:16px;" />' +
         '<button type="button" class="btn-primary" id="license-activate">Lisansı Etkinleştir</button>' +
       '</div>';
   }
@@ -5567,7 +5574,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       '<ul class="family-list">' + memberListHtml + '</ul>' +
       (!isOwnHousehold ? '<button type="button" class="btn-secondary full" id="household-leave" style="margin-bottom:10px;">Bu Ortak Haneden Ayrıl</button>' : '') +
       '<div class="field-row">' +
-        '<input id="household-join-code" placeholder="Katılmak istediğin davet kodu" style="background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:8px 10px; font-size:14px; width:100%;" />' +
+        '<input id="household-join-code" placeholder="Katılmak istediğin davet kodu" style="background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:8px 10px; font-size:16px; width:100%;" />' +
       '</div>' +
       '<div class="budget-row" style="margin-top:8px;">' +
         '<button type="button" class="btn-secondary full" id="household-join">Koda Katıl</button>' +
@@ -6140,13 +6147,28 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       html += '<ul class="err-list">';
       list.forEach(function (entry) {
         var items = entry.items || [];
+        // items artık iki biçimde gelebilir: eski kayıtlarda düz metin
+        // ("Toyota Corolla — Muayene" gibi bir string), yeni kayıtlarda ise
+        // { label, carId, apptKey } biçiminde bir obje (bkz. send-reminders.js).
+        // Obje ise ve ilgili araç hâlâ mevcutsa, push bildirimindeki "Evet,
+        // randevu aldım" aksiyonuyla aynı şekilde randevu formunu açan bir
+        // düğme olarak gösteriyoruz; değilse eskisi gibi düz metin.
         html += '<li class="err-item">' +
           '<div class="err-item-head">' +
             '<span class="err-item-time">' + fmtDateTime(entry.sentAt) + '</span>' +
           '</div>' +
           '<div class="err-item-msg">' + esc(entry.title || "Hatırlatma") + '</div>' +
           (items.length
-            ? '<ul class="notif-history-items">' + items.map(function (it) { return '<li>' + esc(it) + '</li>'; }).join("") + '</ul>'
+            ? '<ul class="notif-history-items">' + items.map(function (it) {
+                var carId = it && typeof it === "object" ? it.carId : null;
+                var apptKey = it && typeof it === "object" ? (it.apptKey || it.key) : null;
+                var label = it && typeof it === "object" ? (it.label || it.text || "") : it;
+                var carExists = carId && (state.cars || []).some(function (c) { return c.id === carId; });
+                if (carId && apptKey && carExists) {
+                  return '<li><button type="button" class="notif-history-item-btn" data-action="open-quick-appt" data-car="' + esc(carId) + '" data-key="' + esc(apptKey) + '">' + esc(label) + ' <span class="notif-history-item-arrow">→</span></button></li>';
+                }
+                return '<li>' + esc(label) + '</li>';
+              }).join("") + '</ul>'
             : (entry.body ? '<div class="err-item-meta">' + esc(entry.body) + '</div>' : '')) +
         '</li>';
       });
@@ -6240,7 +6262,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     html += '<p class="profile-section-title">Sorun Bildir</p>';
     html += '<p class="field-hint" style="margin-top:-4px">Karşılaştığın hatayı veya isteğini kısaca anlat; ekibimize iletilecek.</p>';
-    html += '<label class="field"><span>Açıklama</span><textarea id="support-msg" maxlength="1000" rows="4" placeholder="Örn. Masraf eklerken fotoğraf yüklenmiyor..." style="width:100%; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:10px; font-size:14px; font-family:inherit; resize:vertical;"></textarea></label>';
+    html += '<label class="field"><span>Açıklama</span><textarea id="support-msg" maxlength="1000" rows="4" placeholder="Örn. Masraf eklerken fotoğraf yüklenmiyor..." style="width:100%; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:10px; font-size:16px; font-family:inherit; resize:vertical;"></textarea></label>';
     html += '<p class="support-charcount" id="support-charcount">0 / 1000</p>';
     // Basit "honeypot" alanı: gerçek kullanıcılara görünmez/erişilmez, ama
     // formu otomatik dolduran botlar genelde bunu da doldurur. Dolu gelirse
@@ -6597,7 +6619,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       '<button type="button" class="btn-primary" data-action="create-license" data-days="365">Yıllık (365)</button>' +
     '</div>';
     html += '<div class="budget-row" style="margin-top:8px">' +
-      '<input id="license-custom-days" type="number" min="1" max="3650" placeholder="Özel gün sayısı" style="background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:8px 10px; font-size:14px; width:140px;" />' +
+      '<input id="license-custom-days" type="number" min="1" max="3650" placeholder="Özel gün sayısı" style="background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:8px 10px; font-size:16px; width:140px;" />' +
       '<button type="button" class="btn-secondary" data-action="create-license-custom">Oluştur</button>' +
     '</div>';
 
@@ -6671,7 +6693,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       '<div class="modal-head"><h3>📢 Duyuru / Bakım Mesajı</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>' +
       '<p class="field-hint" style="margin-top:-4px">Bu mesaj, bildirimleri açık olan <strong>tüm kullanıcılara</strong> anında push bildirimi olarak gönderilir (örn. planlı bakım, kesinti, yeni özellik duyurusu).</p>' +
       '<label class="field"><span>Başlık</span><input id="ann-title" maxlength="80" placeholder="Örn. Planlı Bakım Duyurusu" /></label>' +
-      '<label class="field"><span>Mesaj</span><textarea id="ann-body" maxlength="300" rows="4" placeholder="Örn. Bu gece 02:00–03:00 arası sistem bakımda olacak, bu süre boyunca uygulamaya erişim kesintili olabilir." style="width:100%; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:10px; font-size:14px; font-family:inherit; resize:vertical;"></textarea></label>' +
+      '<label class="field"><span>Mesaj</span><textarea id="ann-body" maxlength="300" rows="4" placeholder="Örn. Bu gece 02:00–03:00 arası sistem bakımda olacak, bu süre boyunca uygulamaya erişim kesintili olabilir." style="width:100%; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:10px; font-size:16px; font-family:inherit; resize:vertical;"></textarea></label>' +
       '<p class="km-ocr-status" id="ann-charcount">0 / 300</p>' +
       '<button type="button" class="btn-primary full" id="ann-send" style="margin-top:6px">📢 Tüm Kullanıcılara Gönder</button>';
 
