@@ -239,6 +239,7 @@
   .panel-body.collapsed { display: none; }
 
   .instrument-panel .panel-body { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .instrument-panel .panel-body.collapsed { display: none; }
   .gauge-svg { width: 100%; max-width: 220px; }
   .gauge-value { font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; fill: var(--text); }
   .gauge-sub { font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.12em; fill: var(--muted); }
@@ -986,7 +987,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.2.8"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.2.9"; // Dynamic Version Tracking
   var APP_UPDATED = "25 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
