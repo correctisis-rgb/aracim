@@ -987,7 +987,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.3.2"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.3.3"; // Dynamic Version Tracking
   var APP_UPDATED = "26 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1326,6 +1326,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     notifStatus: (typeof Notification !== "undefined" ? Notification.permission : "unsupported"),
     onboardingDismissed: getLocalData("onboarding_dismissed", false),
     logFilters: { search: "", category: "all", carId: "all", dateFrom: "", dateTo: "" },
+    activityLogFilters: { search: "", type: "all", action: "all" },
     carFilterText: "",
     driverFilterText: "",
     carsTabsExpanded: false,
@@ -1821,6 +1822,15 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (!lic || lic.maxVehicles == null) return false; // sınırsız plan ya da lisans henüz yüklenmedi
     return ((state.cars || []).length + extraCount) > lic.maxVehicles;
   }
+  // Plan düşürüldükten sonra (ör. filo -> ücretsiz) kullanıcının mevcut araç
+  // sayısı yeni planın limitini ZATEN aşmış olabilir. Bu durumda yeni araç
+  // eklemek değil, MEVCUT araçları düzenlemek/kaydetmek de anlamsız kalır —
+  // kullanıcı önce fazla aracı silmelidir. vehicleLimitReached(0) ile mevcut
+  // durumun (ekleme yapılmadan) limiti aşıp aşmadığı kontrol edilir.
+  function vehicleLimitExceededAlready() {
+    return vehicleLimitReached(0);
+  }
+  var PLAN_LIMIT_EXCEEDED_MESSAGE = "Plan limitiniz aşıldı, düzenlemeye devam edebilmek için fazla aracı silmeniz gerekiyor.";
   function persistCars() {
     setLocalData("cars", state.cars);
     if (!state.online) { markPendingSync(); return; }
@@ -2475,8 +2485,23 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var browser = /Edg/i.test(ua) ? "Edge" : /OPR|Opera/i.test(ua) ? "Opera" : /Chrome/i.test(ua) ? "Chrome" : /Firefox/i.test(ua) ? "Firefox" : /Safari/i.test(ua) ? "Safari" : "Tarayıcı";
     return os + " · " + browser;
   }
+  // İstemci taraflı spam koruması: kötü niyetli ya da bug'lı bir istemcinin
+  // sınırsız sayıda "loginAudit" kaydı yazıp Firestore maliyetini şişirmesini
+  // engellemek için basit bir sayaç + zaman penceresi. Gerçek yaptırım
+  // firestore.rules'ta olmalı; bu sadece istemci tarafında erken durdurur.
+  var LOGIN_AUDIT_WRITE_LIMIT = 10;
+  var LOGIN_AUDIT_WINDOW_MS = 60 * 60 * 1000; // 1 saat
+  var loginAuditWriteLog = [];
+  function loginAuditWriteAllowed() {
+    var now = Date.now();
+    loginAuditWriteLog = loginAuditWriteLog.filter(function (t) { return now - t < LOGIN_AUDIT_WINDOW_MS; });
+    if (loginAuditWriteLog.length >= LOGIN_AUDIT_WRITE_LIMIT) return false;
+    loginAuditWriteLog.push(now);
+    return true;
+  }
   function logLoginEvent(fbUser, action) {
     try {
+      if (!loginAuditWriteAllowed()) return;
       db.collection("loginAudit").add({
         uid: fbUser.uid,
         name: fbUser.displayName || "",
@@ -2532,6 +2557,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // Aktivite geçmişi penceresinde hangi kayıtların detayı açık — sadece
   // görüntü durumu, kalıcı değil.
   var expandedActivityIds = {};
+  // Aktivite geçmişi ve geçmiş hatırlatmalar modalları 20'şer kayıtla açılır;
+  // modal içinde aşağı kaydırıldıkça (ya da "Daha fazla göster" ile) 20 kayıt
+  // daha eklenir. Modal her açıldığında (open-activity-log / open-notif-history)
+  // sıfırlanır.
+  var ACTIVITY_LOG_PAGE_SIZE = 20;
+  var NOTIF_HISTORY_PAGE_SIZE = 20;
+  var activityLogVisibleCount = ACTIVITY_LOG_PAGE_SIZE;
+  var notifHistoryVisibleCount = NOTIF_HISTORY_PAGE_SIZE;
   var expandedFaqIds = {};
 
   // --- Yardım & SSS içeriği ---
@@ -2778,17 +2811,29 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // --- İstemci taraflı hata yakalama ---
+  // Not: yazım sayısı sadece bellekte tutulursa, sürekli hata üreten bir
+  // döngü/bug sayfa yenilenerek (F5) bu sınırı kolayca aşabilir. Bu yüzden
+  // yazım sayısı localStorage'da saat bazlı bir pencerede tutulur; sayfa
+  // yenilense bile pencere dolana kadar limit geçerliliğini korur.
   var CLIENT_ERROR_LOG_LIMIT = 15;
-  var clientErrorLogCount = 0;
+  var CLIENT_ERROR_WINDOW_MS = 60 * 60 * 1000; // 1 saat
   var clientErrorSeen = {};
+  function clientErrorWriteAllowed() {
+    var log = getLocalData("client_error_write_log", []);
+    var now = Date.now();
+    log = (log || []).filter(function (t) { return now - t < CLIENT_ERROR_WINDOW_MS; });
+    if (log.length >= CLIENT_ERROR_LOG_LIMIT) return false;
+    log.push(now);
+    setLocalData("client_error_write_log", log);
+    return true;
+  }
   function logClientError(info) {
     try {
       if (!db || !navigator.onLine) return;
-      if (clientErrorLogCount >= CLIENT_ERROR_LOG_LIMIT) return;
       var key = (info.message || "") + "|" + (info.source || "");
       if (clientErrorSeen[key]) return;
       clientErrorSeen[key] = true;
-      clientErrorLogCount++;
+      if (!clientErrorWriteAllowed()) return;
       db.collection("errorLogs").add({
         message: (info.message || "Bilinmeyen hata").slice(0, 800),
         stack: (info.stack || "").slice(0, 2000),
@@ -3847,6 +3892,31 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   function logFiltersActive() {
     var f = state.logFilters || {};
     return !!(f.search || (f.category && f.category !== "all") || (f.carId && f.carId !== "all") || f.dateFrom || f.dateTo);
+  }
+
+  // ---------- Aktivite geçmişi: arama / filtreleme ----------
+  function activityLogFiltersActive() {
+    var f = state.activityLogFilters || {};
+    return !!(f.search || (f.type && f.type !== "all") || (f.action && f.action !== "all"));
+  }
+
+  function getFilteredActivityLog() {
+    var list = state.activityLog || [];
+    var f = state.activityLogFilters || {};
+    if (f.type && f.type !== "all") {
+      list = list.filter(function (e) { return e.type === f.type; });
+    }
+    if (f.action && f.action !== "all") {
+      list = list.filter(function (e) { return e.action === f.action; });
+    }
+    if (f.search) {
+      var q = f.search.toLocaleLowerCase("tr-TR");
+      list = list.filter(function (e) {
+        var hay = [e.summary || "", e.byName || "", e.carName || ""].join(" ").toLocaleLowerCase("tr-TR");
+        return hay.indexOf(q) !== -1;
+      });
+    }
+    return list;
   }
 
   function getFilteredLogExpenses() {
@@ -6245,19 +6315,65 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return html;
   }
 
+  // Aktivite geçmişi modalındaki arama/filtre kontrollerini bağlar. render()
+  // her tuşta tüm sayfayı (ve bu modalı) yeniden oluşturur; odak/imleç
+  // konumu render() içindeki genel activeId mekanizmasıyla geri yüklenir
+  // (bkz. render() başındaki activeEl/activeId kodu), bu yüzden burada ekstra
+  // bir şey yapmaya gerek yok — sadece id'lerin sabit kalması yeterli.
+  function bindActivityLogFilters(modal) {
+    var searchEl = modal.querySelector("#activity-log-filter-search");
+    if (searchEl) searchEl.addEventListener("input", debounce(function () {
+      state.activityLogFilters.search = searchEl.value;
+      activityLogVisibleCount = ACTIVITY_LOG_PAGE_SIZE;
+      render();
+    }, 200));
+    var typeEl = modal.querySelector("#activity-log-filter-type");
+    if (typeEl) typeEl.addEventListener("change", function () {
+      state.activityLogFilters.type = typeEl.value;
+      activityLogVisibleCount = ACTIVITY_LOG_PAGE_SIZE;
+      render();
+    });
+    var actionEl = modal.querySelector("#activity-log-filter-action");
+    if (actionEl) actionEl.addEventListener("change", function () {
+      state.activityLogFilters.action = actionEl.value;
+      activityLogVisibleCount = ACTIVITY_LOG_PAGE_SIZE;
+      render();
+    });
+  }
+
+  // Modal ".modal" elementinin kendisi kaydırma konteynerıdır (overflow-y:
+  // auto). Kullanıcı alta yaklaştığında ilgili "load-more-*" aksiyonunu
+  // tetikleyerek 20 kayıt daha açar; buton da (fare/klavye veya scroll
+  // olmayan durumlar için) her zaman ayrıca gösterilir.
+  function attachInfiniteScroll(modal, actionName) {
+    var triggered = false;
+    modal.addEventListener("scroll", function () {
+      if (triggered) return;
+      var nearBottom = modal.scrollTop + modal.clientHeight >= modal.scrollHeight - 80;
+      if (nearBottom) {
+        var btn = modal.querySelector('[data-action="' + actionName + '"]');
+        if (btn) {
+          triggered = true;
+          btn.click();
+        }
+      }
+    });
+  }
+
   function buildNotifHistoryModal() {
     var modal = document.createElement("div");
     modal.className = "modal wide";
     modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
 
-    var list = state.notifHistory || [];
+    var fullList = state.notifHistory || [];
+    var list = fullList.slice(0, notifHistoryVisibleCount);
     var html = '<div class="modal-head"><h3>🔔 Geçmiş Hatırlatmalar</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>';
     html += '<p class="field-hint" style="margin-top:-4px">Push bildirimi kaçırmış olsan bile (telefon kapalıyken, izin yokken vs.) gönderilen tüm hatırlatmaları burada görebilirsin.</p>';
 
-    if (!list.length) {
+    if (!fullList.length) {
       html += '<p class="mon-empty">Henüz gönderilmiş bir hatırlatma yok.</p>';
     } else {
-      html += '<ul class="err-list">';
+      html += '<ul class="err-list" data-infinite-scroll="notif-history">';
       list.forEach(function (entry) {
         var items = entry.items || [];
         // items artık iki biçimde gelebilir: eski kayıtlarda düz metin
@@ -6286,25 +6402,56 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         '</li>';
       });
       html += '</ul>';
+      if (fullList.length > list.length) {
+        html += '<div class="mon-refresh-row"><button type="button" data-action="load-more-notif-history">↓ Daha fazla göster (' + (fullList.length - list.length) + ' kayıt daha)</button></div>';
+      }
     }
 
     modal.innerHTML = html;
+    attachInfiniteScroll(modal, "load-more-notif-history");
     return modal;
   }
+
+  var ACTIVITY_TYPE_LABELS = { car: "🚗 Araç", driver: "🧑‍✈️ Şoför", expense: "🧾 Masraf" };
+  var ACTIVITY_ACTION_LABELS = { add: "➕ Eklendi", edit: "✏️ Düzenlendi", delete: "🗑️ Silindi", restore: "↩️ Geri Alındı" };
 
   function buildActivityLogModal() {
     var modal = document.createElement("div");
     modal.className = "modal wide";
     modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
 
-    var list = state.activityLog || [];
+    var rawList = state.activityLog || [];
+    var f = state.activityLogFilters || {};
+    var filtersActive = activityLogFiltersActive();
+    var fullList = getFilteredActivityLog();
+    var list = fullList.slice(0, activityLogVisibleCount);
     var html = '<div class="modal-head"><h3>🕒 Aktivite Geçmişi</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>';
     html += '<p class="field-hint" style="margin-top:-4px">Hanenizde kim, ne zaman araç veya masraf ekledi, düzenledi ya da sildi. Detayı görmek için bir kayda dokunun.</p>';
 
-    if (!list.length) {
+    if (rawList.length) {
+      html += '<div class="log-filters">' +
+        '<input type="search" id="activity-log-filter-search" class="log-filter-search" placeholder="🔎 Kayıtlarda ara (kişi, araç, özet)..." value="' + esc(f.search || "") + '" aria-label="Aktivite geçmişinde ara" />' +
+        '<select id="activity-log-filter-type" aria-label="Türe göre filtrele">' +
+          '<option value="all">Tüm Türler</option>' +
+          Object.keys(ACTIVITY_TYPE_LABELS).map(function (k) { return '<option value="' + k + '"' + (f.type === k ? " selected" : "") + '>' + ACTIVITY_TYPE_LABELS[k] + '</option>'; }).join("") +
+        '</select>' +
+        '<select id="activity-log-filter-action" aria-label="İşleme göre filtrele">' +
+          '<option value="all">Tüm İşlemler</option>' +
+          Object.keys(ACTIVITY_ACTION_LABELS).map(function (k) { return '<option value="' + k + '"' + (f.action === k ? " selected" : "") + '>' + ACTIVITY_ACTION_LABELS[k] + '</option>'; }).join("") +
+        '</select>' +
+        (filtersActive ? '<button type="button" class="log-filter-clear" data-action="clear-activity-log-filters">✕ Temizle</button>' : '') +
+      '</div>';
+      if (filtersActive) {
+        html += '<p class="log-result-count">' + fullList.length + ' / ' + rawList.length + ' kayıt gösteriliyor</p>';
+      }
+    }
+
+    if (!rawList.length) {
       html += '<p class="mon-empty">Henüz bir aktivite kaydı yok.</p>';
+    } else if (!fullList.length) {
+      html += '<p class="mon-empty">Filtrelere uyan kayıt yok. "Temizle" ile tüm kayıtları tekrar görebilirsin.</p>';
     } else {
-      html += '<ul class="err-list">';
+      html += '<ul class="err-list" data-infinite-scroll="activity-log">';
       list.forEach(function (entry) {
         var icon = entry.icon || (entry.type === "car" ? "🚗" : (entry.type === "driver" ? "🧑‍✈️" : "🧾"));
         var isExpanded = !!expandedActivityIds[entry.id];
@@ -6323,9 +6470,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         '</li>';
       });
       html += '</ul>';
+      if (fullList.length > list.length) {
+        html += '<div class="mon-refresh-row"><button type="button" data-action="load-more-activity-log">↓ Daha fazla göster (' + (fullList.length - list.length) + ' kayıt daha)</button></div>';
+      }
     }
 
     modal.innerHTML = html;
+    attachInfiniteScroll(modal, "load-more-activity-log");
+    bindActivityLogFilters(modal);
     return modal;
   }
 
@@ -6755,11 +6907,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           var ms = licenseExpiresMsFromField(h.license);
           var daysLeft = ms ? Math.ceil((ms - Date.now()) / (24 * 60 * 60 * 1000)) : 0;
           var badge = daysLeft <= 7 ? '<span class="mon-badge warn">⏳ ' + daysLeft + ' gün kaldı</span>' : '<span class="mon-badge ok">🟢 ' + daysLeft + ' gün kaldı</span>';
+          var planKey = h.license && h.license.plan;
+          var planLabel = planKey ? (PLAN_DISPLAY_LABELS[planKey] || planKey) : "Standart (eski kod)";
           html += '<li class="err-item">' +
             '<div class="err-item-head">' +
               '<span class="err-item-user">' + esc(h.name || h.email || h.id) + '</span>' +
               badge +
             '</div>' +
+            '<div class="err-item-meta">📦 Plan: ' + esc(planLabel) + (h.license && h.license.maxVehicles != null ? (" (" + h.license.maxVehicles + " araç limiti)") : "") + '</div>' +
             '<div class="err-item-meta">Kod: ' + esc((h.license && h.license.code) || "—") + ' · Bitiş: ' + fmtDateShort(ms) + '</div>' +
             '<div class="mon-refresh-row" style="margin:8px 0 0">' +
               '<button type="button" class="btn-danger" data-action="revoke-license-household" data-household="' + esc(h.id) + '">🚫 Lisansı İptal Et</button>' +
@@ -6881,8 +7036,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     modal.className = "modal wide";
     modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
 
+    var showPlanLimitBanner = isEdit && vehicleLimitExceededAlready();
+
     modal.innerHTML =
       '<div class="modal-head"><h3>' + (isEdit ? "Araç Bilgilerini Düzenle" : "Araç Ekle") + '</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>' +
+      (showPlanLimitBanner ? '<p class="mon-empty" style="margin-top:-4px">⚠️ ' + esc(PLAN_LIMIT_EXCEEDED_MESSAGE) + '</p>' : '') +
       '<div class="photo-row">' +
         photoUploadHTML("carPhoto", "Araç fotoğrafı", car ? car.photo : null) +
         photoUploadHTML("ruhsatPhoto", "Ruhsat görüntüsü", car ? car.ruhsat : null) +
@@ -6990,6 +7148,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if (!name) { toast("Araç adı gerekli."); return; }
       if (!isEdit && vehicleLimitReached(1)) {
         toast("Plan limitinize ulaştınız (" + state.license.maxVehicles + " araç). Daha fazla araç eklemek için planınızı yükseltin.");
+        return;
+      }
+      if (isEdit && vehicleLimitExceededAlready()) {
+        toast(PLAN_LIMIT_EXCEEDED_MESSAGE);
         return;
       }
       var selectedDriverId = modal.querySelector("#f-driver").value || null;
@@ -8856,6 +9018,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           state.logVisibleCount = 20;
           render();
         }
+        else if (action === "clear-activity-log-filters") {
+          state.activityLogFilters = { search: "", type: "all", action: "all" };
+          activityLogVisibleCount = ACTIVITY_LOG_PAGE_SIZE;
+          render();
+        }
         else if (action === "share-report") { shareExpenseReport(); }
         else if (action === "add-to-calendar") {
           downloadICS(el.getAttribute("data-title"), el.getAttribute("data-date"), el.getAttribute("data-notes"));
@@ -8890,6 +9057,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           ev.stopPropagation();
           state.modal = { type: "notifHistory" };
           state.accountMenuOpen = false;
+          notifHistoryVisibleCount = NOTIF_HISTORY_PAGE_SIZE;
           markNotifHistorySeen();
           render();
         }
@@ -8897,7 +9065,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           ev.stopPropagation();
           state.modal = { type: "activityLog" };
           state.accountMenuOpen = false;
+          activityLogVisibleCount = ACTIVITY_LOG_PAGE_SIZE;
           markActivityLogSeen();
+          render();
+        }
+        else if (action === "load-more-activity-log") {
+          activityLogVisibleCount += ACTIVITY_LOG_PAGE_SIZE;
+          render();
+        }
+        else if (action === "load-more-notif-history") {
+          notifHistoryVisibleCount += NOTIF_HISTORY_PAGE_SIZE;
           render();
         }
         else if (action === "open-add-driver") { state.modal = { type: "addDriver" }; render(); }
