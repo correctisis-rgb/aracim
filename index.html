@@ -987,7 +987,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.3.1"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.3.2"; // Dynamic Version Tracking
   var APP_UPDATED = "26 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -3388,7 +3388,27 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           // birebir eşleştiğini zorunlu kılıyor — yani gerçek/güncel davet
           // kodunu bilmeyen biri bu yazma işlemini asla geçemez.
           patch.inviteTokenUsed = token;
-          return targetRef.set(patch, { merge: true });
+          return targetRef.set(patch, { merge: true }).catch(function (writeErr) {
+            // Ön-kontrol geçmiş olsa bile gerçek yazma sunucuda reddedilmiş
+            // olabilir (ör. tam bu sırada başka biri katıldı ve limit doldu,
+            // ya da hane sahibi kodu yeniledi). Asıl neden neyse onu anlamak
+            // için dokümanı taze okuyup daha isabetli bir mesaj gösteriyoruz.
+            if (writeErr && writeErr.code === "permission-denied") {
+              return targetRef.get().then(function (freshSnap) {
+                var freshData = (freshSnap.exists && freshSnap.data()) || {};
+                if (!freshData.inviteToken || freshData.inviteToken !== token) {
+                  throw { code: "invalid-token" };
+                }
+                var freshMembers = freshData.members || [];
+                var freshMax = freshData.license && freshData.license.maxUsers;
+                if (freshMax != null && freshMembers.length >= freshMax && freshMembers.indexOf(myUid) === -1) {
+                  throw { code: "limit-reached", maxUsers: freshMax };
+                }
+                throw { code: "permission-denied" };
+              });
+            }
+            throw writeErr;
+          });
         }).then(function () {
           return db.collection("users").doc(myUid).set({ householdId: code }, { merge: true });
         }).then(function () {
@@ -3405,6 +3425,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             toast("Bu koda ait bir ortak hane bulunamadı.");
           } else if (err && err.code === "limit-reached") {
             toast("Bu hanenin üye limitine ulaşıldı (" + err.maxUsers + " üye). Katılabilmen için hane sahibinin planını yükseltmesi gerekiyor.");
+          } else if (err && err.code === "permission-denied") {
+            toast("Katılma başarısız oldu: bu davet koduyla artık katılamıyorsun. Hane sahibinden güncel kodu tekrar iste.");
           } else {
             toast("Katılma başarısız oldu: izin reddedildi.");
           }
@@ -5561,6 +5583,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var isOwnHousehold = state.householdId === user.id;
     var ownerHasOtherMembers = isOwnHousehold && state.householdMembers && state.householdMembers.some(function (m) { return m.uid !== user.id; });
     var myPendingDeletion = isOwnHousehold ? state.householdPendingDeletion : null;
+    var atUserLimit = !!(state.license && state.license.maxUsers != null && (state.householdMembers || []).length >= state.license.maxUsers);
     var memberListHtml;
     if (state.householdMembers && state.householdMembers.length) {
       memberListHtml = state.householdMembers.map(function (m) {
@@ -5649,16 +5672,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       '<p class="field-hint" style="margin-top:-4px">Aynı araçları eşin/ailenle ortak yönetmek için davet kodunu paylaş, ya da sana verilen bir kodla katıl. Katılan üyenin nelere erişebileceğini (araçlar, şoförler, masraflar, yedekleme vb.) 🔐 Yetkiler düğmesinden checkbox\'larla ayarlayabilirsin.</p>' +
       (isOwnHousehold ? '' : '<p class="field-hint" style="color:var(--amber)">Şu an başka bir kullanıcının ortak hanesindesin.</p>') +
       (isOwnHousehold && state.license && state.license.maxUsers != null ? (
-        '<p class="field-hint" style="margin-top:-4px' + ((state.householdMembers || []).length >= state.license.maxUsers ? '; color:var(--amber)' : '') + '">' +
+        '<p class="field-hint" style="margin-top:-4px' + (atUserLimit ? '; color:var(--amber)' : '') + '">' +
         'Üye limiti: ' + (state.householdMembers || []).length + ' / ' + state.license.maxUsers +
-        ((state.householdMembers || []).length >= state.license.maxUsers ? ' — limite ulaşıldı, daha fazla üye davet edemezsin. Daha fazla üye için planını yükselt.' : '') +
+        (atUserLimit ? ' — limite ulaşıldı, daha fazla üye davet edemezsin. Daha fazla üye için planını yükselt.' : '') +
         '</p>'
       ) : '') +
       '<div class="budget-row">' +
         '<input id="household-code-display" readonly value="' + esc((isOwnHousehold && state.householdInviteToken) ? buildInviteCode(state.householdId, state.householdInviteToken) : (state.householdId || "")) + '" style="flex:1" />' +
         '<button type="button" class="btn-secondary" id="household-copy">📋 Kopyala</button>' +
-        '<button type="button" class="btn-secondary" id="household-qr">🔳 QR</button>' +
-        '<button type="button" class="btn-primary" id="household-share">📤 Paylaş</button>' +
+        '<button type="button" class="btn-secondary"' + (isOwnHousehold && atUserLimit ? ' disabled title="Üye limitine ulaşıldı, planını yükseltmeden yeni üye davet edemezsin."' : '') + ' id="household-qr">🔳 QR</button>' +
+        '<button type="button" class="btn-primary"' + (isOwnHousehold && atUserLimit ? ' disabled title="Üye limitine ulaşıldı, planını yükseltmeden yeni üye davet edemezsin."' : '') + ' id="household-share">📤 Paylaş</button>' +
       '</div>' +
       (isOwnHousehold ? '<button type="button" class="btn-secondary full" id="household-renew" style="margin-top:6px;">🔄 Kodu Yenile (eski kodu geçersiz kılar)</button>' : '') +
       '<ul class="family-list">' + memberListHtml + '</ul>' +
@@ -6706,7 +6729,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       '<select id="license-plan-select" style="background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:8px 10px; font-size:16px; width:100%;">' +
         '<option value="standard">Standart — Yıllık, Sınırsız Araç, 2 Kullanıcı</option>' +
         '<option value="fleet">Filo / Kurumsal — Yıllık, Sınırsız Araç ve Kullanıcı</option>' +
-        '<option value="free">Ücretsiz — 30 gün, 1 araç</option>' +
+        '<option value="free">Ücretsiz — 30 gün, 1 Araç</option>' +
       '</select>' +
     '</div>';
     html += '<div class="budget-row" style="margin-top:8px">' +
