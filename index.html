@@ -987,8 +987,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.3.0"; // Dynamic Version Tracking
-  var APP_UPDATED = "25 Temmuz 2026";
+  var APP_VERSION = "v2.3.1"; // Dynamic Version Tracking
+  var APP_UPDATED = "26 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -2192,6 +2192,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // linke tıklayan kişi siteyi gezinmek zorunda kalmadan direkt kurulum
   // isteminden karşılanır.
   var APP_INSTALL_URL = APP_SHARE_URL + "?a2hs=1";
+  // Lisans "plan" alanının (free/standard/fleet) kullanıcıya gösterilen
+  // Türkçe karşılığı. Hem hane sahibi/üyelerin "Hesabım" ekranındaki
+  // 🔑 Lisans bölümünde (buildLicenseSectionHtml), hem de admin panelindeki
+  // lisans kodu listesinde kullanılır.
+  var PLAN_DISPLAY_LABELS = { free: "Ücretsiz", standard: "Standart", fleet: "Filo / Kurumsal" };
 
   function triggerReminders() {
     if (!state.currentUser || !isAdminUser(state.currentUser)) return;
@@ -3369,6 +3374,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           if (!data.inviteToken || data.inviteToken !== token) {
             throw { code: "invalid-token" };
           }
+          // UX amaçlı ön-kontrol: gerçek güvenlik sınırı Firestore Rules'daki
+          // userLimitOk() ile sağlanıyor, bu sadece "sunucuya sorup ret
+          // yemeden önce" anlaşılır bir mesaj göstermek için.
+          var existingMembers = data.members || [];
+          var maxUsers = data.license && data.license.maxUsers;
+          if (maxUsers != null && existingMembers.length >= maxUsers && existingMembers.indexOf(myUid) === -1) {
+            throw { code: "limit-reached", maxUsers: maxUsers };
+          }
           var patch = buildMemberProfileEntry(myUid, state.currentUser.name, state.currentUser.email);
           patch.members = firebase.firestore.FieldValue.arrayUnion(myUid);
           // Güvenlik kuralı, bu alanın dokümandaki güncel inviteToken ile
@@ -3390,6 +3403,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             toast("Davet kodu geçersiz ya da yenilenmiş. Güncel kodu hane sahibinden tekrar iste.");
           } else if (err && err.code === "not-found") {
             toast("Bu koda ait bir ortak hane bulunamadı.");
+          } else if (err && err.code === "limit-reached") {
+            toast("Bu hanenin üye limitine ulaşıldı (" + err.maxUsers + " üye). Katılabilmen için hane sahibinin planını yükseltmesi gerekiyor.");
           } else {
             toast("Katılma başarısız oldu: izin reddedildi.");
           }
@@ -5499,27 +5514,41 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return html;
   }
 
-  function buildLicenseSectionHtml() {
+  // readOnly=true: hane sahibi olmayan üyelere gösterilen sürüm — lisans
+  // kodu etkinleştirme kutusu/butonu gizlenir (zaten Firestore kuralları
+  // gereği sadece hane sahibi "license" alanını yazabiliyor), ama
+  // durum/paket/bitiş tarihi/üye limiti bilgisi her üyeye görünür kalır.
+  function buildLicenseSectionHtml(readOnly) {
     var st = getLicenseStatus();
+    var lic = state.license;
     var badge;
     if (st.state === "active") badge = '<span class="mon-badge ok">🟢 Aktif — ' + st.daysLeft + ' gün kaldı</span>';
     else if (st.state === "expiring") badge = '<span class="mon-badge warn">⏳ ' + st.daysLeft + ' gün içinde doluyor</span>';
     else if (st.state === "expired") badge = '<span class="mon-badge bad">🔴 Süresi doldu</span>';
     else badge = '<span class="mon-badge bad">🔒 Lisans yok</span>';
+    var planLabel = (lic && lic.plan) ? (PLAN_DISPLAY_LABELS[lic.plan] || lic.plan) : null;
+    var planLine = planLabel ? ('<div class="mon-row"><span class="mon-label">Paket</span><span class="mon-value">' + esc(planLabel) + '</span></div>') : '';
     var expiresLine = st.expiresAtMs ? ('<div class="mon-row"><span class="mon-label">Bitiş Tarihi</span><span class="mon-value">' + fmtDateShort(st.expiresAtMs) + '</span></div>') : '';
+    var memberCount = (state.householdMembers && state.householdMembers.length) ? state.householdMembers.length : null;
+    var userLimitLine = (lic && lic.maxUsers != null)
+      ? ('<div class="mon-row"><span class="mon-label">Üye Limiti</span><span class="mon-value">' + (memberCount != null ? memberCount : "…") + ' / ' + lic.maxUsers + '</span></div>')
+      : (lic ? '<div class="mon-row"><span class="mon-label">Üye Limiti</span><span class="mon-value">Sınırsız</span></div>' : '');
     var hintText = st.state === "none"
-      ? "Bu hanede aktif bir lisans yok. Uygulamayı kullanmaya devam etmek için bir lisans kodu gir."
+      ? (readOnly ? "Bu hanede aktif bir lisans yok. Devam etmek için hane sahibinin bir lisans kodu girmesi gerekiyor." : "Bu hanede aktif bir lisans yok. Uygulamayı kullanmaya devam etmek için bir lisans kodu gir.")
       : st.state === "expired"
-      ? "Lisans süreniz doldu. Verileriniz görüntülenebilir ama düzenlenemez; devam etmek için yeni bir kod gir."
+      ? (readOnly ? "Bu hanenin lisans süresi doldu. Veriler görüntülenebilir ama düzenlenemez; hane sahibinin yeni bir kod girmesi gerekiyor." : "Lisans süreniz doldu. Verileriniz görüntülenebilir ama düzenlenemez; devam etmek için yeni bir kod gir.")
       : "Lisansının süresi yakında dolacak, zamanında yenilemeyi unutma.";
     return '<p class="profile-section-title">🔑 Lisans</p>' +
       '<div class="mon-row"><span class="mon-label">Durum</span><span class="mon-value">' + badge + '</span></div>' +
+      planLine +
       expiresLine +
+      userLimitLine +
       (st.state !== "active" ? '<p class="field-hint" style="margin-top:-4px; color:var(--amber)">' + hintText + '</p>' : '') +
+      (readOnly ? '' :
       '<div class="budget-row">' +
         '<input id="license-code-input" placeholder="Lisans kodu (örn. LIC-XXXXX-XXXXX)" style="flex:1; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:8px 10px; font-size:16px;" />' +
         '<button type="button" class="btn-primary" id="license-activate">Lisansı Etkinleştir</button>' +
-      '</div>';
+      '</div>');
   }
   function buildProfileModal() {
     var user = state.currentUser;
@@ -5619,6 +5648,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       '<p class="profile-section-title">🏠 Ortak Hesap</p>' +
       '<p class="field-hint" style="margin-top:-4px">Aynı araçları eşin/ailenle ortak yönetmek için davet kodunu paylaş, ya da sana verilen bir kodla katıl. Katılan üyenin nelere erişebileceğini (araçlar, şoförler, masraflar, yedekleme vb.) 🔐 Yetkiler düğmesinden checkbox\'larla ayarlayabilirsin.</p>' +
       (isOwnHousehold ? '' : '<p class="field-hint" style="color:var(--amber)">Şu an başka bir kullanıcının ortak hanesindesin.</p>') +
+      (isOwnHousehold && state.license && state.license.maxUsers != null ? (
+        '<p class="field-hint" style="margin-top:-4px' + ((state.householdMembers || []).length >= state.license.maxUsers ? '; color:var(--amber)' : '') + '">' +
+        'Üye limiti: ' + (state.householdMembers || []).length + ' / ' + state.license.maxUsers +
+        ((state.householdMembers || []).length >= state.license.maxUsers ? ' — limite ulaşıldı, daha fazla üye davet edemezsin. Daha fazla üye için planını yükselt.' : '') +
+        '</p>'
+      ) : '') +
       '<div class="budget-row">' +
         '<input id="household-code-display" readonly value="' + esc((isOwnHousehold && state.householdInviteToken) ? buildInviteCode(state.householdId, state.householdInviteToken) : (state.householdId || "")) + '" style="flex:1" />' +
         '<button type="button" class="btn-secondary" id="household-copy">📋 Kopyala</button>' +
@@ -5636,7 +5671,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         '<button type="button" class="btn-secondary full" id="household-scan">📷 QR Okut</button>' +
       '</div>' +
 
-      (isOwnHousehold ? buildLicenseSectionHtml() : '') +
+      buildLicenseSectionHtml(!isOwnHousehold) +
 
       '<p class="profile-section-title">Şifre Değiştir</p>' +
       '<label class="field"><span>Mevcut şifre</span><input id="p-cur-pass" type="password" autocomplete="current-password" /></label>' +
@@ -6717,7 +6752,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         html += '<p class="mon-empty">Henüz kod oluşturulmadı.</p>';
       } else {
         html += '<ul class="err-list">';
-        var PLAN_LABELS = { free: "Ücretsiz", standard: "Standart", fleet: "Filo/Kurumsal" };
+        var PLAN_LABELS = PLAN_DISPLAY_LABELS;
         licenses.forEach(function (l) {
           var isUsed = !!l.used;
           var isRevoked = !!l.revoked;
