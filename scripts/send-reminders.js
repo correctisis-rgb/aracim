@@ -620,8 +620,26 @@ async function main() {
     // kullanıcı uygulama içinde bu geçmişten hatırlatmayı görebilsin diye
     // her gönderimi hanenin doc'undaki notifHistory dizisine ekliyoruz. En
     // yeni kayıt başa eklenir, liste en fazla 40 kayıtla sınırlı tutulur.
+    //
+    // items artık düz metin değil, { label, carId, apptKey } biçiminde bir
+    // obje: index.html'deki "Geçmiş Hatırlatmalar" ekranı, carId + apptKey
+    // dolu geldiğinde push bildirimindeki "Evet, randevu aldım" aksiyonuyla
+    // AYNI randevu formunu (quickAppt modalı) açan bir düğme gösteriyor.
+    // carId/apptKey yalnızca actionable && fieldKey dolu olan (yani tek bir
+    // tarihe bağlı, henüz randevusu girilmemiş) kayıtlar için eklenir — km
+    // bazlı bakım uyarısı gibi actionable olmayan öğeler yine düz metin
+    // olarak (carId/apptKey null) görünmeye devam eder.
     const newNotifHistory = [
-      { title, body, items: triggered.map((t) => t.text), sentAt: admin.firestore.Timestamp.now() }
+      {
+        title,
+        body,
+        items: triggered.map((t) => ({
+          label: t.text,
+          carId: t.actionable && t.fieldKey ? t.carId : null,
+          apptKey: t.actionable && t.fieldKey ? t.fieldKey : null
+        })),
+        sentAt: admin.firestore.Timestamp.now()
+      }
     ].concat(user.notifHistory || []).slice(0, 40);
 
     // notifState ve notifHistory her zaman hanenin asıl (araçların
