@@ -617,6 +617,12 @@
   .car-checklist-item input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--amber); cursor: pointer; flex-shrink: 0; }
   .car-checklist-item.taken { color: var(--muted); }
   .car-checklist-empty { font-size: 12px; color: var(--muted); }
+  .col-picker-details { margin-bottom: 10px; border: 1px solid var(--border); border-radius: 8px; padding: 2px 10px; background: var(--bg); }
+  .col-picker-details summary { cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--text); padding: 8px 0; list-style: none; }
+  .col-picker-details summary::-webkit-details-marker { display: none; }
+  .col-picker-details summary::before { content: "▸ "; color: var(--muted); }
+  .col-picker-details[open] summary::before { content: "▾ "; }
+  .col-picker-details .car-checklist { border: none; background: transparent; padding: 2px 0 8px; margin-bottom: 0; }
   .toggle-row { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; cursor: pointer; font-size: 13px; color: var(--text); }
   .toggle-row input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--amber); cursor: pointer; flex-shrink: 0; }
   .abroad-fields { border-top: 1px dashed var(--border); padding-top: 10px; margin-top: -4px; margin-bottom: 12px; }
@@ -972,7 +978,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.1.7"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.1.8"; // Dynamic Version Tracking
   var APP_UPDATED = "25 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -7685,7 +7691,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   function pdfDenseHeadStylesFor(color, fit) {
     return { fillColor: pdfTint(color, 0.78), textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold", fontSize: fit.fontSize, lineWidth: 0, halign: "left", cellPadding: fit.cellPadding };
   }
-  function buildPdfGenelReport(dateFrom, dateTo) {
+  function buildPdfGenelReport(dateFrom, dateTo, carKeys, driverKeys) {
     var doc = new jspdf.jsPDF({ orientation: "landscape" });
     // Türkçe karakterler (ç, ğ, ı, ö, ş, ü) için varsayılan Helvetica yerine
     // DejaVu Sans kullanılıyor. Font, dejavu-sans-jspdf.js dosyasıyla eklendi.
@@ -7709,6 +7715,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     pdfKpiCard(doc, margin + 2 * (kpiW + kpiGap), kpiY, kpiW, kpiH, "#7BC67E", "Toplam Masraf", fmtTL(grandTotal));
 
     var carFields = carActivityFieldDefs().filter(function (f) { return f.type !== "photo"; });
+    if (carKeys && carKeys.length) carFields = carFields.filter(function (f) { return carKeys.indexOf(f.key) !== -1; });
     var carPageMeta = { title: "Garaj Defteri — Genel Rapor", subtitle: "Araçlar", color: "#F2A93B" };
     var carFit = pdfFitTableStyles(carFields, doc.internal.pageSize.getWidth() - 2 * margin);
     doc.autoTable({
@@ -7734,6 +7741,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     doc.addPage();
     pdfAddBanner(doc, { title: "Şoförler", subtitle: (state.drivers || []).length + " şoför kayıtlı", right: dateLabel, color: "#4FA8D8", margin: margin });
     var driverFields = driverActivityFieldDefs();
+    if (driverKeys && driverKeys.length) driverFields = driverFields.filter(function (f) { return driverKeys.indexOf(f.key) !== -1; });
     var driverPageMeta = { title: "Şoförler", subtitle: (state.drivers || []).length + " şoför kayıtlı", color: "#4FA8D8" };
     var driverFit = pdfFitTableStyles(driverFields, doc.internal.pageSize.getWidth() - 2 * margin);
     doc.autoTable({
@@ -7809,12 +7817,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     doc.save("garaj-defteri-genel-rapor-" + todayStr() + pdfRangeSuffix(dateFrom, dateTo) + ".pdf");
     toast("Genel PDF raporu indirildi.");
   }
-  function buildPdfAracReport() {
+  function buildPdfAracReport(carKeys) {
     var doc = new jspdf.jsPDF({ orientation: "landscape" });
     doc.setFont("DejaVuSans", "normal");
     var margin = 18;
     var dateLabel = fmtDateTR(todayStr());
     var carFields = carActivityFieldDefs().filter(function (f) { return f.type !== "photo"; });
+    if (carKeys && carKeys.length) carFields = carFields.filter(function (f) { return carKeys.indexOf(f.key) !== -1; });
     pdfAddBanner(doc, { title: "Garaj Defteri — Araçlar Raporu", subtitle: (state.cars || []).length + " araç kayıtlı", right: "Oluşturulma tarihi: " + dateLabel, color: "#F2A93B", margin: margin });
     var carFit = pdfFitTableStyles(carFields, doc.internal.pageSize.getWidth() - 2 * margin);
     doc.autoTable({
@@ -7839,12 +7848,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     doc.save("garaj-defteri-araclar-raporu-" + todayStr() + ".pdf");
     toast("Araçlar PDF raporu indirildi.");
   }
-  function buildPdfSoforReport() {
+  function buildPdfSoforReport(driverKeys) {
     var doc = new jspdf.jsPDF({ orientation: "landscape" });
     doc.setFont("DejaVuSans", "normal");
     var margin = 18;
     var dateLabel = fmtDateTR(todayStr());
     var driverFields = driverActivityFieldDefs();
+    if (driverKeys && driverKeys.length) driverFields = driverFields.filter(function (f) { return driverKeys.indexOf(f.key) !== -1; });
     pdfAddBanner(doc, { title: "Garaj Defteri — Şoförler Raporu", subtitle: (state.drivers || []).length + " şoför kayıtlı", right: "Oluşturulma tarihi: " + dateLabel, color: "#4FA8D8", margin: margin });
     var driverFit = pdfFitTableStyles(driverFields, doc.internal.pageSize.getWidth() - 2 * margin);
     doc.autoTable({
@@ -7981,10 +7991,43 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       filterFn: function (e) { return e.category === "bakim"; }
     });
   }
+  function pdfColumnPickerHTML(fields, idPrefix, groupLabel) {
+    var items = fields.map(function (f) {
+      return '<label class="car-checklist-item"><input type="checkbox" data-col="' + esc(f.key) + '" checked /> ' + esc(f.label) + '</label>';
+    }).join("");
+    return (
+      '<details class="col-picker-details" id="' + idPrefix + '-details">' +
+        '<summary>Sütunları özelleştir (' + esc(groupLabel) + ')</summary>' +
+        '<label class="toggle-row" style="margin-bottom:6px"><input type="checkbox" id="' + idPrefix + '-all" checked /><span>Tüm sütunlar</span></label>' +
+        '<div class="car-checklist" id="' + idPrefix + '-list">' + items + '</div>' +
+      '</details>'
+    );
+  }
+  function pdfWireColumnPicker(modal, idPrefix) {
+    var allCb = modal.querySelector("#" + idPrefix + "-all");
+    var list = modal.querySelector("#" + idPrefix + "-list");
+    if (!allCb || !list) return;
+    allCb.addEventListener("change", function () {
+      list.querySelectorAll('input[type="checkbox"]').forEach(function (cb) { cb.checked = allCb.checked; });
+    });
+    list.addEventListener("change", function () {
+      var boxes = Array.prototype.slice.call(list.querySelectorAll('input[type="checkbox"]'));
+      allCb.checked = boxes.every(function (cb) { return cb.checked; });
+    });
+  }
+  function pdfGetSelectedCols(modal, idPrefix, fallbackFields) {
+    var list = modal.querySelector("#" + idPrefix + "-list");
+    if (!list) return null;
+    var keys = Array.prototype.map.call(list.querySelectorAll('input[type="checkbox"]:checked'), function (cb) { return cb.getAttribute("data-col"); });
+    if (!keys.length) { toast("En az bir sütun seçmelisin, tüm sütunlarla oluşturuluyor."); return fallbackFields.map(function (f) { return f.key; }); }
+    return keys;
+  }
   function buildExportReportModal() {
     var modal = document.createElement("div");
     modal.className = "modal";
     modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
+    var carFieldsForPicker = carActivityFieldDefs().filter(function (f) { return f.type !== "photo"; });
+    var driverFieldsForPicker = driverActivityFieldDefs();
     modal.innerHTML =
       '<div class="modal-head"><h3>📊 Rapor İndir</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>' +
       '<p class="field-hint">Muhasebe ve yönetim için araç, şoför ve masraf verilerini biçimli bir dosya olarak indirebilirsin.</p>' +
@@ -7998,12 +8041,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       '<button type="button" class="btn-primary full" id="f-er-excel" style="margin-bottom:6px">📊 Excel Raporu İndir</button>' +
       '<p class="field-hint" style="margin-top:0">Araçlar, Şoförler, Masraflar ve Özet olmak üzere 4 sekme içerir.</p>' +
       '<p class="profile-section-title">PDF Raporları</p>' +
+      pdfColumnPickerHTML(carFieldsForPicker, "f-er-arac-cols", "Araçlar") +
       '<button type="button" class="btn-secondary full" id="f-er-pdf-genel" style="margin-bottom:6px">🧾 Genel Rapor İndir</button>' +
-      '<button type="button" class="btn-secondary full" id="f-er-pdf-arac" style="margin-bottom:6px">🚗 Araçlar Raporu İndir</button>' +
+      '<button type="button" class="btn-secondary full" id="f-er-pdf-arac" style="margin-bottom:10px">🚗 Araçlar Raporu İndir</button>' +
+      pdfColumnPickerHTML(driverFieldsForPicker, "f-er-sofor-cols", "Şoförler") +
       '<button type="button" class="btn-secondary full" id="f-er-pdf-sofor" style="margin-bottom:6px">🧑‍✈️ Şoförler Raporu İndir</button>' +
       '<button type="button" class="btn-secondary full" id="f-er-pdf-masraf" style="margin-bottom:6px">💳 Masraflar Raporu İndir</button>' +
       '<button type="button" class="btn-secondary full" id="f-er-pdf-bakim">🔧 Bakım / Onarım Raporu İndir</button>' +
-      '<p class="field-hint" style="margin-top:10px">Her PDF raporu, ayrı bir dosya olarak yazdırılabilir / paylaşılabilir haldedir.</p>';
+      '<p class="field-hint" style="margin-top:10px">Her PDF raporu, ayrı bir dosya olarak yazdırılabilir / paylaşılabilir haldedir. "Sütunları özelleştir" ile istemediğin sütunları raporun dışında bırakabilirsin.</p>';
+    pdfWireColumnPicker(modal, "f-er-arac-cols");
+    pdfWireColumnPicker(modal, "f-er-sofor-cols");
     function getRange() {
       var from = modal.querySelector("#f-er-from").value || "";
       var to = modal.querySelector("#f-er-to").value || "";
@@ -8014,13 +8061,17 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     });
     modal.querySelector("#f-er-pdf-genel").addEventListener("click", function () {
       var r = getRange();
-      try { buildPdfGenelReport(r.from, r.to); } catch (e) { toast("PDF raporu oluşturulamadı."); }
+      var carKeys = pdfGetSelectedCols(modal, "f-er-arac-cols", carFieldsForPicker);
+      var driverKeys = pdfGetSelectedCols(modal, "f-er-sofor-cols", driverFieldsForPicker);
+      try { buildPdfGenelReport(r.from, r.to, carKeys, driverKeys); } catch (e) { toast("PDF raporu oluşturulamadı."); }
     });
     modal.querySelector("#f-er-pdf-arac").addEventListener("click", function () {
-      try { buildPdfAracReport(); } catch (e) { toast("PDF raporu oluşturulamadı."); }
+      var carKeys = pdfGetSelectedCols(modal, "f-er-arac-cols", carFieldsForPicker);
+      try { buildPdfAracReport(carKeys); } catch (e) { toast("PDF raporu oluşturulamadı."); }
     });
     modal.querySelector("#f-er-pdf-sofor").addEventListener("click", function () {
-      try { buildPdfSoforReport(); } catch (e) { toast("PDF raporu oluşturulamadı."); }
+      var driverKeys = pdfGetSelectedCols(modal, "f-er-sofor-cols", driverFieldsForPicker);
+      try { buildPdfSoforReport(driverKeys); } catch (e) { toast("PDF raporu oluşturulamadı."); }
     });
     modal.querySelector("#f-er-pdf-masraf").addEventListener("click", function () {
       var r = getRange();
