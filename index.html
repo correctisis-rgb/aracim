@@ -986,7 +986,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.2.4"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.2.5"; // Dynamic Version Tracking
   var APP_UPDATED = "25 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -8480,7 +8480,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   function closeModal() {
     stopQrScan();
-    state.modal = null;
+    // "quickAppt" penceresi bir liste penceresinin (Geçmiş Hatırlatmalar,
+    // Hatırlatmalar seçimi) içinden açıldıysa, kapatınca o pencereye geri
+    // dön — kullanıcı arka arkaya birden fazla randevu/tarih girebilsin.
+    var returnTo = (state.modal && state.modal.type === "quickAppt") ? state.modal.returnTo : null;
+    state.modal = returnTo || null;
     document.querySelectorAll(".modal-backdrop").forEach(function (el) { el.remove(); });
   }
 
@@ -8592,7 +8596,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         else if (action === "open-add-car") { state.modal = { type: "addCar" }; render(); }
         else if (action === "open-edit-car") { state.modal = { type: "editCar", carId: el.getAttribute("data-car") }; render(); }
         else if (action === "open-quick-appt") {
-          state.modal = { type: "quickAppt", carId: el.getAttribute("data-car"), key: el.getAttribute("data-key") };
+          // Bu aksiyon "Geçmiş Hatırlatmalar" ya da "Hatırlatmalar" (seçim)
+          // pencerelerinin içinden tetiklenmiş olabilir. Böyle durumlarda
+          // randevu formu kapatılınca kullanıcı kaldığı listeye geri
+          // dönsün diye, önceki pencereyi "returnTo" olarak saklıyoruz.
+          var returnToModal = (state.modal && (state.modal.type === "notifHistory" || state.modal.type === "reminderPicker")) ? state.modal : null;
+          state.modal = { type: "quickAppt", carId: el.getAttribute("data-car"), key: el.getAttribute("data-key"), returnTo: returnToModal };
           render();
         }
         else if (action === "open-add-expense") { state.modal = { type: "addExpense" }; render(); }
