@@ -972,7 +972,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.1.3"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.1.5"; // Dynamic Version Tracking
   var APP_UPDATED = "25 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -993,6 +993,21 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   function catById(id) {
     for (var i = 0; i < CATEGORIES.length; i++) if (CATEGORIES[i].id === id) return CATEGORIES[i];
     return CATEGORIES[CATEGORIES.length - 1];
+  }
+  // Masraf listelerini (log, rapor, canvas çizimi vb.) satır satır dolaşırken
+  // her satırda state.cars / state.familyMembers dizisinin tamamını .find()
+  // ile taramak yerine, döngüye girmeden önce bir kerelik id->obje haritası
+  // kuruyoruz. Az sayıda araç/üye ile fark etmez ama masraf sayısı büyüdükçe
+  // (yüzlerce/binlerce) O(n×m) yerine O(n+m) olur.
+  function buildCarIndex() {
+    var idx = {};
+    (state.cars || []).forEach(function (c) { idx[c.id] = c; });
+    return idx;
+  }
+  function buildMemberIndex() {
+    var idx = {};
+    (state.familyMembers || []).forEach(function (m) { idx[m.id] = m; });
+    return idx;
   }
   function uid() { return Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
   // Ortak hane davet kodunun yenilenebilir kısmı. Hane belge ID'si (householdId)
@@ -2874,6 +2889,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     ctx.fillText("Oluşturulma: " + new Date().toLocaleString("tr-TR"), pad, 150);
 
     // satırlar
+    var carByIdForCanvas = buildCarIndex();
     list.forEach(function (e, i) {
       var rowY = headerH + i * rowH;
       if (i % 2 === 1) {
@@ -2881,7 +2897,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         ctx.fillRect(0, rowY, W, rowH);
       }
       var cat = catById(e.category);
-      var car = (state.cars || []).find(function (c) { return c.id === e.carId; });
+      var car = carByIdForCanvas[e.carId];
 
       ctx.fillStyle = cat.color;
       ctx.font = "18px Arial, sans-serif";
@@ -3757,9 +3773,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     }
     if (f.search) {
       var q = f.search.toLocaleLowerCase("tr-TR");
+      var carByIdForSearch = buildCarIndex();
       list = list.filter(function (e) {
         var cat = catById(e.category);
-        var car = (state.cars || []).find(function (c) { return c.id === e.carId; });
+        var car = carByIdForSearch[e.carId];
         var hay = [cat.label, e.note || "", car ? car.name : "", fmtDateTR(e.date)].join(" ").toLocaleLowerCase("tr-TR");
         return hay.indexOf(q) !== -1;
       });
@@ -4383,7 +4400,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     html += '<nav class="car-tabs" aria-label="Araç seçimi">';
     html += '<button class="car-tab ' + (state.selectedCarId === "all" ? "active" : "") + '" style="--tab-color:#EDEEF0" data-action="select-car" data-car="all">🚘 Tüm Araçlar</button>';
     carTabsToShow.forEach(function (c) {
-      var avatar = c.photo ? '<img class="car-avatar" src="' + c.photo + '" alt="" data-action="open-lightbox" data-src="' + c.photo + '" data-caption="' + esc(c.name) + '" />' : '<span class="car-dot" style="background:' + c.color + '"></span>';
+      var avatar = c.photo ? '<img class="car-avatar" src="' + c.photo + '" alt="" loading="lazy" data-action="open-lightbox" data-src="' + c.photo + '" data-caption="' + esc(c.name) + '" />' : '<span class="car-dot" style="background:' + c.color + '"></span>';
       html += '<button class="car-tab ' + (state.selectedCarId === c.id ? "active" : "") + '" style="--tab-color:' + c.color + '" data-action="select-car" data-car="' + c.id + '">' + avatar + esc(c.name) + '</button>';
     });
     if (carsCollapsed) {
@@ -4548,7 +4565,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   function renderCarInfoCard(car) {
     var photo = car.photo
-      ? '<img class="car-info-photo" src="' + car.photo + '" alt="" data-action="open-lightbox" data-src="' + car.photo + '" data-caption="' + esc(car.name) + '" />'
+      ? '<img class="car-info-photo" src="' + car.photo + '" alt="" loading="lazy" data-action="open-lightbox" data-src="' + car.photo + '" data-caption="' + esc(car.name) + '" />'
       : '<span class="car-info-photo-fallback" style="background:' + car.color + '22;color:' + car.color + '">🚗</span>';
 
     var detailBits = [];
@@ -4750,7 +4767,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     } else {
       html += '<ul class="summary-list">';
       upcoming.forEach(function (it) {
-        var avatar = it.carPhoto ? '<img class="sum-avatar" src="' + it.carPhoto + '" alt="" data-action="open-lightbox" data-src="' + it.carPhoto + '" data-caption="' + esc(it.carName) + '" />' : '<span class="sum-icon" style="background:' + it.status.color + '22;color:' + it.status.color + '">' + it.emoji + '</span>';
+        var avatar = it.carPhoto ? '<img class="sum-avatar" src="' + it.carPhoto + '" alt="" loading="lazy" data-action="open-lightbox" data-src="' + it.carPhoto + '" data-caption="' + esc(it.carName) + '" />' : '<span class="sum-icon" style="background:' + it.status.color + '22;color:' + it.status.color + '">' + it.emoji + '</span>';
         var showIcon = (it.status.key === "overdue" || it.status.key === "today" || it.status.key === "soon") ? "⚠️ " : (it.status.key === "ok" ? "✅ " : "");
         html += '<li class="summary-row">' + avatar +
           '<span class="sum-main"><span class="sum-type">' + esc(it.type) + ' · ' + esc(it.carName) + '</span>' +
@@ -4917,7 +4934,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       var hasMoreSummaryItems = items.length > summaryVisibleSlice.length;
       html += '<ul class="summary-list">';
       summaryVisibleSlice.forEach(function (it) {
-        var avatar = it.carPhoto ? '<img class="sum-avatar" src="' + it.carPhoto + '" alt="" data-action="open-lightbox" data-src="' + it.carPhoto + '" data-caption="' + esc(it.carName) + '" />' : '<span class="sum-icon" style="background:' + it.status.color + '22;color:' + it.status.color + '">' + it.emoji + '</span>';
+        var avatar = it.carPhoto ? '<img class="sum-avatar" src="' + it.carPhoto + '" alt="" loading="lazy" data-action="open-lightbox" data-src="' + it.carPhoto + '" data-caption="' + esc(it.carName) + '" />' : '<span class="sum-icon" style="background:' + it.status.color + '22;color:' + it.status.color + '">' + it.emoji + '</span>';
         var showIcon = (it.status.key === "overdue" || it.status.key === "today" || it.status.key === "soon") ? "⚠️ " : (it.status.key === "ok" ? "✅ " : "");
         html += '<li class="summary-row">' + avatar +
           '<span class="sum-main"><span class="sum-type">' + esc(it.type) + ' · ' + esc(it.carName) + '</span>' +
@@ -4964,7 +4981,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         var isDriver = it.kind === "driver";
         var ownerName = isDriver ? it.driverName : it.carName;
         var avatar = (!isDriver && it.carPhoto)
-          ? '<img class="sum-avatar" src="' + it.carPhoto + '" alt="" data-action="open-lightbox" data-src="' + it.carPhoto + '" data-caption="' + esc(ownerName) + '" />'
+          ? '<img class="sum-avatar" src="' + it.carPhoto + '" alt="" loading="lazy" data-action="open-lightbox" data-src="' + it.carPhoto + '" data-caption="' + esc(ownerName) + '" />'
           : '<span class="sum-icon" style="background:' + it.status.color + '22;color:' + it.status.color + '">' + it.emoji + '</span>';
         var showIcon = (it.status.key === "overdue" || it.status.key === "today" || it.status.key === "soon") ? "⚠️ " : (it.status.key === "ok" ? "✅ " : "");
         var editBtn = isDriver
@@ -5130,14 +5147,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       // "Ekleyen" etiketi sadece ortak hanede birden fazla üye varken
       // anlamlı olduğu için tek kişilik hanelerde gösterilmiyor.
       var showAddedBy = (state.householdMembers || []).length > 1;
+      var carByIdForLog = buildCarIndex();
+      var memberByIdForLog = buildMemberIndex();
       visibleSlice.forEach(function (e) {
         var cat = catById(e.category);
-        var car = (state.cars || []).find(function (c) { return c.id === e.carId; });
+        var car = carByIdForLog[e.carId];
         var noteBits = [];
         if (e.note) noteBits.push(esc(e.note));
         if (e.km != null) noteBits.push(groupThousands(String(e.km)) + " km");
         if (e.liter != null) noteBits.push(String(e.liter).replace(".", ",") + " L");
-        var payer = e.payerId ? (state.familyMembers || []).find(function (f) { return f.id === e.payerId; }) : null;
+        var payer = e.payerId ? memberByIdForLog[e.payerId] : null;
         if (payer) noteBits.push("Ödeyen: " + esc(payer.name));
         if (showAddedBy && e.addedByName) noteBits.push('<span class="exp-added-by">Ekleyen: ' + esc(e.addedByName) + '</span>');
         var noteText = noteBits.length ? noteBits.join(" · ") : "—";
@@ -7488,9 +7507,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     XLSX.utils.book_append_sheet(wb, driverWs, "Şoförler");
 
     var expHeaders = ["Araç", "Kategori", "Tutar (TL)", "Tarih", "Kilometre", "Litre", "Ödeyen", "Not"];
+    var carByIdForExcel = buildCarIndex();
+    var memberByIdForExcel = buildMemberIndex();
     var expRows = (state.expenses || []).slice().sort(function (a, b) { return new Date(a.date) - new Date(b.date); }).map(function (e) {
-      var car = (state.cars || []).find(function (c) { return c.id === e.carId; });
-      var payer = e.payerId ? (((state.familyMembers || []).find(function (m) { return m.id === e.payerId; }) || {}).name) : "Ben";
+      var car = carByIdForExcel[e.carId];
+      var payer = e.payerId ? ((memberByIdForExcel[e.payerId] || {}).name) : "Ben";
       return [car ? car.name : "—", catById(e.category).label, e.amount || 0, e.date ? fmtDateTR(e.date) : "", e.km || "", e.liter || "", payer || "—", e.note || ""];
     });
     var expWs = XLSX.utils.aoa_to_sheet([expHeaders].concat(expRows));
@@ -7805,9 +7826,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     pdfKpiCard(doc, margin + kpiW + kpiGap, kpiY, kpiW, kpiH, color, "Toplam Tutar", fmtTL(grandTotal));
 
     var expHeaders = ["Araç", "Kategori", "Tutar", "Tarih", "Km", "Litre", "Ödeyen", "Not"];
+    var carByIdForPdf = buildCarIndex();
+    var memberByIdForPdf = buildMemberIndex();
     var expBody = list.map(function (e) {
-      var car = (state.cars || []).find(function (c) { return c.id === e.carId; });
-      var payer = e.payerId ? (((state.familyMembers || []).find(function (m) { return m.id === e.payerId; }) || {}).name) : "Ben";
+      var car = carByIdForPdf[e.carId];
+      var payer = e.payerId ? ((memberByIdForPdf[e.payerId] || {}).name) : "Ben";
       return [car ? car.name : "—", catById(e.category).label, fmtTL(e.amount || 0), e.date ? fmtDateTR(e.date) : "—", e.km || "—", e.liter || "—", payer || "—", e.note || "—"];
     });
     doc.autoTable({
