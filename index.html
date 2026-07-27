@@ -699,7 +699,22 @@
     .gd-title h1 { font-size: 21px; }
     .gd-title-eyebrow { font-size: 10px; }
     .storage-note { font-size: 11px; }
-    .header-actions { gap: 6px; }
+    .header-actions {
+      gap: 6px;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+      padding-bottom: 2px;
+      margin-left: -12px;
+      margin-right: -12px;
+      padding-left: 12px;
+      padding-right: 12px;
+    }
+    .header-actions::-webkit-scrollbar { display: none; }
+    .header-actions .sync-badge,
+    .header-actions .btn-secondary,
+    .header-actions .backup-import-label { flex: 0 0 auto; }
     .btn-secondary, .btn-primary { font-size: 12px; padding: 8px 10px; }
     .car-tab { padding: 8px 10px 8px 6px; min-height: 36px; font-size: 12px; }
     .panel { padding: 12px; border-radius: 12px; }
@@ -987,8 +1002,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.3.3"; // Dynamic Version Tracking
-  var APP_UPDATED = "26 Temmuz 2026";
+  var APP_VERSION = "v2.3.4"; // Dynamic Version Tracking
+  var APP_UPDATED = "27 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -4563,7 +4578,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var filteredCarsList = filterCarsByText(carsList, state.carFilterText);
     // Araç listesi ekranı kaplamasın diye varsayılan olarak sadece ilk
     // birkaç araç sekmesi gösterilir; kalanı "Tümünü Göster" ile açılır.
-    var CAR_TABS_LIMIT = 4;
+    var CAR_TABS_LIMIT = (typeof window !== "undefined" && window.matchMedia && window.matchMedia("(max-width: 480px)").matches) ? 2 : 4;
     var carsCollapsed = !state.carFilterText && !state.carsTabsExpanded && filteredCarsList.length > CAR_TABS_LIMIT;
     var carTabsToShow = filteredCarsList;
     if (carsCollapsed) {
@@ -4581,7 +4596,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       html += '<button class="car-tab ' + (state.selectedCarId === c.id ? "active" : "") + '" style="--tab-color:' + c.color + '" data-action="select-car" data-car="' + c.id + '">' + avatar + esc(c.name) + '</button>';
     });
     if (carsCollapsed) {
-      html += '<button type="button" class="car-tab car-tab-more" data-action="toggle-cars-expanded">▾ Tümünü Göster (' + filteredCarsList.length + ')</button>';
+      html += '<button type="button" class="car-tab car-tab-more" data-action="toggle-cars-expanded">▾ Daha Fazla (' + filteredCarsList.length + ')</button>';
     } else if (state.carsTabsExpanded && filteredCarsList.length > CAR_TABS_LIMIT) {
       html += '<button type="button" class="car-tab car-tab-more" data-action="toggle-cars-expanded">▴ Daha Az Göster</button>';
     }
