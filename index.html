@@ -1002,7 +1002,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.3.4"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.3.5"; // Dynamic Version Tracking
   var APP_UPDATED = "27 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -4137,30 +4137,34 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var driversList = visibleDriversForMe();
     var items = [];
     driversList.forEach(function (d) {
+      var da = d.appointments || {};
       if (d.licenseExpiry) {
-        items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: d.licenseClass ? ("Ehliyet · " + d.licenseClass) : "Ehliyet", emoji: "🪪", date: d.licenseExpiry });
+        items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: d.licenseClass ? ("Ehliyet · " + d.licenseClass) : "Ehliyet", emoji: "🪪", date: d.licenseExpiry, apptKey: "licenseExpiry", apptDate: da.licenseExpiry || null });
       }
       if (d.srcExpiry) {
-        items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: d.srcType ? ("SRC · " + d.srcType) : "SRC Belgesi", emoji: "📄", date: d.srcExpiry });
+        items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: d.srcType ? ("SRC · " + d.srcType) : "SRC Belgesi", emoji: "📄", date: d.srcExpiry, apptKey: "srcExpiry", apptDate: da.srcExpiry || null });
       }
       if (d.psikoteknikExpiry) {
-        items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: "Psikoteknik Belgesi", emoji: "🧠", date: d.psikoteknikExpiry });
+        items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: "Psikoteknik Belgesi", emoji: "🧠", date: d.psikoteknikExpiry, apptKey: "psikoteknikExpiry", apptDate: da.psikoteknikExpiry || null });
       }
       if (d.healthReportExpiry) {
-        items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: "Sağlık Raporu", emoji: "🩺", date: d.healthReportExpiry });
+        items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: "Sağlık Raporu", emoji: "🩺", date: d.healthReportExpiry, apptKey: "healthReportExpiry", apptDate: da.healthReportExpiry || null });
       }
       if (!d.worksAbroad) return;
       if (d.passportExpiry) {
-        items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: "Pasaport", emoji: "🛂", date: d.passportExpiry });
+        items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: "Pasaport", emoji: "🛂", date: d.passportExpiry, apptKey: "passportExpiry", apptDate: da.passportExpiry || null });
       }
       if (d.visaExpiry) {
-        items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: d.visaCountry ? ("Vize · " + d.visaCountry) : "Vize", emoji: "🌍", date: d.visaExpiry });
+        items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: d.visaCountry ? ("Vize · " + d.visaCountry) : "Vize", emoji: "🌍", date: d.visaExpiry, apptKey: "visaExpiry", apptDate: da.visaExpiry || null });
       }
     });
     items.forEach(function (it) {
-      it.days = daysUntil(it.date);
+      // Randevu tarihi girilmişse (araçlardaki gibi) geri sayım randevu
+      // gününe göre yapılır — bkz. saveDriverAppointmentField.
+      it.days = daysUntil(it.apptDate || it.date);
       it.status = urgency(it.days);
       it.dateLabel = it.date ? fmtDateTR(it.date) : "Tarih girilmedi";
+      if (it.apptDate) it.dateLabel += " · 📅 Randevu: " + fmtDateTR(it.apptDate);
       it.tier = tierOf(it.status);
       it.metric = it.days === null ? 99999 : it.days;
     });
@@ -4168,7 +4172,6 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return items;
   }
 
-  // ---------- Takvim: tüm araçlar + tüm şoförler ----------
   function computeAllCarSummaryItems() {
     var carsToProcess = state.cars || [];
     var items = [];
@@ -4863,17 +4866,76 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     toast(apptVal ? "Randevu kaydedildi." : "Randevu kaldırıldı.");
   }
 
+  // Şoför belgeleri (ehliyet/SRC/psikoteknik/sağlık raporu/pasaport/vize)
+  // için de araçlarla birebir aynı "randevu/tarih gir" akışı — bkz.
+  // saveCarAppointmentField üstündeki açıklama, mantık aynı, sadece
+  // state.drivers üzerinde çalışıyor.
+  var DRIVER_APPT_FIELD_LABELS = {
+    licenseExpiry: "Ehliyet", srcExpiry: "SRC Belgesi",
+    psikoteknikExpiry: "Psikoteknik Belgesi", healthReportExpiry: "Sağlık Raporu",
+    passportExpiry: "Pasaport", visaExpiry: "Vize"
+  };
+  var DRIVER_APPT_FIELD_EMOJI = {
+    licenseExpiry: "🪪", srcExpiry: "📄",
+    psikoteknikExpiry: "🧠", healthReportExpiry: "🩺",
+    passportExpiry: "🛂", visaExpiry: "🌍"
+  };
+  function saveDriverAppointmentField(driverId, fieldKey, apptVal) {
+    if (!hasHouseholdPerm("manage")) {
+      toast("Bu hanede randevu/tarih düzenleme yetkin yok.");
+      return;
+    }
+    var driver = (state.drivers || []).find(function (d) { return d.id === driverId; });
+    if (!driver) return;
+    var prevAppt = driver.appointments || {};
+    var prevVal = prevAppt[fieldKey] || null;
+    var snapKey = fieldKey + "DueSnapshot";
+    var appointments = Object.assign({}, prevAppt);
+    appointments[fieldKey] = apptVal || null;
+    if (!apptVal) {
+      appointments[snapKey] = null;
+    } else if (!prevAppt[fieldKey] || prevAppt[fieldKey] !== apptVal) {
+      appointments[snapKey] = driver[fieldKey] || null;
+    } else {
+      appointments[snapKey] = prevAppt[snapKey] != null ? prevAppt[snapKey] : (driver[fieldKey] || null);
+    }
+    state.drivers = (state.drivers || []).map(function (d) { return d.id === driverId ? Object.assign({}, d, { appointments: appointments }) : d; });
+    persistDrivers();
+    if (prevVal !== (apptVal || null)) {
+      var apptLabel = DRIVER_APPT_FIELD_LABELS[fieldKey] || fieldKey;
+      var summary;
+      if (!apptVal) summary = driver.name + " — " + apptLabel + " randevusu kaldırıldı.";
+      else if (!prevVal) summary = driver.name + " — " + apptLabel + " için randevu alındı: " + fmtDateTR(apptVal);
+      else summary = driver.name + " — " + apptLabel + " randevusu güncellendi: " + fmtDateTR(apptVal);
+      logActivity("driver", apptVal ? "edit" : "delete", {
+        icon: "📅", summary: summary,
+        changes: [{ label: apptLabel + " randevusu", from: prevVal ? fmtDateTR(prevVal) : "—", to: apptVal ? fmtDateTR(apptVal) : "—" }]
+      });
+    }
+    closeModal();
+    render();
+    toast(apptVal ? "Randevu kaydedildi." : "Randevu kaldırıldı.");
+  }
+
   function buildQuickApptModal() {
     var m = state.modal || {};
-    var car = (state.cars || []).find(function (c) { return c.id === m.carId; });
+    // Geriye dönük uyumluluk: eski açılışlarda (push bildirimi derin
+    // bağlantısı vb.) "kind" hiç gönderilmemiş olabilir — bu durumda
+    // varsayılan olarak "car" kabul ediyoruz (önceki davranışla aynı).
+    var isDriver = m.kind === "driver";
+    var owner = isDriver
+      ? (state.drivers || []).find(function (d) { return d.id === m.driverId; })
+      : (state.cars || []).find(function (c) { return c.id === m.carId; });
     var modal = document.createElement("div");
     modal.className = "modal";
     modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
-    var current = (car && car.appointments && car.appointments[m.key]) || "";
-    var label = APPT_FIELD_LABELS[m.key] || m.label || "İşlem";
-    var extLink = APPT_EXTERNAL_LINKS[m.key];
+    var current = (owner && owner.appointments && owner.appointments[m.key]) || "";
+    var labelMap = isDriver ? DRIVER_APPT_FIELD_LABELS : APPT_FIELD_LABELS;
+    var label = labelMap[m.key] || m.label || "İşlem";
+    var ownerLabel = owner ? (isDriver ? owner.name : owner.name) : "";
+    var extLink = isDriver ? null : APPT_EXTERNAL_LINKS[m.key];
     modal.innerHTML =
-      '<div class="modal-head"><h3>📅 Randevu — ' + esc(label) + '</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>' +
+      '<div class="modal-head"><h3>📅 Randevu — ' + esc(label) + (ownerLabel ? " · " + esc(ownerLabel) : "") + '</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>' +
       '<p class="field-hint" style="margin-top:-4px">Randevu tarihi girersen bu işlem için vade hatırlatmaları durur; sadece randevudan 1 gün önce ve randevu günü bildirim alırsın.</p>' +
       '<label class="field"><span>Randevu tarihi</span><input type="date" id="qa-date" value="' + esc(current) + '" /></label>' +
       '<div class="budget-row">' +
@@ -4881,12 +4943,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       '<button type="button" class="btn-primary full" id="qa-save">Kaydet</button>' +
       '</div>' +
       (extLink ? '<a class="link-btn" href="' + esc(extLink.url) + '" target="_blank" rel="noopener noreferrer" style="display:block;text-align:center;margin-top:10px">Hayır, henüz almadım — ' + esc(extLink.label) + ' →</a>' : '');
+    var saveFn = isDriver ? saveDriverAppointmentField : saveCarAppointmentField;
+    var ownerId = isDriver ? m.driverId : m.carId;
     modal.querySelector("#qa-save").addEventListener("click", function () {
       var val = modal.querySelector("#qa-date").value || null;
-      saveCarAppointmentField(m.carId, m.key, val);
+      saveFn(ownerId, m.key, val);
     });
     var clearBtn = modal.querySelector("#qa-clear");
-    if (clearBtn) clearBtn.addEventListener("click", function () { saveCarAppointmentField(m.carId, m.key, null); });
+    if (clearBtn) clearBtn.addEventListener("click", function () { saveFn(ownerId, m.key, null); });
     return modal;
   }
 
@@ -4916,7 +4980,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       items.map(function (it) {
         return '<li class="err-item">' +
           '<div class="err-item-msg">' + it.emoji + ' ' + esc(it.carName) + ' — ' + esc(it.label) + '</div>' +
-          '<button type="button" class="btn-secondary full" data-action="open-quick-appt" data-car="' + esc(it.carId) + '" data-key="' + esc(it.key) + '" style="margin-top:8px">Randevu / Tarih Gir →</button>' +
+          '<button type="button" class="btn-secondary full" data-action="open-quick-appt" data-kind="car" data-car="' + esc(it.carId) + '" data-key="' + esc(it.key) + '" style="margin-top:8px">Randevu / Tarih Gir →</button>' +
           '</li>';
       }).join("") +
       '</ul>';
@@ -4928,9 +4992,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (!it.apptKey || !it.date) return "";
     var hasAppt = !!it.apptDate;
     if (!hasAppt && (it.days == null || it.days > 30)) return "";
+    var isDriver = it.kind === "driver";
     var cls = hasAppt ? "appt-pill appt-pill-set" : "appt-pill appt-pill-empty";
     var text = hasAppt ? ("📅 " + fmtDateTR(it.apptDate)) : "📅 Randevu Ekle";
-    return '<button type="button" class="' + cls + '" data-action="open-quick-appt" data-car="' + it.carId + '" data-key="' + it.apptKey + '" title="' + (hasAppt ? "Randevuyu düzenle" : "Randevu tarihi ekle") + '">' + text + '</button>';
+    var ownerAttr = isDriver ? ('data-kind="driver" data-driver="' + it.driverId + '"') : ('data-kind="car" data-car="' + it.carId + '"');
+    return '<button type="button" class="' + cls + '" data-action="open-quick-appt" ' + ownerAttr + ' data-key="' + it.apptKey + '" title="' + (hasAppt ? "Randevuyu düzenle" : "Randevu tarihi ekle") + '">' + text + '</button>';
   }
 
   function calendarButtonHTML(it) {
@@ -5186,7 +5252,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           '<span class="sum-extra">' +
             '<span class="sum-badge" style="color:' + it.status.color + ';border-color:' + it.status.color + '55;background:' + it.status.color + '18">' + showIcon + esc(it.status.label) + '</span>' +
             '<span class="sum-actions">' +
-              (isDriver ? "" : appointmentButtonHTML(it)) +
+              appointmentButtonHTML(it) +
               calendarButtonHTML(it) +
               editBtn +
             '</span>' +
@@ -6393,10 +6459,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         var items = entry.items || [];
         // items artık iki biçimde gelebilir: eski kayıtlarda düz metin
         // ("Toyota Corolla — Muayene" gibi bir string), yeni kayıtlarda ise
-        // { label, carId, apptKey } biçiminde bir obje (bkz. send-reminders.js).
-        // Obje ise ve ilgili araç hâlâ mevcutsa, push bildirimindeki "Evet,
-        // randevu aldım" aksiyonuyla aynı şekilde randevu formunu açan bir
-        // düğme olarak gösteriyoruz; değilse eskisi gibi düz metin.
+        // { label, carId, driverId, apptKey } biçiminde bir obje (bkz.
+        // send-reminders.js). Obje ise ve ilgili araç/şoför hâlâ mevcutsa,
+        // push bildirimindeki "Evet, randevu aldım" aksiyonuyla aynı
+        // şekilde randevu formunu açan bir düğme olarak gösteriyoruz;
+        // değilse eskisi gibi düz metin.
         html += '<li class="err-item">' +
           '<div class="err-item-head">' +
             '<span class="err-item-time">' + fmtDateTime(entry.sentAt) + '</span>' +
@@ -6405,11 +6472,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           (items.length
             ? '<ul class="notif-history-items">' + items.map(function (it) {
                 var carId = it && typeof it === "object" ? it.carId : null;
+                var driverId = it && typeof it === "object" ? it.driverId : null;
                 var apptKey = it && typeof it === "object" ? (it.apptKey || it.key) : null;
                 var label = it && typeof it === "object" ? (it.label || it.text || "") : it;
                 var carExists = carId && (state.cars || []).some(function (c) { return c.id === carId; });
+                var driverExists = driverId && (state.drivers || []).some(function (d) { return d.id === driverId; });
                 if (carId && apptKey && carExists) {
-                  return '<li><button type="button" class="notif-history-item-btn" data-action="open-quick-appt" data-car="' + esc(carId) + '" data-key="' + esc(apptKey) + '">' + esc(label) + ' <span class="notif-history-item-arrow">→</span></button></li>';
+                  return '<li><button type="button" class="notif-history-item-btn" data-action="open-quick-appt" data-kind="car" data-car="' + esc(carId) + '" data-key="' + esc(apptKey) + '">' + esc(label) + ' <span class="notif-history-item-arrow">→</span></button></li>';
+                }
+                if (driverId && apptKey && driverExists) {
+                  return '<li><button type="button" class="notif-history-item-btn" data-action="open-quick-appt" data-kind="driver" data-driver="' + esc(driverId) + '" data-key="' + esc(apptKey) + '">' + esc(label) + ' <span class="notif-history-item-arrow">→</span></button></li>';
                 }
                 return '<li>' + esc(label) + '</li>';
               }).join("") + '</ul>'
@@ -8925,7 +8997,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           // randevu formu kapatılınca kullanıcı kaldığı listeye geri
           // dönsün diye, önceki pencereyi "returnTo" olarak saklıyoruz.
           var returnToModal = (state.modal && (state.modal.type === "notifHistory" || state.modal.type === "reminderPicker")) ? state.modal : null;
-          state.modal = { type: "quickAppt", carId: el.getAttribute("data-car"), key: el.getAttribute("data-key"), returnTo: returnToModal };
+          // data-kind yoksa (eski düğmeler / push derin bağlantısı) geriye
+          // dönük uyumluluk için "car" varsayılır.
+          var apptKind = el.getAttribute("data-kind") || "car";
+          state.modal = apptKind === "driver"
+            ? { type: "quickAppt", kind: "driver", driverId: el.getAttribute("data-driver"), key: el.getAttribute("data-key"), returnTo: returnToModal }
+            : { type: "quickAppt", kind: "car", carId: el.getAttribute("data-car"), key: el.getAttribute("data-key"), returnTo: returnToModal };
           render();
         }
         else if (action === "open-add-expense") { state.modal = { type: "addExpense" }; render(); }
