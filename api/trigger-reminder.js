@@ -60,12 +60,25 @@ const DATE_FIELDS = [
   { key: "tireDate", label: "Lastik Değişimi", emoji: "🛞" }
 ];
 
-// Şoförlerin (worksAbroad === true olanların) pasaport/vize bitiş tarihleri.
-// Araç alanlarıyla AYNI eşik (7/3/1/0 gün) ve AYNI notifState dedup
-// mekanizmasını kullanır, aynı bildirime ve aynı hane/üye dağıtımına dahil
-// edilir. fieldKey her zaman null olduğundan aşağıdaki "Evet/Hayır" randevu
-// aksiyon düğmeleri (dateBasedItems filtresi) bu öğeleri hiç etkilemez.
+// Şoför belge bitiş tarihleri — send-reminders.js (günlük otomatik tarama)
+// ile BİREBİR AYNI alan kapsamı: Ehliyet/SRC/Psikoteknik/Sağlık Raporu TÜM
+// şoförler için kontrol edilir; Pasaport/Vize sadece worksAbroad === true
+// olan şoförler için ayrıca eklenir (bkz. aşağıdaki kullanım noktası).
+// Araç alanlarıyla AYNI eşik (7/3/1/0 gün), AYNI notifState dedup
+// mekanizmasını ve AYNI randevu/"unuttun mu" akışını (driver.appointments)
+// kullanır, aynı bildirime ve aynı hane/üye dağıtımına dahil edilir.
+// fieldKey aksiyon amaçlı her zaman null bırakılır (carId'siz olduğu için
+// "Evet/Hayır" randevu düğmeleri şoför öğelerini hiç etkilemez) — şoför
+// tarafında randevu/tarih girme sadece "Geçmiş Hatırlatmalar" listesinden
+// (driverId + apptKey ile) yapılabilir; apptKey için ayrıca driverFieldKey
+// tutulur.
 const DRIVER_DATE_FIELDS = [
+  { key: "licenseExpiry", label: "Ehliyet", emoji: "🪪" },
+  { key: "srcExpiry", label: "SRC Belgesi", emoji: "📄" },
+  { key: "psikoteknikExpiry", label: "Psikoteknik Belgesi", emoji: "🧠" },
+  { key: "healthReportExpiry", label: "Sağlık Raporu", emoji: "🩺" }
+];
+const DRIVER_ABROAD_DATE_FIELDS = [
   { key: "passportExpiry", label: "Pasaport", emoji: "🛂" },
   { key: "visaExpiry", label: "Vize", emoji: "🌍" }
 ];
@@ -170,17 +183,63 @@ async function runFullScan(db, bypassDedup, triggerSource) {
       DATE_FIELDS.forEach((f) => {
         const dateVal = car[f.key];
         if (!dateVal) return;
+
+        const stateKey = car.id + "_" + f.key;
+        const carName = car.name || "Aracın";
+
+        // ---------- Randevu tarihi varsa: vade hatırlatmaları yerine
+        // randevu odaklı bildirim akışına geç (send-reminders.js ile
+        // BİREBİR AYNI mantık; bkz. index.html car edit formu ->
+        // "Randevu aldın mı?" alanı, car.appointments[f.key] içinde) ----------
+        const apptVal = (car.appointments || {})[f.key];
+        if (apptVal) {
+          const apptDays = daysUntil(apptVal);
+          if (apptDays != null) {
+            if (apptDays > 1) {
+              // Randevuya daha çok var: kademeli vade hatırlatmaları
+              // tamamen durur, randevu gününe kadar sessiz kalınır.
+              return;
+            }
+            if (apptDays === 0 || apptDays === 1) {
+              // Randevudan 1 gün önce ve randevu günü: tek seferlik hatırlatma.
+              const apptStateKey = stateKey + "_appt:" + apptVal;
+              if (!bypassDedup && newNotifState[apptStateKey] === apptDays) return;
+              newNotifState[apptStateKey] = apptDays;
+              const when = apptDays === 0 ? "bugün" : "yarın";
+              triggered.push({ text: `${f.emoji} ${carName}: ${f.label} randevun ${when}`, carId: car.id, fieldKey: f.key, actionable: false });
+              return;
+            }
+            // apptDays < 0 → randevu günü geçti. Vade tarihi (dateVal) hâlâ
+            // randevu girildiği andaki anlık görüntüyle (DueSnapshot) AYNIYSA
+            // kullanıcı muhtemelen işlemi yaptırdı ama tarihi güncellemeyi
+            // unuttu: TEK seferlik "unuttun mu?" hatırlatması gönder, sonra
+            // (aynı randevu tarihi için) tamamen sessiz kal. Vade tarihi
+            // değiştiyse randevu "çözülmüş" sayılır ve normal kademeli
+            // akışa devam edilir.
+            const dueSnapshot = (car.appointments || {})[f.key + "DueSnapshot"];
+            const dueUnchanged = dueSnapshot != null && dueSnapshot === dateVal;
+            if (dueUnchanged) {
+              const missedKey = stateKey + "_apptMissed:" + apptVal;
+              if (!bypassDedup && newNotifState[missedKey]) return;
+              newNotifState[missedKey] = true;
+              triggered.push({ text: `${f.emoji} ${carName}: ${f.label} tarihini güncellemeyi unuttun mu?`, carId: car.id, fieldKey: f.key, actionable: false });
+              return;
+            }
+          }
+        }
+
+        // ---------- Normal kademeli vade hatırlatması ----------
+        // (randevu hiç girilmediyse, ya da girilen randevu zaten
+        // çözülmüş/geride kalmış ve vade tarihi güncellenmişse)
         const days = daysUntil(dateVal);
         if (days == null) return;
         if (!DAY_THRESHOLDS.includes(days)) return;
 
-        const stateKey = car.id + "_" + f.key;
         if (!bypassDedup && newNotifState[stateKey] === days) return;
 
         newNotifState[stateKey] = days;
-        const carName = car.name || "Aracın";
         const dayText = days === 0 ? "bugün" : days + " gün içinde";
-        triggered.push({ text: `${f.emoji} ${carName}: ${f.label} ${dayText}`, carId: car.id, fieldKey: f.key });
+        triggered.push({ text: `${f.emoji} ${carName}: ${f.label} ${dayText}`, carId: car.id, fieldKey: f.key, actionable: true });
       });
 
       if (car.maintenanceKm != null && car.currentKm != null) {
@@ -200,24 +259,74 @@ async function runFullScan(db, bypassDedup, triggerSource) {
       }
     });
 
-    // ---------- Şoför pasaport / vize hatırlatmaları ----------
+    // ---------- Şoför belge hatırlatmaları ----------
+    // Ehliyet/SRC/Psikoteknik/Sağlık Raporu TÜM şoförler için, Pasaport/Vize
+    // ise sadece worksAbroad === true olanlar için kontrol edilir.
     drivers.forEach((driver) => {
-      if (!driver.worksAbroad) return;
-      DRIVER_DATE_FIELDS.forEach((f) => {
+      const driverDateFields = driver.worksAbroad
+        ? DRIVER_DATE_FIELDS.concat(DRIVER_ABROAD_DATE_FIELDS)
+        : DRIVER_DATE_FIELDS;
+      driverDateFields.forEach((f) => {
         const dateVal = driver[f.key];
         if (!dateVal) return;
+
+        const stateKey = "driver_" + driver.id + "_" + f.key;
+        const driverName = driver.name || "Şoför";
+        let extra = "";
+        if (f.key === "visaExpiry" && driver.visaCountry) extra = ` (${driver.visaCountry})`;
+        else if (f.key === "srcExpiry" && driver.srcType) extra = ` (${driver.srcType})`;
+        else if (f.key === "licenseExpiry" && driver.licenseClass) extra = ` (${driver.licenseClass})`;
+
+        // ---------- Randevu tarihi varsa: vade hatırlatmaları yerine
+        // randevu odaklı bildirim akışına geç (araç bloğuyla ve
+        // send-reminders.js ile BİREBİR AYNI mantık; driver.appointments[f.key]) ----------
+        const apptVal = (driver.appointments || {})[f.key];
+        if (apptVal) {
+          const apptDays = daysUntil(apptVal);
+          if (apptDays != null) {
+            if (apptDays > 1) {
+              // Randevuya daha çok var: kademeli vade hatırlatmaları
+              // tamamen durur, randevu gününe kadar sessiz kalınır.
+              return;
+            }
+            if (apptDays === 0 || apptDays === 1) {
+              // Randevudan 1 gün önce ve randevu günü: tek seferlik hatırlatma.
+              const apptStateKey = stateKey + "_appt:" + apptVal;
+              if (!bypassDedup && newNotifState[apptStateKey] === apptDays) return;
+              newNotifState[apptStateKey] = apptDays;
+              const when = apptDays === 0 ? "bugün" : "yarın";
+              triggered.push({ text: `${f.emoji} ${driverName}: ${f.label}${extra} randevun ${when}`, carId: null, fieldKey: null, driverId: driver.id, driverFieldKey: f.key });
+              return;
+            }
+            // apptDays < 0 → randevu günü geçti; tarih hâlâ o anki
+            // görüntüyle (DueSnapshot) aynıysa (güncellenmemişse) TEK
+            // seferlik "unuttun mu?" hatırlatması gönder. Vade tarihi
+            // değiştiyse randevu "çözülmüş" sayılır ve normal kademeli
+            // akışa devam edilir.
+            const dueSnapshot = (driver.appointments || {})[f.key + "DueSnapshot"];
+            const dueUnchanged = dueSnapshot != null && dueSnapshot === dateVal;
+            if (dueUnchanged) {
+              const missedKey = stateKey + "_apptMissed:" + apptVal;
+              if (!bypassDedup && newNotifState[missedKey]) return;
+              newNotifState[missedKey] = true;
+              triggered.push({ text: `${f.emoji} ${driverName}: ${f.label}${extra} tarihini güncellemeyi unuttun mu?`, carId: null, fieldKey: null, driverId: driver.id, driverFieldKey: f.key });
+              return;
+            }
+          }
+        }
+
+        // ---------- Normal kademeli vade hatırlatması ----------
+        // (randevu hiç girilmediyse, ya da girilen randevu zaten
+        // çözülmüş/geride kalmış ve vade tarihi güncellenmişse)
         const days = daysUntil(dateVal);
         if (days == null) return;
         if (!DAY_THRESHOLDS.includes(days)) return;
 
-        const stateKey = "driver_" + driver.id + "_" + f.key;
         if (!bypassDedup && newNotifState[stateKey] === days) return;
 
         newNotifState[stateKey] = days;
-        const driverName = driver.name || "Şoför";
         const dayText = days === 0 ? "bugün" : days + " gün içinde";
-        const extra = f.key === "visaExpiry" && driver.visaCountry ? ` (${driver.visaCountry})` : "";
-        triggered.push({ text: `${f.emoji} ${driverName}: ${f.label}${extra} süresi ${dayText} doluyor`, carId: null, fieldKey: null });
+        triggered.push({ text: `${f.emoji} ${driverName}: ${f.label}${extra} süresi ${dayText} doluyor`, carId: null, fieldKey: null, driverId: driver.id, driverFieldKey: f.key });
       });
     });
 
@@ -231,15 +340,17 @@ async function runFullScan(db, bypassDedup, triggerSource) {
     // fazla işlem aynı anda tetiklenirse ya da tetiklenen tek şey km bazlı bir
     // bakım uyarısıysa (fieldKey yok), aksiyon eklemiyoruz — hangi işlem için
     // olduğu net değil.
-    // Tek bir tarihe bağlı işlem tetiklendiyse (ör. sadece Muayene), bildirime
-    // "Evet, randevu aldım / Hayır" aksiyon düğmeleri ekleyebiliriz. Km bazlı
-    // bakım uyarısı gibi tarihi olmayan işlemler (fieldKey yok) bu sayıma
-    // dahil edilmez — yani "Muayene 3 gün içinde" + "bakıma 1.651 km kaldı"
-    // aynı anda tetiklense bile, tarihe bağlı olan tek (Muayene) olduğu için
-    // yine de butonlar eklenir. Birden fazla FARKLI tarihe bağlı işlem aynı
-    // anda tetiklenirse (ör. hem Muayene hem Sigorta), hangisi için olduğu
-    // net olmadığından buton eklenmez.
-    const dateBasedItems = triggered.filter((t) => t.fieldKey);
+    // Tek bir tarihe bağlı VE henüz randevusu girilmemiş işlem tetiklendiyse
+    // (ör. sadece Muayene vade hatırlatması), bildirime "Evet, randevu
+    // aldım / Hayır" aksiyon düğmeleri ekleyebiliriz. Km bazlı bakım uyarısı
+    // gibi tarihi olmayan işlemler (fieldKey yok) ya da zaten randevusu
+    // girilmiş/"unuttun mu" tipi öğeler (actionable: false) bu sayıma dahil
+    // edilmez — yani "Muayene 3 gün içinde" + "bakıma 1.651 km kaldı" aynı
+    // anda tetiklense bile, tarihe bağlı actionable olan tek (Muayene)
+    // olduğu için yine de butonlar eklenir. Birden fazla FARKLI tarihe bağlı
+    // actionable işlem aynı anda tetiklenirse (ör. hem Muayene hem Sigorta),
+    // hangisi için olduğu net olmadığından buton eklenmez.
+    const dateBasedItems = triggered.filter((t) => t.actionable && t.fieldKey);
     let actionData = null;
     if (dateBasedItems.length === 1) {
       actionData = { carId: dateBasedItems[0].carId, fieldKey: dateBasedItems[0].fieldKey, actionable: "true" };
@@ -255,16 +366,20 @@ async function runFullScan(db, bypassDedup, triggerSource) {
     // değil, { label, carId, apptKey } biçiminde bir obje: index.html bu
     // alanlar doluysa (yani tek bir tarihe bağlı, henüz randevusu
     // girilmemiş bir hatırlatmaysa) "Randevu / Tarih Gir" düğmesi gösterir;
-    // km bazlı bakım uyarısı gibi fieldKey'i olmayan öğeler düz metin
-    // olarak kalır.
+    // km bazlı bakım uyarısı gibi fieldKey'i olmayan öğeler ya da zaten
+    // randevusu girilmiş/"unuttun mu" tipi öğeler (actionable: false) düz
+    // metin olarak (carId/driverId/apptKey null) kalır — "Randevu / Tarih
+    // Gir" düğmesi sadece henüz randevusu girilmemiş, tek bir tarihe bağlı
+    // hatırlatmalarda gösterilir (send-reminders.js ile BİREBİR AYNI).
     const newNotifHistory = [
       {
         title,
         body: bodyBase,
         items: triggered.map((t) => ({
           label: t.text,
-          carId: t.fieldKey ? t.carId : null,
-          apptKey: t.fieldKey || null
+          carId: t.actionable && t.fieldKey ? t.carId : null,
+          driverId: t.driverId || null,
+          apptKey: (t.actionable && t.fieldKey) ? t.fieldKey : (t.driverFieldKey || null)
         })),
         sentAt: admin.firestore.Timestamp.now()
       }
