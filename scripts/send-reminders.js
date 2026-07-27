@@ -482,9 +482,12 @@ async function main() {
     // ---------- Şoför belge hatırlatmaları ----------
     // Ehliyet/SRC/Psikoteknik/Sağlık Raporu TÜM şoförler için kontrol edilir.
     // Pasaport/Vize ise sadece yurtdışına çıkacak (worksAbroad === true)
-    // şoförler için ayrıca eklenir. actionable: false olduğundan sw.js'in
-    // "Evet/Hayır" aksiyon düğmeleri eklenmez (bu düğmeler sadece araç
-    // randevu akışına özgüdür).
+    // şoförler için ayrıca eklenir. Araçlarla BİREBİR AYNI randevu akışı
+    // kullanılır (driver.appointments[fieldKey] — bkz. index.html
+    // saveDriverAppointmentField()). Push bildirimindeki "Evet/Hayır" aksiyon
+    // düğmeleri (sw.js) hâlâ sadece araç randevu akışına özgüdür; şoför
+    // tarafında randevu/tarih girme SADECE uygulama içi "Geçmiş
+    // Hatırlatmalar" listesinden (driverId + apptKey ile) yapılabilir.
     const drivers = user.drivers || [];
     drivers.forEach((driver) => {
       const driverDateFields = driver.worksAbroad
@@ -497,7 +500,62 @@ async function main() {
         const stateKey = "driver_" + driver.id + "_" + f.key;
         const slot = matchedHourSlot();
         const driverName = driver.name || "Şoför";
+        let extra = "";
+        if (f.key === "visaExpiry" && driver.visaCountry) extra = ` (${driver.visaCountry})`;
+        else if (f.key === "srcExpiry" && driver.srcType) extra = ` (${driver.srcType})`;
+        else if (f.key === "licenseExpiry" && driver.licenseClass) extra = ` (${driver.licenseClass})`;
 
+        // ---------- Randevu tarihi varsa: vade hatırlatmaları yerine
+        // randevu odaklı bildirim akışına geç (bkz. yukarıdaki araç
+        // bloğundaki AYNI mantığın açıklaması) ----------
+        const apptVal = (driver.appointments || {})[f.key];
+        if (apptVal) {
+          const apptDays = daysUntil(apptVal);
+          if (apptDays != null) {
+            if (apptDays > 1) {
+              // Randevuya daha çok var: kademeli vade hatırlatmaları durur.
+              return;
+            }
+            if (apptDays === 0 || apptDays === 1) {
+              // Randevudan 1 gün önce ve randevu günü: tek seferlik hatırlatma.
+              const apptStateKey = stateKey + "_appt:" + apptVal;
+              if (!bypassDedup) {
+                if (slot !== 9) return;
+                const sentMarker = todayDateStrTR() + ":" + slot;
+                if (newNotifState[apptStateKey] === sentMarker) return;
+                newNotifState[apptStateKey] = sentMarker;
+              } else {
+                newNotifState[apptStateKey] = todayDateStrTR() + ":manual";
+              }
+              const when = apptDays === 0 ? "bugün" : "yarın";
+              triggered.push({ text: `${f.emoji} ${driverName}: ${f.label}${extra} randevun ${when}`, kind: "driver", driverId: driver.id, fieldKey: f.key, actionable: false });
+              return;
+            }
+            // apptDays < 0 → randevu günü geçti; tarih hâlâ o anki
+            // görüntüyle aynıysa (güncellenmemişse) TEK seferlik "unuttun
+            // mu?" hatırlatması gönder.
+            const dueSnapshot = (driver.appointments || {})[f.key + "DueSnapshot"];
+            const dueUnchanged = dueSnapshot != null && dueSnapshot === dateVal;
+            if (dueUnchanged) {
+              const missedKey = stateKey + "_apptMissed:" + apptVal;
+              if (!bypassDedup) {
+                if (slot !== 9) return;
+                if (newNotifState[missedKey]) return; // zaten bir kez gönderildi
+                newNotifState[missedKey] = true;
+              } else {
+                newNotifState[missedKey] = true;
+              }
+              triggered.push({ text: `${f.emoji} ${driverName}: ${f.label}${extra} tarihini güncellemeyi unuttun mu?`, kind: "driver", driverId: driver.id, fieldKey: f.key, actionable: false });
+              return;
+            }
+            // dueSnapshot ile dateVal farklı: randevu "çözülmüş" sayılır,
+            // aşağıdaki normal kademeli hatırlatma akışına devam edilir.
+          }
+        }
+
+        // ---------- Normal kademeli vade hatırlatması ----------
+        // (randevu hiç girilmediyse, ya da girilen randevu zaten
+        // çözülmüş/geride kalmış ve vade tarihi güncellenmişse)
         const days = daysUntil(dateVal);
         if (days == null) return;
         if (days > DAYS_LEFT_ALERT_THRESHOLD || days < 0) return;
@@ -514,11 +572,7 @@ async function main() {
         }
 
         const dayText = days === 0 ? "bugün" : days + " gün içinde";
-        let extra = "";
-        if (f.key === "visaExpiry" && driver.visaCountry) extra = ` (${driver.visaCountry})`;
-        else if (f.key === "srcExpiry" && driver.srcType) extra = ` (${driver.srcType})`;
-        else if (f.key === "licenseExpiry" && driver.licenseClass) extra = ` (${driver.licenseClass})`;
-        triggered.push({ text: `${f.emoji} ${driverName}: ${f.label}${extra} süresi ${dayText} doluyor`, carId: null, fieldKey: null, actionable: false });
+        triggered.push({ text: `${f.emoji} ${driverName}: ${f.label}${extra} süresi ${dayText} doluyor`, kind: "driver", driverId: driver.id, fieldKey: f.key, actionable: true });
       });
     });
 
@@ -621,21 +675,24 @@ async function main() {
     // her gönderimi hanenin doc'undaki notifHistory dizisine ekliyoruz. En
     // yeni kayıt başa eklenir, liste en fazla 40 kayıtla sınırlı tutulur.
     //
-    // items artık düz metin değil, { label, carId, apptKey } biçiminde bir
-    // obje: index.html'deki "Geçmiş Hatırlatmalar" ekranı, carId + apptKey
-    // dolu geldiğinde push bildirimindeki "Evet, randevu aldım" aksiyonuyla
-    // AYNI randevu formunu (quickAppt modalı) açan bir düğme gösteriyor.
-    // carId/apptKey yalnızca actionable && fieldKey dolu olan (yani tek bir
-    // tarihe bağlı, henüz randevusu girilmemiş) kayıtlar için eklenir — km
-    // bazlı bakım uyarısı gibi actionable olmayan öğeler yine düz metin
-    // olarak (carId/apptKey null) görünmeye devam eder.
+    // items artık düz metin değil, { label, carId, driverId, apptKey }
+    // biçiminde bir obje: index.html'deki "Geçmiş Hatırlatmalar" ekranı,
+    // carId/driverId + apptKey dolu geldiğinde push bildirimindeki "Evet,
+    // randevu aldım" aksiyonuyla AYNI randevu formunu (quickAppt modalı)
+    // açan bir düğme gösteriyor. carId/driverId + apptKey yalnızca
+    // actionable && fieldKey dolu olan (yani tek bir tarihe bağlı, henüz
+    // randevusu girilmemiş) kayıtlar için eklenir — km bazlı bakım uyarısı
+    // ya da zaten randevusu girilmiş/"unuttun mu" tipi öğeler gibi
+    // actionable olmayanlar yine düz metin olarak (carId/driverId/apptKey
+    // null) görünmeye devam eder.
     const newNotifHistory = [
       {
         title,
         body,
         items: triggered.map((t) => ({
           label: t.text,
-          carId: t.actionable && t.fieldKey ? t.carId : null,
+          carId: t.actionable && t.fieldKey ? (t.carId || null) : null,
+          driverId: t.actionable && t.fieldKey ? (t.driverId || null) : null,
           apptKey: t.actionable && t.fieldKey ? t.fieldKey : null
         })),
         sentAt: admin.firestore.Timestamp.now()
