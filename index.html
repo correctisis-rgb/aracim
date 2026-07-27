@@ -1002,7 +1002,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.3.7"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.3.8"; // Dynamic Version Tracking
   var APP_UPDATED = "27 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1019,6 +1019,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   var PASSWORD_RE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*[^A-Za-z0-9]).{6,}$/;
   var PASSWORD_HINT = "Şifre en az 6 karakter olmalı; en az bir büyük harf, bir küçük harf ve bir sembol (örn. !?%*-) içermeli.";
+
+  // Girişte spam/brute-force koruması: art arda hatalı giriş denemelerinde
+  // önce 1 dakika, tekrar hatalı denemede 5 dakika bekleme süresi uygulanır.
+  // Tamamen istemci (localStorage) tabanlıdır; sayfa yenilense bile kilit korunur.
+  var LOGIN_THROTTLE_KEY = "gd_login_throttle_v1";
+  var LOGIN_MAX_ATTEMPTS = 5;
+  var LOGIN_LOCK_MS_STAGE1 = 60 * 1000;        // 1 dakika
+  var LOGIN_LOCK_MS_STAGE2 = 5 * 60 * 1000;    // 5 dakika
 
   function catById(id) {
     for (var i = 0; i < CATEGORIES.length; i++) if (CATEGORIES[i].id === id) return CATEGORIES[i];
@@ -4213,6 +4221,74 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return items;
   }
 
+  // ---------- login throttle (spam/brute-force koruması) ----------
+  function getLoginThrottle() {
+    try {
+      var raw = localStorage.getItem(LOGIN_THROTTLE_KEY);
+      if (!raw) return { fails: 0, lockUntil: 0, stage: 0 };
+      var parsed = JSON.parse(raw);
+      return {
+        fails: parsed.fails || 0,
+        lockUntil: parsed.lockUntil || 0,
+        stage: parsed.stage || 0
+      };
+    } catch (e) {
+      return { fails: 0, lockUntil: 0, stage: 0 };
+    }
+  }
+  function setLoginThrottle(t) {
+    try { localStorage.setItem(LOGIN_THROTTLE_KEY, JSON.stringify(t)); } catch (e) {}
+  }
+  function resetLoginThrottle() {
+    try { localStorage.removeItem(LOGIN_THROTTLE_KEY); } catch (e) {}
+  }
+  function loginLockRemainingMs() {
+    var t = getLoginThrottle();
+    var remaining = (t.lockUntil || 0) - Date.now();
+    return remaining > 0 ? remaining : 0;
+  }
+  // Her hatalı denemede çağrılır. 5. hatalı denemede kilit devreye girer:
+  // ilk kilitte 1 dakika, sonraki her kilitte 5 dakika.
+  function registerLoginFailure() {
+    var t = getLoginThrottle();
+    t.fails = (t.fails || 0) + 1;
+    if (t.fails >= LOGIN_MAX_ATTEMPTS) {
+      var dur = (t.stage || 0) === 0 ? LOGIN_LOCK_MS_STAGE1 : LOGIN_LOCK_MS_STAGE2;
+      t.lockUntil = Date.now() + dur;
+      t.stage = (t.stage || 0) + 1;
+      t.fails = 0;
+    }
+    setLoginThrottle(t);
+  }
+  function formatLoginLockRemaining(ms) {
+    var totalSec = Math.ceil(ms / 1000);
+    var m = Math.floor(totalSec / 60);
+    var s = totalSec % 60;
+    return m > 0 ? (m + " dk " + (s < 10 ? "0" : "") + s + " sn") : (s + " sn");
+  }
+  var loginLockInterval = null;
+  function clearLoginLockCountdown() {
+    if (loginLockInterval) { clearInterval(loginLockInterval); loginLockInterval = null; }
+  }
+  // Kilit süresini her saniye günceller; süre dolunca formu tamamen yeniden
+  // açmak için renderAuth() çağırır (alanları/butonu tekrar aktif eder).
+  function startLoginLockCountdown() {
+    clearLoginLockCountdown();
+    var remaining = loginLockRemainingMs();
+    if (remaining <= 0) return;
+    loginLockInterval = setInterval(function () {
+      var rem = loginLockRemainingMs();
+      if (rem <= 0) {
+        clearLoginLockCountdown();
+        renderAuth();
+        return;
+      }
+      var countdownEl = document.getElementById("login-lock-countdown");
+      if (!countdownEl) { clearLoginLockCountdown(); return; }
+      countdownEl.textContent = formatLoginLockRemaining(rem);
+    }, 1000);
+  }
+
   // ---------- auth screen ----------
   function renderAuth() {
     var app = document.getElementById("app");
@@ -4234,6 +4310,17 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     if (state.authError) html += '<p class="auth-error">⚠️ ' + esc(state.authError) + '</p>';
 
+    var loginThrottle = mode === "login" ? getLoginThrottle() : null;
+    var loginLockRemaining = mode === "login" ? loginLockRemainingMs() : 0;
+    var loginLocked = loginLockRemaining > 0;
+    if (mode === "login") {
+      if (loginLocked) {
+        html += '<p class="auth-error" id="login-lock-msg">🔒 Çok fazla hatalı deneme yaptın. Lütfen <strong id="login-lock-countdown">' + esc(formatLoginLockRemaining(loginLockRemaining)) + '</strong> sonra tekrar dene.</p>';
+      } else if (loginThrottle.fails > 0) {
+        html += '<p class="field-hint" style="margin:-6px 0 12px; color: var(--amber);">⚠️ Hatalı e-posta/şifre. Kalan deneme hakkın: ' + (LOGIN_MAX_ATTEMPTS - loginThrottle.fails) + '</p>';
+      }
+    }
+
     if (mode === "register") {
       html +=
         '<label class="field"><span>Ad Soyad</span><input id="r-name" placeholder="Örn. Ahmet Yılmaz" autocomplete="name" /></label>' +
@@ -4251,10 +4338,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         '<button type="button" class="btn-primary full" id="auth-submit" ' + (state.authBusy ? "disabled" : "") + '>' + (state.authBusy ? "Hesap oluşturuluyor…" : "Hesap Oluştur") + '</button>';
     } else {
       html +=
-        '<label class="field"><span>E-posta</span><input id="l-email" type="email" placeholder="ornek@eposta.com" autocomplete="email" /></label>' +
-        '<label class="field"><span>Şifre</span><div class="pw-field"><input id="l-pass" type="password" placeholder="Şifren" autocomplete="current-password" /><button type="button" class="pw-toggle" data-target="l-pass" aria-label="Şifreyi göster/gizle">👁️</button></div></label>' +
+        '<label class="field"><span>E-posta</span><input id="l-email" type="email" placeholder="ornek@eposta.com" autocomplete="email" ' + (loginLocked ? "disabled" : "") + ' /></label>' +
+        '<label class="field"><span>Şifre</span><div class="pw-field"><input id="l-pass" type="password" placeholder="Şifren" autocomplete="current-password" ' + (loginLocked ? "disabled" : "") + ' /><button type="button" class="pw-toggle" data-target="l-pass" aria-label="Şifreyi göster/gizle">👁️</button></div></label>' +
         '<button type="button" class="link-btn" id="forgot-pass-link" style="margin:-6px 0 10px;">Şifremi unuttum?</button>' +
-        '<button type="button" class="btn-primary full" id="auth-submit" ' + (state.authBusy ? "disabled" : "") + '>' + (state.authBusy ? "Giriş yapılıyor…" : "Giriş Yap") + '</button>';
+        '<button type="button" class="btn-primary full" id="auth-submit" ' + ((state.authBusy || loginLocked) ? "disabled" : "") + '>' + (loginLocked ? "🔒 Kilitli" : (state.authBusy ? "Giriş yapılıyor…" : "Giriş Yap")) + '</button>';
     }
     html += '<p class="auth-legal-links"><a href="gizlilik-politikasi.html" target="_blank" rel="noopener">Gizlilik Politikası</a>·<a href="kullanim-sartlari.html" target="_blank" rel="noopener">Kullanım Şartları</a></p>';
     html += '</div></div>';
@@ -4263,6 +4350,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   function bindAuthActions() {
+    clearLoginLockCountdown();
+    if (state.authMode === "login") startLoginLockCountdown();
     var authThemeBtn = document.getElementById("auth-theme-toggle");
     if (authThemeBtn) authThemeBtn.addEventListener("click", function () { toggleTheme(); });
     document.querySelectorAll('[data-action="auth-tab"]').forEach(function (btn) {
@@ -4345,6 +4434,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   function handleLogin() {
+    var lockRemaining = loginLockRemainingMs();
+    if (lockRemaining > 0) {
+      state.authError = null;
+      renderAuth();
+      return;
+    }
+
     var email = document.getElementById("l-email").value.trim();
     var pass = document.getElementById("l-pass").value;
     if (!email || !pass) { state.authError = "E-posta ve şifreni gir."; renderAuth(); return; }
@@ -4352,10 +4448,17 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     state.authError = null; state.authBusy = true; renderAuth();
     pendingAuthAction = "login";
     auth.signInWithEmailAndPassword(email, pass).then(function (cred) {
+      clearLoginLockCountdown();
+      resetLoginThrottle();
       state.authBusy = false;
       toast("Tekrar hoş geldin, " + (cred.user.displayName || "").split(" ")[0] + "!");
     }).catch(function (err) {
       state.authBusy = false;
+      // Şifre sıfırlama/kısıtlama gibi kullanıcı hatası olmayan durumlarda
+      // (ör. çok fazla istek, ağ hatası) deneme hakkını düşürme.
+      if (err && err.code !== "auth/too-many-requests" && err.code !== "auth/network-request-failed") {
+        registerLoginFailure();
+      }
       state.authError = authErrorMessage(err);
       renderAuth();
     });
