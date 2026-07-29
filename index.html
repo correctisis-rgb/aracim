@@ -1011,7 +1011,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.4.0"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.4.1"; // Dynamic Version Tracking
   var APP_UPDATED = "29 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1057,6 +1057,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return idx;
   }
   function uid() { return Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
+  // Bu tarayıcı/cihaza özel, kalıcı bir kimlik. "Diğer cihazlardan çıkış yap"
+  // özelliğinde, uzaktan çıkış komutunu göndermiş olan cihazın kendisini
+  // yanlışlıkla çıkışa zorlamamak için kullanılır.
+  function getDeviceSessionId() {
+    var id = getLocalData("deviceSessionId", null);
+    if (!id) { id = uid(); setLocalData("deviceSessionId", id); }
+    return id;
+  }
   // Ortak hane davet kodunun yenilenebilir kısmı. Hane belge ID'si (householdId)
   // sabit kalmak zorunda (Firestore doküman yolu bu), ama paylaşılan davet
   // kodunun GEÇERLİLİĞİ bu token'a bağlı. "Kodu Yenile" ile bu token değişince
@@ -2573,6 +2581,26 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       })
       .catch(function (err) { console.error(err); monitoring.myLogins = []; });
   }
+  // Bu hesapla, bu cihaz dışındaki tüm cihazlarda açık olan oturumları
+  // uzaktan kapatır. Firebase Auth istemci SDK'sı başka cihazların oturum
+  // belirteçlerini doğrudan iptal edemediği için (bu sunucu tarafı Admin
+  // SDK gerektirir), bunun yerine kullanıcı belgesine bir "işaret" yazılır;
+  // açık olan diğer her cihaz bu işareti canlı olarak görüp kendini
+  // çıkışa zorlar (bkz. loginAs / onSnapshot içindeki forceSignOutAt kontrolü).
+  // Not: Bu yöntem sadece o an uygulaması açık/internete bağlı cihazlarda
+  // aninda çalışır; kapalı bir cihaz, uygulama tekrar açıldığında (giriş
+  // durumu tazelendiğinde) otomatik olarak çıkışa zorlanır.
+  function forceLogoutOtherDevices() {
+    if (!state.currentUser) return;
+    db.collection("users").doc(state.currentUser.id).set({
+      forceSignOutAt: firebase.firestore.FieldValue.serverTimestamp(),
+      forceSignOutExceptDevice: getDeviceSessionId()
+    }, { merge: true }).then(function () {
+      toast("Diğer tüm cihazlardaki oturumlar kapatılıyor.");
+    }).catch(function (err) {
+      toast("İşlem başarısız: " + (err && err.message ? err.message : String(err)));
+    });
+  }
   // Admin: tüm kullanıcılara ait giriş denetim kaydı.
   function loadLoginAuditLogs(force) {
     if (!state.currentUser || !isAdminUser(state.currentUser)) return;
@@ -3335,6 +3363,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     state.view = "panel";
     state.modal = null;
     state.accountMenuOpen = false;
+    // "Diğer cihazlardan çıkış yap" kontrolü için bu cihazın bu hesapla en
+    // son ne zaman oturum açtığı kaydedilir (bkz. onSnapshot içindeki
+    // forceSignOutAt kontrolü).
+    setLocalData("deviceLoginAt_" + fbUser.uid, Date.now());
     render();
 
     if (pendingAuthAction) {
@@ -3369,6 +3401,20 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       }
       var data = snap.data() || {};
       if (!state.currentUser || state.currentUser.id !== fbUser.uid) return;
+
+      // "Diğer tüm cihazlardan çıkış yap" komutu: profil ekranındaki
+      // butondan tetiklenip kullanıcı belgesine yazılır. Komutu gönderen
+      // cihaz hariç, bu hesapla oturum açmış (ve bu andan önce giriş yapmış)
+      // her cihazda canlı olarak oturumu kapatır.
+      if (data.forceSignOutAt && data.forceSignOutExceptDevice !== getDeviceSessionId()) {
+        var fsoMs = data.forceSignOutAt.toMillis ? data.forceSignOutAt.toMillis() : 0;
+        var deviceLoginAt = getLocalData("deviceLoginAt_" + fbUser.uid, 0) || 0;
+        if (fsoMs > deviceLoginAt) {
+          toast("Bu cihazdaki oturum, hesabından uzaktan kapatıldı.");
+          logout();
+          return;
+        }
+      }
 
       // Kimlik bilgisi (isim/e-posta/avatar) her zaman kişinin kendi belgesinden gelir;
       // ortak bir haneye katılınca bile kendi adı değişmez.
@@ -5952,9 +5998,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return modal;
   }
 
+  var FORCE_LOGOUT_BTN_HTML = '<button type="button" class="btn-secondary full" id="force-logout-other-devices" style="margin-top:8px;">🚪 Diğer Tüm Cihazlardan Çıkış Yap</button>';
   function renderMyLoginsList() {
-    if (!monitoring.myLogins) return '<p class="field-hint" style="margin-top:-4px">Yükleniyor…</p>';
-    if (!monitoring.myLogins.length) return '<p class="field-hint" style="margin-top:-4px">Henüz kayıt yok.</p>';
+    if (!monitoring.myLogins) return '<p class="field-hint" style="margin-top:-4px">Yükleniyor…</p>' + FORCE_LOGOUT_BTN_HTML;
+    if (!monitoring.myLogins.length) return '<p class="field-hint" style="margin-top:-4px">Henüz kayıt yok.</p>' + FORCE_LOGOUT_BTN_HTML;
     var html = '<ul class="family-list">';
     monitoring.myLogins.forEach(function (l) {
       html += '<li class="empty-hint" style="display:flex; flex-wrap:wrap; justify-content:space-between; gap:4px 8px;">' +
@@ -5963,6 +6010,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       '</li>';
     });
     html += '</ul>';
+    html += FORCE_LOGOUT_BTN_HTML;
     return html;
   }
 
@@ -6231,6 +6279,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (householdScanBtn) householdScanBtn.addEventListener("click", function () {
       state.modal = { type: "householdScan" };
       render();
+    });
+    var forceLogoutOtherDevicesBtn = modal.querySelector("#force-logout-other-devices");
+    if (forceLogoutOtherDevicesBtn) forceLogoutOtherDevicesBtn.addEventListener("click", function () {
+      showConfirm({
+        title: "Diğer Cihazlardan Çıkış Yap",
+        message: "Bu cihaz hariç, hesabına giriş yapılmış diğer tüm cihazlarda oturum kapatılacak. Devam etmek istiyor musun?",
+        confirmLabel: "Evet, Çıkış Yap",
+        danger: true,
+        onConfirm: function () { forceLogoutOtherDevices(); }
+      });
     });
     var householdLeaveBtn = modal.querySelector("#household-leave");
     if (householdLeaveBtn) householdLeaveBtn.addEventListener("click", function () { leaveHousehold(); });
