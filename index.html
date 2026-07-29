@@ -1011,7 +1011,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.4.1"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.4.2"; // Dynamic Version Tracking
   var APP_UPDATED = "29 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -2559,6 +2559,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         device: simpleDeviceLabel(),
         userAgent: navigator.userAgent,
         appVersion: APP_VERSION,
+        deviceSessionId: getDeviceSessionId(),
+        active: true,
         createdAt: firebase.firestore.FieldValue.serverTimestamp()
       }).catch(function (err) { console.error(err); });
     } catch (e) {}
@@ -2571,6 +2573,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       .then(function (snap) {
         var rows = [];
         snap.forEach(function (d) { rows.push(Object.assign({ id: d.id }, d.data())); });
+        // "Diğer tüm cihazlardan çıkış yap" ile kapatılmış (active:false) kayıtlar
+        // bu listede artık görünmemeli — sadece hâlâ açık olan oturumlar gösterilir.
+        rows = rows.filter(function (r) { return r.active !== false; });
         rows.sort(function (a, b) {
           var at = a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0;
           var bt = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0;
@@ -2592,14 +2597,41 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // durumu tazelendiğinde) otomatik olarak çıkışa zorlanır.
   function forceLogoutOtherDevices() {
     if (!state.currentUser) return;
+    var thisDeviceId = getDeviceSessionId();
     db.collection("users").doc(state.currentUser.id).set({
       forceSignOutAt: firebase.firestore.FieldValue.serverTimestamp(),
-      forceSignOutExceptDevice: getDeviceSessionId()
+      forceSignOutExceptDevice: thisDeviceId
     }, { merge: true }).then(function () {
       toast("Diğer tüm cihazlardaki oturumlar kapatılıyor.");
+      closeOtherDeviceLoginRecords(thisDeviceId);
     }).catch(function (err) {
       toast("İşlem başarısız: " + (err && err.message ? err.message : String(err)));
     });
+  }
+  // "Diğer Tüm Cihazlardan Çıkış Yap" tetiklendiğinde, bu cihaz dışındaki
+  // cihazlara ait "loginAudit" kayıtlarını active:false yaparak kapatır —
+  // böylece "Bu Hesaba Bağlı Girişler" listesinde artık sadece hâlâ açık
+  // olan (bu cihaz dahil, henüz kapatılmamış) oturumlar görünür.
+  function closeOtherDeviceLoginRecords(thisDeviceId) {
+    if (!state.currentUser) return;
+    db.collection("loginAudit").where("uid", "==", state.currentUser.id).get()
+      .then(function (snap) {
+        var batch = db.batch();
+        var hasWrites = false;
+        snap.forEach(function (d) {
+          var data = d.data() || {};
+          if (data.deviceSessionId && data.deviceSessionId !== thisDeviceId && data.active !== false) {
+            batch.update(d.ref, { active: false, closedAt: firebase.firestore.FieldValue.serverTimestamp() });
+            hasWrites = true;
+          }
+        });
+        if (hasWrites) return batch.commit();
+      })
+      .then(function () {
+        // Listeyi anında güncelle, kullanıcı yenilemeyi beklemesin.
+        loadMyLogins(true);
+      })
+      .catch(function (err) { console.error(err); });
   }
   // Admin: tüm kullanıcılara ait giriş denetim kaydı.
   function loadLoginAuditLogs(force) {
