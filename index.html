@@ -1011,7 +1011,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.4.2"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.4.3"; // Dynamic Version Tracking
   var APP_UPDATED = "29 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -2614,13 +2614,33 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // olan (bu cihaz dahil, henüz kapatılmamış) oturumlar görünür.
   function closeOtherDeviceLoginRecords(thisDeviceId) {
     if (!state.currentUser) return;
-    db.collection("loginAudit").where("uid", "==", state.currentUser.id).get()
+    var fbUser = auth.currentUser;
+    // Bu cihazın deviceSessionId'siyle işaretlenmiş taze bir "aktif" kayıt
+    // oluşturulur ki eski (deviceSessionId alanı olmayan) kayıtlar kapatılırken
+    // bu cihaz kendi geçmişinde temsil edilsin ve yanlışlıkla kapanmasın.
+    db.collection("loginAudit").add({
+      uid: state.currentUser.id,
+      name: (fbUser && fbUser.displayName) || state.currentUser.name || "",
+      email: (fbUser && fbUser.email) || state.currentUser.email || "",
+      action: "refresh-session",
+      device: simpleDeviceLabel(),
+      userAgent: navigator.userAgent,
+      appVersion: APP_VERSION,
+      deviceSessionId: thisDeviceId,
+      active: true,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    }).catch(function (err) { console.error(err); }).then(function () {
+      return db.collection("loginAudit").where("uid", "==", state.currentUser.id).get();
+    })
       .then(function (snap) {
         var batch = db.batch();
         var hasWrites = false;
         snap.forEach(function (d) {
           var data = d.data() || {};
-          if (data.deviceSessionId && data.deviceSessionId !== thisDeviceId && data.active !== false) {
+          // deviceSessionId alanı olmayan (eski) ya da başka cihaza ait kayıtlar
+          // bu cihaz dışında sayılır ve kapatılır. Bu cihazın kendi kaydı,
+          // yukarıda oluşturulan taze kayıt sayesinde her zaman korunur.
+          if (data.active !== false && data.deviceSessionId !== thisDeviceId) {
             batch.update(d.ref, { active: false, closedAt: firebase.firestore.FieldValue.serverTimestamp() });
             hasWrites = true;
           }
