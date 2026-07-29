@@ -1011,7 +1011,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.3.9"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.4.0"; // Dynamic Version Tracking
   var APP_UPDATED = "29 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -2496,6 +2496,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   // --- Oturum/cihaz denetimi: giriş anında kim, hangi cihazdan bağlandı ---
   var pendingAuthAction = null; // loginAs() tarafından okunur; sayfa yenilemede (sessiz oturum geri yükleme) log YAZILMAZ.
+  var verifyGatePollTimer = null; // e-posta doğrulama bekleme ekranında birkaç saniyede bir otomatik kontrol eder
+  var verifyGateResendCooldownUntil = 0;
   var autoBackupCheckedThisSession = false; // applyHouseholdData() içinde bir oturumda bir kez kontrol edilsin diye.
   var freePlanCheckedThisSession = false; // her oturumda bir kez /api/activate-free-plan çağrılsın diye.
   // Ücretsiz plan self-serve aktivasyonu / otomatik yenilemesi.
@@ -3314,6 +3316,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   function loginAs(fbUser) {
+    clearVerifyGatePoll();
     // Firestore önbelleği (enablePersistence) henüz açılmamışsa veya ilk
     // anlık görüntü daha ulaşmamışsa bile, bu cihazda daha önce görülmüş
     // profil bilgisi (ad/avatar) varsa hemen onu göster — böylece internetsiz
@@ -3846,8 +3849,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     });
     auth.onAuthStateChanged(function (fbUser) {
       if (fbUser) {
+        // E-posta/şifre ile oluşturulmuş ama henüz doğrulanmamış hesaplar
+        // uygulamaya alınmaz; önce doğrulama bekleme ekranı gösterilir.
+        if (!fbUser.emailVerified) {
+          renderVerifyGate(fbUser);
+          return;
+        }
+        clearVerifyGatePoll();
         loginAs(fbUser);
       } else {
+        clearVerifyGatePoll();
         if (unsubscribeUserDoc) { unsubscribeUserDoc(); unsubscribeUserDoc = null; }
         if (unsubscribeHouseholdDoc) { unsubscribeHouseholdDoc(); unsubscribeHouseholdDoc = null; }
         if (unsubscribeAdminSupportBadge) { unsubscribeAdminSupportBadge(); unsubscribeAdminSupportBadge = null; }
@@ -4441,7 +4452,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       });
     }).then(function () {
       state.authBusy = false;
-      toast("Hoş geldin, " + name.split(" ")[0] + "! Hesabın oluşturuldu.");
+      toast("Hesabın oluşturuldu! " + email + " adresine gönderdiğimiz linke tıklayarak doğrula.");
     }).catch(function (err) {
       state.authBusy = false;
       state.authError = authErrorMessage(err);
@@ -4505,6 +4516,102 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       }
       renderAuth();
     });
+  }
+
+  function clearVerifyGatePoll() {
+    if (verifyGatePollTimer) { clearInterval(verifyGatePollTimer); verifyGatePollTimer = null; }
+  }
+
+  // Kayıt/giriş sonrası e-postası doğrulanmamış kullanıcının gördüğü bekleme
+  // ekranı. Birkaç saniyede bir sessizce fbUser.reload() ile kontrol eder;
+  // link tıklanınca otomatik olarak uygulamaya geçer.
+  function renderVerifyGate(fbUser) {
+    state.currentUser = null;
+    var app = document.getElementById("app");
+    var html = '<div class="auth-wrap">' +
+      '<button type="button" class="theme-toggle" id="auth-theme-toggle" aria-label="' + (state.theme === "light" ? "Koyu temaya geç" : "Açık temaya geç") + '" title="' + (state.theme === "light" ? "Koyu temaya geç" : "Açık temaya geç") + '" style="position:fixed; top:16px; right:16px;">' + (state.theme === "light" ? "🌙" : "☀️") + '</button>' +
+      '<div class="auth-card" style="text-align:center;">' +
+      '<div class="logo-area" style="justify-content:center;">' +
+        '<img class="app-logo" src="icon-192.png" alt="Logo">' +
+        '<span class="gd-title-eyebrow">GARAJ DEFTERİ</span>' +
+      '</div>' +
+      '<h1 class="auth-title">📧 E-postanı Doğrula</h1>' +
+      '<p class="auth-sub"><strong>' + esc(fbUser.email || "") + '</strong> adresine bir doğrulama linki gönderdik. Devam etmek için gelen kutundaki (bulamazsan spam/gereksiz klasöründeki) linke tıkla.</p>' +
+      (state.verifyGateError ? '<p class="auth-error">⚠️ ' + esc(state.verifyGateError) + '</p>' : '') +
+      '<button type="button" class="btn-primary full" id="vg-check">Doğruladım, Devam Et</button>' +
+      '<button type="button" class="link-btn" id="vg-resend" style="margin-top:14px;">Linki Tekrar Gönder</button>' +
+      '<button type="button" class="link-btn" id="vg-logout" style="margin-top:6px; display:block; margin-left:auto; margin-right:auto;">Çıkış Yap / Farklı Hesap</button>' +
+      '</div></div>';
+    app.innerHTML = html;
+
+    var themeBtn = document.getElementById("auth-theme-toggle");
+    if (themeBtn) themeBtn.addEventListener("click", function () { toggleTheme(); });
+
+    var checkBtn = document.getElementById("vg-check");
+    if (checkBtn) checkBtn.addEventListener("click", function () { checkVerifyGate(fbUser, checkBtn); });
+
+    var resendBtn = document.getElementById("vg-resend");
+    if (resendBtn) {
+      if (Date.now() < verifyGateResendCooldownUntil) startVerifyGateResendCountdown(resendBtn);
+      resendBtn.addEventListener("click", function () { resendVerifyGateEmail(fbUser, resendBtn); });
+    }
+
+    var logoutBtn = document.getElementById("vg-logout");
+    if (logoutBtn) logoutBtn.addEventListener("click", function () {
+      clearVerifyGatePoll();
+      state.verifyGateError = null;
+      auth.signOut();
+    });
+
+    clearVerifyGatePoll();
+    verifyGatePollTimer = setInterval(function () {
+      fbUser.reload().then(function () {
+        if (fbUser.emailVerified) { clearVerifyGatePoll(); loginAs(fbUser); }
+      }).catch(function () { /* çevrimdışı olabilir, sessizce yeniden dener */ });
+    }, 4000);
+  }
+
+  function checkVerifyGate(fbUser, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = "Kontrol ediliyor…"; }
+    state.verifyGateError = null;
+    fbUser.reload().then(function () {
+      if (fbUser.emailVerified) {
+        clearVerifyGatePoll();
+        loginAs(fbUser);
+      } else {
+        state.verifyGateError = "Henüz doğrulanmamış görünüyor. Linke tıkladıktan sonra tekrar dene.";
+        renderVerifyGate(fbUser);
+      }
+    }).catch(function (err) {
+      state.verifyGateError = authErrorMessage(err);
+      renderVerifyGate(fbUser);
+    });
+  }
+
+  function resendVerifyGateEmail(fbUser, btn) {
+    if (Date.now() < verifyGateResendCooldownUntil) return;
+    if (btn) { btn.disabled = true; btn.textContent = "Gönderiliyor…"; }
+    fbUser.sendEmailVerification().then(function () {
+      toast("Doğrulama e-postası tekrar gönderildi.");
+      verifyGateResendCooldownUntil = Date.now() + 30000;
+      startVerifyGateResendCountdown(btn);
+    }).catch(function (err) {
+      toast(authErrorMessage(err));
+      if (btn) { btn.disabled = false; btn.textContent = "Linki Tekrar Gönder"; }
+    });
+  }
+
+  function startVerifyGateResendCountdown(btn) {
+    if (!btn) return;
+    btn.disabled = true;
+    var tick = function () {
+      if (!document.body.contains(btn)) return; // ekran değişmişse durdur
+      var remaining = Math.ceil((verifyGateResendCooldownUntil - Date.now()) / 1000);
+      if (remaining <= 0) { btn.disabled = false; btn.textContent = "Linki Tekrar Gönder"; return; }
+      btn.textContent = "Tekrar gönder (" + remaining + "sn)";
+      setTimeout(tick, 1000);
+    };
+    tick();
   }
 
   // ---------- rendering ----------
