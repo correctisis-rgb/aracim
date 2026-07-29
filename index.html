@@ -1011,7 +1011,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.4.3"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.4.4"; // Dynamic Version Tracking
   var APP_UPDATED = "29 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -2653,6 +2653,29 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       })
       .catch(function (err) { console.error(err); });
   }
+  // Normal "Çıkış Yap" akışında, bu cihazın kendi loginAudit kayıtlarını
+  // active:false yapar. Bu olmadan, kullanıcı bir cihazda (örn. iOS Safari)
+  // normal şekilde çıkış yapsa bile o cihazın kaydı "Bu Hesaba Bağlı
+  // Girişler" listesinde açıkmış gibi görünmeye devam ediyordu — çünkü
+  // sadece "Diğer Tüm Cihazlardan Çıkış Yap" butonu (forceLogoutOtherDevices)
+  // kayıtları kapatıyordu, o da yalnızca DİĞER cihazları kapatıyordu.
+  function closeThisDeviceLoginRecords(uid, deviceId) {
+    if (!uid || !deviceId) return Promise.resolve();
+    return db.collection("loginAudit").where("uid", "==", uid).where("deviceSessionId", "==", deviceId).get()
+      .then(function (snap) {
+        var batch = db.batch();
+        var hasWrites = false;
+        snap.forEach(function (d) {
+          var data = d.data() || {};
+          if (data.active !== false) {
+            batch.update(d.ref, { active: false, closedAt: firebase.firestore.FieldValue.serverTimestamp() });
+            hasWrites = true;
+          }
+        });
+        if (hasWrites) return batch.commit();
+      })
+      .catch(function (err) { console.error(err); });
+  }
   // Admin: tüm kullanıcılara ait giriş denetim kaydı.
   function loadLoginAuditLogs(force) {
     if (!state.currentUser || !isAdminUser(state.currentUser)) return;
@@ -3900,7 +3923,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (unsubscribeMySupportRequests) { unsubscribeMySupportRequests(); unsubscribeMySupportRequests = null; }
     monitoring.openSupportCount = 0;
     monitoring.mySupportRequests = null;
-    auth.signOut().then(function () {
+    var uidBeforeLogout = state.currentUser ? state.currentUser.id : null;
+    var deviceIdBeforeLogout = getDeviceSessionId();
+    closeThisDeviceLoginRecords(uidBeforeLogout, deviceIdBeforeLogout).then(function () {
+      return auth.signOut();
+    }).then(function () {
       state.currentUser = null;
       state.cars = null;
       state.expenses = null;
