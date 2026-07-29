@@ -180,6 +180,11 @@
   .car-tab-add { padding: 8px 14px; border-style: dashed; }
   .car-tab-more { padding: 8px 14px; opacity: .8; }
   .car-tab-more:hover { opacity: 1; }
+  .car-tab-passive { opacity: .55; }
+  .car-tab-passive:hover { opacity: .8; }
+  .status-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; margin-left: 6px; vertical-align: middle; }
+  .status-badge.passive { color: var(--muted); background: color-mix(in srgb, var(--muted) 16%, transparent); border: 1px solid color-mix(in srgb, var(--muted) 40%, transparent); }
+  .status-badge.terminated { color: var(--red); background: #E2574C1A; border: 1px solid #E2574C40; }
   .car-avatar { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; flex-shrink: 0; background: var(--surface-2); cursor: pointer; transition: transform 0.2s; }
   .car-avatar:hover { transform: scale(1.1); }
   .car-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
@@ -509,6 +514,10 @@
   body.view-only-role [data-action="open-add-driver"],
   body.view-only-role [data-action="open-edit-driver"],
   body.view-only-role [data-action="delete-driver"],
+  body.view-only-role [data-action="deactivate-car"],
+  body.view-only-role [data-action="activate-car"],
+  body.view-only-role [data-action="open-terminate-driver"],
+  body.view-only-role [data-action="rehire-driver"],
   body.view-only-role [data-action="open-quick-appt"] {
     display: none !important;
   }
@@ -1002,8 +1011,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.3.8"; // Dynamic Version Tracking
-  var APP_UPDATED = "27 Temmuz 2026";
+  var APP_VERSION = "v2.3.9"; // Dynamic Version Tracking
+  var APP_UPDATED = "29 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -1617,6 +1626,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (!r.carIds) return all;
     return all.filter(function (c) { return r.carIds.indexOf(c.id) !== -1; });
   }
+  function carHasExpenses(carId) {
+    return (state.expenses || []).some(function (e) { return e.carId === carId; });
+  }
   function visibleDriversForMe() {
     var all = state.drivers || [];
     var r = myAccessRestriction();
@@ -1981,6 +1993,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (action === "edit") return '<span class="mon-badge warn">✏️ Düzenlendi</span>';
     if (action === "delete") return '<span class="mon-badge bad">🗑️ Silindi</span>';
     if (action === "restore") return '<span class="mon-badge ok">↩️ Geri Alındı</span>';
+    if (action === "deactivate") return '<span class="mon-badge bad">🚫 Pasife Alındı</span>';
+    if (action === "activate") return '<span class="mon-badge ok">✅ Aktife Alındı</span>';
+    if (action === "terminate") return '<span class="mon-badge bad">👋 İşten Çıkarıldı</span>';
+    if (action === "reactivate") return '<span class="mon-badge ok">🔄 Yeniden İşe Alındı</span>';
     return "";
   }
   function hasUnseenActivityLog() {
@@ -4699,7 +4715,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     html += '<button class="car-tab ' + (state.selectedCarId === "all" ? "active" : "") + '" style="--tab-color:#EDEEF0" data-action="select-car" data-car="all">🚘 Tüm Araçlar</button>';
     carTabsToShow.forEach(function (c) {
       var avatar = c.photo ? '<img class="car-avatar" src="' + c.photo + '" alt="" loading="lazy" data-action="open-lightbox" data-src="' + c.photo + '" data-caption="' + esc(c.name) + '" />' : '<span class="car-dot" style="background:' + c.color + '"></span>';
-      html += '<button class="car-tab ' + (state.selectedCarId === c.id ? "active" : "") + '" style="--tab-color:' + c.color + '" data-action="select-car" data-car="' + c.id + '">' + avatar + esc(c.name) + '</button>';
+      var isPassive = c.status === "passive";
+      html += '<button class="car-tab ' + (state.selectedCarId === c.id ? "active" : "") + (isPassive ? " car-tab-passive" : "") + '" style="--tab-color:' + c.color + '" data-action="select-car" data-car="' + c.id + '">' + avatar + esc(c.name) + (isPassive ? ' <span class="status-badge passive">Pasif</span>' : '') + '</button>';
     });
     if (carsCollapsed) {
       html += '<button type="button" class="car-tab car-tab-more" data-action="toggle-cars-expanded">▾ Daha Fazla (' + filteredCarsList.length + ')</button>';
@@ -4884,9 +4901,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (fuelStats) stats += '<span class="car-stat-chip"><span class="csc-label">Ort. tüketim</span>⛽ ' + fuelStats.avgConsumption.toFixed(1).replace(".", ",") + ' L/100km</span>';
     if (!stats) stats = '<span class="empty-hint" style="font-size:12px">Km ve masraf ekledikçe istatistikler burada görünecek.</span>';
 
+    var isPassive = car.status === "passive";
+    var hasExp = carHasExpenses(car.id);
+
     return '<section class="panel car-info-card">' +
       '<div class="car-info-top">' + photo +
-        '<div class="car-info-main"><h2 class="car-info-name">' + esc(car.name) + '</h2><p class="car-info-meta">' + meta + '</p></div>' +
+        '<div class="car-info-main"><h2 class="car-info-name">' + esc(car.name) + (isPassive ? ' <span class="status-badge passive">🚫 Pasif</span>' : '') + '</h2><p class="car-info-meta">' + meta + '</p></div>' +
       '</div>' +
       '<div class="car-info-stats">' + stats + '</div>' +
       '<div class="quick-actions-row">' +
@@ -4898,7 +4918,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       '<div class="car-info-actions">' +
         (car.ruhsat ? '<button class="link-btn" data-action="open-lightbox" data-src="' + car.ruhsat + '" data-caption="' + esc(car.name) + ' Ruhsatı">🪪 Ruhsatı Gör</button>' : '') +
         '<button class="link-btn" data-action="open-edit-car" data-car="' + car.id + '">✏️ Araç / Ruhsat Düzenle</button>' +
-        '<button class="link-btn danger" data-action="delete-car" data-car="' + car.id + '">🗑️ Bu aracı sil</button>' +
+        (isPassive
+          ? '<button class="link-btn" data-action="activate-car" data-car="' + car.id + '">✅ Aracı Aktife Al</button>'
+          : '<button class="link-btn" data-action="deactivate-car" data-car="' + car.id + '">🚫 Aracı Pasife Al</button>') +
+        (hasExp
+          ? '<p class="field-hint" style="margin:0;width:100%">Bu aracın masraf kaydı olduğu için silinemez; bunun yerine pasife alabilirsin.</p>'
+          : '<button class="link-btn danger" data-action="delete-car" data-car="' + car.id + '">🗑️ Bu aracı sil</button>') +
       '</div>' +
       '</section>';
   }
@@ -5018,6 +5043,48 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     closeModal();
     render();
     toast(apptVal ? "Randevu kaydedildi." : "Randevu kaldırıldı.");
+  }
+
+  function buildTerminateDriverModal() {
+    var m = state.modal || {};
+    var driver = (state.drivers || []).find(function (d) { return d.id === m.driverId; });
+    var modal = document.createElement("div");
+    modal.className = "modal";
+    modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
+    modal.innerHTML =
+      '<div class="modal-head"><h3>👋 İşten Çıkar' + (driver ? " — " + esc(driver.name) : "") + '</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>' +
+      '<p class="field-hint" style="margin-top:-4px">Şoför işten çıkarılacak; listede "Ayrıldı" olarak görünecek ama tüm geçmiş kayıtları olduğu gibi kalacak. Dilediğin zaman yeniden işe alabilirsin.</p>' +
+      '<label class="field"><span>İşten çıkış tarihi</span><input type="date" id="td-date" value="' + esc(todayStr()) + '" /></label>' +
+      '<div class="budget-row">' +
+        '<button type="button" class="btn-secondary full" data-action="close-modal">Vazgeç</button>' +
+        '<button type="button" class="btn-danger full" id="td-save">İşten Çıkar</button>' +
+      '</div>';
+    modal.querySelector("#td-save").addEventListener("click", function () {
+      var dateVal = modal.querySelector("#td-date").value || todayStr();
+      terminateDriver(m.driverId, dateVal);
+    });
+    return modal;
+  }
+
+  function terminateDriver(driverId, dateVal) {
+    var driver = (state.drivers || []).find(function (d) { return d.id === driverId; });
+    if (!driver) return;
+    state.drivers = (state.drivers || []).map(function (d) { return d.id === driverId ? Object.assign({}, d, { employmentStatus: "terminated", terminationDate: dateVal }) : d; });
+    persistDrivers();
+    logActivity("driver", "terminate", { summary: driver.name + " işten çıkarıldı (" + fmtDateTR(dateVal) + ")" });
+    closeModal();
+    render();
+    toast("Şoför işten çıkarıldı.");
+  }
+
+  function rehireDriver(driverId) {
+    var driver = (state.drivers || []).find(function (d) { return d.id === driverId; });
+    if (!driver) return;
+    state.drivers = (state.drivers || []).map(function (d) { return d.id === driverId ? Object.assign({}, d, { employmentStatus: "active", terminationDate: null }) : d; });
+    persistDrivers();
+    logActivity("driver", "reactivate", { summary: driver.name + " yeniden işe alındı." });
+    render();
+    toast("Şoför yeniden işe alındı.");
   }
 
   function buildQuickApptModal() {
@@ -5644,6 +5711,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       backdrop.appendChild(buildHouseholdScanModal());
     } else if (state.modal.type === "addDriver" || state.modal.type === "editDriver") {
       backdrop.appendChild(buildDriverModal());
+    } else if (state.modal.type === "terminateDriver") {
+      backdrop.appendChild(buildTerminateDriverModal());
     } else if (state.modal.type === "bulkImport") {
       backdrop.appendChild(buildBulkImportModal());
     } else if (state.modal.type === "exportReport") {
@@ -6603,7 +6672,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   var ACTIVITY_TYPE_LABELS = { car: "🚗 Araç", driver: "🧑‍✈️ Şoför", expense: "🧾 Masraf" };
-  var ACTIVITY_ACTION_LABELS = { add: "➕ Eklendi", edit: "✏️ Düzenlendi", delete: "🗑️ Silindi", restore: "↩️ Geri Alındı" };
+  var ACTIVITY_ACTION_LABELS = { add: "➕ Eklendi", edit: "✏️ Düzenlendi", delete: "🗑️ Silindi", restore: "↩️ Geri Alındı", deactivate: "🚫 Pasife Alındı", activate: "✅ Aktife Alındı", terminate: "👋 İşten Çıkarıldı", reactivate: "🔄 Yeniden İşe Alındı" };
 
   function buildActivityLogModal() {
     var modal = document.createElement("div");
@@ -7244,9 +7313,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       '</div>' +
       '<label class="field"><span>Şoför (opsiyonel)</span><select id="f-driver">' +
         '<option value="">Şoför atanmadı</option>' +
-        (state.drivers || []).map(function (d) {
+        (state.drivers || []).filter(function (d) {
           var assigned = car ? ((d.carIds || []).indexOf(car.id) !== -1) : false;
-          return '<option value="' + d.id + '"' + (assigned ? " selected" : "") + '>' + esc(d.name) + '</option>';
+          return d.employmentStatus !== "terminated" || assigned;
+        }).map(function (d) {
+          var assigned = car ? ((d.carIds || []).indexOf(car.id) !== -1) : false;
+          var terminatedSuffix = d.employmentStatus === "terminated" ? " (Ayrıldı)" : "";
+          return '<option value="' + d.id + '"' + (assigned ? " selected" : "") + '>' + esc(d.name + terminatedSuffix) + '</option>';
         }).join("") +
       '</select></label>' +
       '<p class="field-hint" style="margin-top:-8px">Şoförleri buradan da atayabilirsin; yeni bir şoför eklemek için hesap menüsündeki "Şoförler" bölümünü kullan.</p>' +
@@ -7510,17 +7583,22 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           if (!c) return null;
           return c.name + (c.plate ? " (" + c.plate + ")" : "");
         }).filter(Boolean);
+        var isTerminated = d.employmentStatus === "terminated";
         html += '<li class="err-item">' +
           '<div class="err-item-head">' +
-            '<span class="driver-item-name">' + esc(d.name) + (d.worksAbroad ? '<span class="driver-abroad-badge">🛂 Yurtdışı</span>' : '') + '</span>' +
+            '<span class="driver-item-name">' + esc(d.name) + (d.worksAbroad ? '<span class="driver-abroad-badge">🛂 Yurtdışı</span>' : '') + (isTerminated ? '<span class="status-badge terminated">👋 Ayrıldı</span>' : '') + '</span>' +
             '<span class="driver-item-actions">' +
               '<button type="button" class="exp-del" data-action="open-edit-driver" data-id="' + d.id + '" title="Düzenle" aria-label="Düzenle">✏️</button>' +
+              (isTerminated
+                ? '<button type="button" class="exp-del" data-action="rehire-driver" data-id="' + d.id + '" title="Yeniden İşe Al" aria-label="Yeniden İşe Al">🔄</button>'
+                : '<button type="button" class="exp-del" data-action="open-terminate-driver" data-id="' + d.id + '" title="İşten Çıkar" aria-label="İşten Çıkar">👋</button>') +
               '<button type="button" class="exp-del" data-action="delete-driver" data-id="' + d.id + '" title="Sil" aria-label="Sil">🗑️</button>' +
             '</span>' +
           '</div>' +
           (d.phone ? '<div class="err-item-meta">📞 ' + esc(d.phone) + '</div>' : '') +
           '<div class="err-item-meta">🚗 ' + (carNames.length ? esc(carNames.join(", ")) : "Araç atanmadı") + '</div>' +
           (d.licenseClass ? '<div class="err-item-meta">🪪 Ehliyet: ' + esc(d.licenseClass) + '</div>' : '') +
+          (isTerminated && d.terminationDate ? '<div class="err-item-meta">📅 İşten çıkış: ' + esc(fmtDateTR(d.terminationDate)) + '</div>' : '') +
         '</li>';
       });
       html += '</ul>';
@@ -9010,7 +9088,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         // Sadece görüntüleyebilen üyeler bu eylemleri tetikleyemez (ilgili
         // düğmeler CSS ile zaten gizleniyor; bu, programatik/eski DOM
         // durumlarına karşı ikinci bir savunma katmanı).
-        var MANAGE_ONLY_ACTIONS = ["open-add-car", "open-edit-car", "delete-car", "open-edit-expense", "delete-expense", "open-add-driver", "open-edit-driver", "delete-driver", "open-quick-appt"];
+        var MANAGE_ONLY_ACTIONS = ["open-add-car", "open-edit-car", "delete-car", "deactivate-car", "activate-car", "open-edit-expense", "delete-expense", "open-add-driver", "open-edit-driver", "delete-driver", "open-terminate-driver", "rehire-driver", "open-quick-appt"];
         var ADD_EXPENSE_ACTIONS = ["open-add-expense"];
         var BACKUP_ACTIONS = ["export-data"];
         var REPORT_ACTIONS = ["open-export-report", "share-report"];
@@ -9159,6 +9237,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         }
         else if (action === "delete-car") {
           var carId = el.getAttribute("data-car");
+          if (carHasExpenses(carId)) {
+            toast("Bu aracın masraf kaydı var, silinemez. Bunun yerine pasife alabilirsin.");
+            return;
+          }
           showConfirm({
             title: "Aracı Sil",
             message: "Bu aracı ve tüm masraf kayıtlarını silmek istediğinize emin misiniz? Silme sonrası kısa bir süre geri alabilirsiniz.",
@@ -9201,6 +9283,33 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
               });
             }
           });
+        }
+        else if (action === "deactivate-car") {
+          var deactCarId = el.getAttribute("data-car");
+          showConfirm({
+            title: "Aracı Pasife Al",
+            message: "Bu araç pasife alınacak; araç sekmelerinde soluk görünecek ve yeni masraf eklerken önerilmeyecek, ama tüm geçmiş kayıtları olduğu gibi kalacak. Devam edilsin mi?",
+            confirmLabel: "Pasife Al",
+            onConfirm: function () {
+              var car = (state.cars || []).find(function (c) { return c.id === deactCarId; });
+              if (!car) return;
+              state.cars = (state.cars || []).map(function (c) { return c.id === deactCarId ? Object.assign({}, c, { status: "passive" }) : c; });
+              persistFields(["cars"]);
+              logActivity("car", "deactivate", { carId: deactCarId, carName: car.name, summary: "Araç pasife alındı: " + car.name });
+              render();
+              toast("Araç pasife alındı.");
+            }
+          });
+        }
+        else if (action === "activate-car") {
+          var actCarId = el.getAttribute("data-car");
+          var actCar = (state.cars || []).find(function (c) { return c.id === actCarId; });
+          if (!actCar) return;
+          state.cars = (state.cars || []).map(function (c) { return c.id === actCarId ? Object.assign({}, c, { status: "active" }) : c; });
+          persistFields(["cars"]);
+          logActivity("car", "activate", { carId: actCarId, carName: actCar.name, summary: "Araç aktife alındı: " + actCar.name });
+          render();
+          toast("Araç aktife alındı.");
         }
         else if (action === "close-modal") { closeModal(); }
         else if (action === "back-to-profile") { ev.stopPropagation(); state.modal = { type: "profile" }; render(); }
@@ -9274,6 +9383,17 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         }
         else if (action === "open-add-driver") { state.modal = { type: "addDriver" }; render(); }
         else if (action === "open-edit-driver") { state.modal = { type: "editDriver", driverId: el.getAttribute("data-id") }; render(); }
+        else if (action === "open-terminate-driver") { state.modal = { type: "terminateDriver", driverId: el.getAttribute("data-id") }; render(); }
+        else if (action === "rehire-driver") {
+          var rehireDriverId = el.getAttribute("data-id");
+          var rehireDriverObj = (state.drivers || []).find(function (d) { return d.id === rehireDriverId; });
+          showConfirm({
+            title: "Yeniden İşe Al",
+            message: (rehireDriverObj ? rehireDriverObj.name : "Bu şoförü") + " yeniden işe almak istediğine emin misin?",
+            confirmLabel: "Yeniden İşe Al",
+            onConfirm: function () { rehireDriver(rehireDriverId); }
+          });
+        }
         else if (action === "delete-driver") {
           var driverId = el.getAttribute("data-id");
           showConfirm({
