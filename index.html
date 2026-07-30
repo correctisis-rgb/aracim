@@ -1011,7 +1011,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.4.5"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.4.6"; // Dynamic Version Tracking
   var APP_UPDATED = "30 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -7017,17 +7017,27 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   function buildVehicleTrackingModal() {
     var modal = document.createElement("div");
-    modal.className = "modal";
+    modal.className = "modal wide";
     modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
 
+    var selectedId = (state.modal && state.modal.providerId) || "";
+    var provider = VEHICLE_TRACKING_PROVIDERS.find(function (p) { return p.id === selectedId; });
+
     var html = '<div class="modal-head"><h3>📡 Araç Takip</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>';
-    html += '<p class="field-hint" style="margin-top:-4px">Araç takip sisteminizi seçin, ilgili siteye yönlendirilesiniz.</p>';
+    html += '<p class="field-hint" style="margin-top:-4px">Araç takip sisteminizi seçin, uygulama içinde açılsın.</p>';
     html += '<label class="field"><span>Araç Takip Sistemi</span><select id="vehicle-tracking-select">';
     html += '<option value="">Seçiniz…</option>';
     VEHICLE_TRACKING_PROVIDERS.forEach(function (p) {
-      html += '<option value="' + esc(p.id) + '">' + esc(p.label) + '</option>';
+      html += '<option value="' + esc(p.id) + '"' + (p.id === selectedId ? ' selected' : '') + '>' + esc(p.label) + '</option>';
     });
     html += '</select></label>';
+
+    if (provider) {
+      html += '<div style="margin-top:12px; border:1px solid var(--border); border-radius:10px; overflow:hidden; height:70vh; background:var(--surface-2);">' +
+        '<iframe src="' + esc(provider.url) + '" title="' + esc(provider.label) + '" style="width:100%; height:100%; border:0;" loading="lazy" referrerpolicy="no-referrer"></iframe>' +
+      '</div>';
+      html += '<p class="field-hint" id="vehicle-tracking-iframe-hint" style="margin-top:8px;">Site burada açılmıyorsa, ilgili sağlayıcı sayfasının uygulama içinde gösterilmesine izin vermiyor olabilir.</p>';
+    }
 
     modal.innerHTML = html;
     return modal;
@@ -7037,10 +7047,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var sel = document.getElementById("vehicle-tracking-select");
     if (!sel) return;
     sel.addEventListener("change", function () {
-      var provider = VEHICLE_TRACKING_PROVIDERS.find(function (p) { return p.id === sel.value; });
-      if (provider) {
-        window.open(provider.url, "_blank", "noopener");
-      }
+      if (!state.modal || state.modal.type !== "vehicleTracking") return;
+      state.modal.providerId = sel.value || null;
+      render();
     });
   }
 
@@ -9704,7 +9713,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         }
         else if (action === "open-vehicle-tracking") {
           ev.stopPropagation();
-          state.modal = { type: "vehicleTracking" };
+          state.modal = { type: "vehicleTracking", providerId: null };
           state.accountMenuOpen = false;
           render();
         }
