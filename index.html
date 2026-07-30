@@ -385,10 +385,20 @@
   .modal.wide { max-width: 460px; }
   .modal.modal-admin { max-width: 560px; }
   .modal.tracking-modal { max-width: 1400px; width: 95vw; height: 92vh; max-height: 92vh; display: flex; flex-direction: column; }
-  .modal.tracking-modal .vehicle-tracking-frame-wrap { flex: 1; min-height: 0; }
+  .modal.tracking-modal .vehicle-tracking-frame-wrap { flex: 1; min-height: 0; margin-top: 8px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface-2); }
   @media (max-width: 640px) {
     .modal.tracking-modal { width: 100vw; height: 100vh; max-height: 100vh; border-radius: 0; }
   }
+  .vt-controls-grid { display: grid; grid-template-rows: 1fr; transition: grid-template-rows .35s ease, opacity .3s ease; opacity: 1; flex-shrink: 0; }
+  .vt-controls-grid.collapsed { grid-template-rows: 0fr; opacity: 0; }
+  .vt-controls-inner { overflow: hidden; min-height: 0; }
+  .vt-toggle-handle {
+    display: block; width: 100%; text-align: center; background: var(--surface-2);
+    border: 1px solid var(--border); border-radius: 8px; padding: 7px; margin-top: 8px;
+    font-size: 12.5px; font-weight: 600; color: var(--muted); cursor: pointer; font-family: inherit;
+    flex-shrink: 0; transition: color .15s ease, border-color .15s ease;
+  }
+  .vt-toggle-handle:hover { color: var(--text); border-color: var(--amber); }
   .modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
   .modal-head h3 { margin: 0; font-family: 'Oswald', sans-serif; font-weight: 600; font-size: 18px; }
   .icon-btn { background: none; border: none; color: var(--muted); cursor: pointer; padding: 8px; font-size: 18px; line-height: 1; min-width: 40px; min-height: 40px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; }
@@ -7044,11 +7054,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var selectedId = (state.modal && state.modal.providerId) || "";
     var provider = providers.find(function (p) { return p.id === selectedId; });
     var isAdding = !!(state.modal && state.modal.addingProvider);
+    var isCollapsed = !!(state.modal && state.modal.controlsCollapsed) && provider && !isAdding;
 
     modal.className = "modal tracking-modal";
     modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
 
     var html = '<div class="modal-head"><h3>📡 Araç Takip</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>';
+
+    html += '<div class="vt-controls-grid' + (isCollapsed ? ' collapsed' : '') + '" id="vehicle-tracking-controls"><div class="vt-controls-inner">';
     html += '<p class="field-hint" style="margin-top:-4px">Araç takip sisteminizi seçin, uygulama içinde açılsın.</p>';
     html += '<label class="field"><span>Araç Takip Sistemi</span><select id="vehicle-tracking-select">';
     html += '<option value="">Seçiniz…</option>';
@@ -7072,16 +7085,30 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         '<button type="button" class="btn-primary full" data-action="save-tracking-provider">💾 Kaydet</button>' +
       '</div>';
     }
+    html += '</div></div>';
 
     if (provider && !isAdding) {
-      html += '<div class="vehicle-tracking-frame-wrap" style="margin-top:12px; border:1px solid var(--border); border-radius:10px; overflow:hidden; background:var(--surface-2);">' +
+      html += '<button type="button" class="vt-toggle-handle" id="vehicle-tracking-toggle-handle" aria-label="Sistem listesini göster/gizle">' +
+        (isCollapsed ? '🔽 ' + esc(provider.label) + ' — sistemi değiştir' : '🔼 Listeyi gizle') +
+      '</button>';
+      html += '<div class="vehicle-tracking-frame-wrap">' +
         '<iframe src="' + esc(provider.url) + '" title="' + esc(provider.label) + '" style="width:100%; height:100%; border:0; display:block;" loading="lazy" referrerpolicy="no-referrer"></iframe>' +
       '</div>';
-      html += '<p class="field-hint" id="vehicle-tracking-iframe-hint" style="margin-top:8px;">Site burada açılmıyorsa, ilgili sağlayıcı sayfasının uygulama içinde gösterilmesine izin vermiyor olabilir.</p>';
     }
 
     modal.innerHTML = html;
     return modal;
+  }
+
+  function collapseVehicleTrackingControls() {
+    var controlsEl = document.getElementById("vehicle-tracking-controls");
+    var handle = document.getElementById("vehicle-tracking-toggle-handle");
+    if (controlsEl) controlsEl.classList.add("collapsed");
+    if (handle && state.modal && state.modal.providerId) {
+      var p = getAllTrackingProviders().find(function (x) { return x.id === state.modal.providerId; });
+      handle.textContent = "🔽 " + (p ? p.label : "Sistem") + " — sistemi değiştir";
+    }
+    if (state.modal) state.modal.controlsCollapsed = true;
   }
 
   function bindVehicleTrackingModal() {
@@ -7091,7 +7118,24 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         if (!state.modal || state.modal.type !== "vehicleTracking") return;
         state.modal.providerId = sel.value || null;
         state.modal.addingProvider = false;
+        state.modal.controlsCollapsed = false;
         render();
+        if (state.modal.providerId) {
+          setTimeout(collapseVehicleTrackingControls, 550);
+        }
+      });
+    }
+    var handle = document.getElementById("vehicle-tracking-toggle-handle");
+    if (handle) {
+      handle.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        var controlsEl = document.getElementById("vehicle-tracking-controls");
+        if (!controlsEl || !state.modal) return;
+        var willCollapse = !controlsEl.classList.contains("collapsed");
+        controlsEl.classList.toggle("collapsed", willCollapse);
+        state.modal.controlsCollapsed = willCollapse;
+        var p = getAllTrackingProviders().find(function (x) { return x.id === state.modal.providerId; });
+        handle.textContent = willCollapse ? "🔽 " + (p ? p.label : "Sistem") + " — sistemi değiştir" : "🔼 Listeyi gizle";
       });
     }
   }
@@ -9756,7 +9800,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         }
         else if (action === "open-vehicle-tracking") {
           ev.stopPropagation();
-          state.modal = { type: "vehicleTracking", providerId: null, addingProvider: false };
+          state.modal = { type: "vehicleTracking", providerId: null, addingProvider: false, controlsCollapsed: false };
           state.accountMenuOpen = false;
           render();
         }
@@ -9764,6 +9808,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           ev.stopPropagation();
           if (!state.modal || state.modal.type !== "vehicleTracking") return;
           state.modal.addingProvider = !state.modal.addingProvider;
+          state.modal.controlsCollapsed = false;
           render();
         }
         else if (action === "save-tracking-provider") {
@@ -9783,9 +9828,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           var tpId = "custom_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
           tpList.push({ id: tpId, label: tpName, url: tpUrl, custom: true });
           saveCustomTrackingProviders(tpList);
-          state.modal = { type: "vehicleTracking", providerId: tpId, addingProvider: false };
+          state.modal = { type: "vehicleTracking", providerId: tpId, addingProvider: false, controlsCollapsed: false };
           render();
           toast("Araç takip sistemi eklendi.");
+          setTimeout(collapseVehicleTrackingControls, 550);
         }
         else if (action === "delete-tracking-provider") {
           ev.stopPropagation();
