@@ -1011,8 +1011,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.4.4"; // Dynamic Version Tracking
-  var APP_UPDATED = "29 Temmuz 2026";
+  var APP_VERSION = "v2.4.5"; // Dynamic Version Tracking
+  var APP_UPDATED = "30 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -4878,6 +4878,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             '<button type="button" class="account-menu-item" data-action="open-activity-log">🕒 Aktivite Geçmişi' + (hasUnseenActivityLog() ? ' <span class="account-chip-dot" aria-hidden="true"></span>' : '') + '</button>' +
             (myPerms.seeDrivers ? '<button type="button" class="account-menu-item" data-action="set-main-section" data-section="drivers">🧑‍✈️ Şoförler</button>' : '') +
             '<button type="button" class="account-menu-item" data-action="set-main-section" data-section="calendar">📅 Takvim' + (calendarHasUrgent ? ' <span class="account-chip-dot" aria-hidden="true"></span>' : '') + '</button>' +
+            '<button type="button" class="account-menu-item" data-action="open-vehicle-tracking">📡 Araç Takip</button>' +
             '<div class="account-menu-divider"></div>' +
             '<button type="button" class="account-menu-item" data-action="open-bulk-import">📥 Toplu İçe Aktar (Excel)</button>' +
             '<button type="button" class="account-menu-item" data-action="open-export-report">📊 Rapor İndir (Excel / PDF)</button>' +
@@ -5022,6 +5023,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     bindLogInfiniteScroll();
     bindEntitySearchFilters();
     bindAnalysisPanel();
+    bindVehicleTrackingModal();
 
     if (activeId) {
       var restoredEl = document.getElementById(activeId);
@@ -5951,6 +5953,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       backdrop.appendChild(buildExportReportModal());
     } else if (state.modal.type === "memberPerms") {
       backdrop.appendChild(buildMemberPermsModal());
+    } else if (state.modal.type === "vehicleTracking") {
+      backdrop.appendChild(buildVehicleTrackingModal());
     }
     document.body.appendChild(backdrop);
 
@@ -7005,6 +7009,39 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     }
     html += '</div>';
     return html;
+  }
+
+  var VEHICLE_TRACKING_PROVIDERS = [
+    { id: "arvento", label: "Arvento", url: "https://arvento.com/" }
+  ];
+
+  function buildVehicleTrackingModal() {
+    var modal = document.createElement("div");
+    modal.className = "modal";
+    modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
+
+    var html = '<div class="modal-head"><h3>📡 Araç Takip</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>';
+    html += '<p class="field-hint" style="margin-top:-4px">Araç takip sisteminizi seçin, ilgili siteye yönlendirilesiniz.</p>';
+    html += '<label class="field"><span>Araç Takip Sistemi</span><select id="vehicle-tracking-select">';
+    html += '<option value="">Seçiniz…</option>';
+    VEHICLE_TRACKING_PROVIDERS.forEach(function (p) {
+      html += '<option value="' + esc(p.id) + '">' + esc(p.label) + '</option>';
+    });
+    html += '</select></label>';
+
+    modal.innerHTML = html;
+    return modal;
+  }
+
+  function bindVehicleTrackingModal() {
+    var sel = document.getElementById("vehicle-tracking-select");
+    if (!sel) return;
+    sel.addEventListener("change", function () {
+      var provider = VEHICLE_TRACKING_PROVIDERS.find(function (p) { return p.id === sel.value; });
+      if (provider) {
+        window.open(provider.url, "_blank", "noopener");
+      }
+    });
   }
 
   function buildHelpModal() {
@@ -9664,6 +9701,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
               });
             }
           });
+        }
+        else if (action === "open-vehicle-tracking") {
+          ev.stopPropagation();
+          state.modal = { type: "vehicleTracking" };
+          state.accountMenuOpen = false;
+          render();
         }
         else if (action === "open-help") {
           ev.stopPropagation();
