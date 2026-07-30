@@ -7019,25 +7019,61 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   var VEHICLE_TRACKING_PROVIDERS = [
     { id: "arvento", label: "Arvento", url: "https://arvento.com/" }
   ];
+  var CUSTOM_TRACKING_KEY = "customTrackingProviders";
+
+  function loadCustomTrackingProviders() {
+    var list = getLocalData(CUSTOM_TRACKING_KEY, []);
+    return Array.isArray(list) ? list : [];
+  }
+  function saveCustomTrackingProviders(list) {
+    setLocalData(CUSTOM_TRACKING_KEY, list);
+  }
+  function getAllTrackingProviders() {
+    return VEHICLE_TRACKING_PROVIDERS.concat(loadCustomTrackingProviders());
+  }
+  function normalizeTrackingUrl(raw) {
+    var v = (raw || "").trim();
+    if (!v) return "";
+    if (!/^https?:\/\//i.test(v)) v = "https://" + v;
+    return v;
+  }
 
   function buildVehicleTrackingModal() {
     var modal = document.createElement("div");
     modal.className = "modal tracking-modal";
     modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
 
+    var providers = getAllTrackingProviders();
     var selectedId = (state.modal && state.modal.providerId) || "";
-    var provider = VEHICLE_TRACKING_PROVIDERS.find(function (p) { return p.id === selectedId; });
+    var provider = providers.find(function (p) { return p.id === selectedId; });
+    var isAdding = !!(state.modal && state.modal.addingProvider);
 
     var html = '<div class="modal-head"><h3>📡 Araç Takip</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>';
     html += '<p class="field-hint" style="margin-top:-4px">Araç takip sisteminizi seçin, uygulama içinde açılsın.</p>';
     html += '<label class="field"><span>Araç Takip Sistemi</span><select id="vehicle-tracking-select">';
     html += '<option value="">Seçiniz…</option>';
-    VEHICLE_TRACKING_PROVIDERS.forEach(function (p) {
+    providers.forEach(function (p) {
       html += '<option value="' + esc(p.id) + '"' + (p.id === selectedId ? ' selected' : '') + '>' + esc(p.label) + '</option>';
     });
     html += '</select></label>';
 
-    if (provider) {
+    html += '<div style="display:flex; gap:8px; align-items:center; margin-top:2px;">';
+    html += '<button type="button" class="btn-secondary" data-action="toggle-add-tracking-provider">' + (isAdding ? '✕ Vazgeç' : '➕ Ekle') + '</button>';
+    if (provider && provider.custom) {
+      html += '<button type="button" class="btn-secondary" data-action="delete-tracking-provider" data-id="' + esc(provider.id) + '">🗑 Kaldır</button>';
+    }
+    html += '</div>';
+
+    if (isAdding) {
+      html += '<div style="margin-top:10px; padding:12px; border:1px solid var(--border); border-radius:10px; background:var(--surface-2);">' +
+        '<label class="field"><span>İsim</span><input type="text" id="tracking-provider-name" placeholder="Örn. Vodafone Filo" maxlength="60"></label>' +
+        '<label class="field"><span>Link</span><input type="text" id="tracking-provider-url" placeholder="Örn. https://example.com" maxlength="300"></label>' +
+        '<p class="field-hint" id="tracking-provider-error" style="color:var(--red); display:none;"></p>' +
+        '<button type="button" class="btn-primary full" data-action="save-tracking-provider">💾 Kaydet</button>' +
+      '</div>';
+    }
+
+    if (provider && !isAdding) {
       html += '<div class="vehicle-tracking-frame-wrap" style="margin-top:12px; border:1px solid var(--border); border-radius:10px; overflow:hidden; background:var(--surface-2);">' +
         '<iframe src="' + esc(provider.url) + '" title="' + esc(provider.label) + '" style="width:100%; height:100%; border:0; display:block;" loading="lazy" referrerpolicy="no-referrer"></iframe>' +
       '</div>';
@@ -7050,12 +7086,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   function bindVehicleTrackingModal() {
     var sel = document.getElementById("vehicle-tracking-select");
-    if (!sel) return;
-    sel.addEventListener("change", function () {
-      if (!state.modal || state.modal.type !== "vehicleTracking") return;
-      state.modal.providerId = sel.value || null;
-      render();
-    });
+    if (sel) {
+      sel.addEventListener("change", function () {
+        if (!state.modal || state.modal.type !== "vehicleTracking") return;
+        state.modal.providerId = sel.value || null;
+        state.modal.addingProvider = false;
+        render();
+      });
+    }
   }
 
   function buildHelpModal() {
@@ -9718,9 +9756,57 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         }
         else if (action === "open-vehicle-tracking") {
           ev.stopPropagation();
-          state.modal = { type: "vehicleTracking", providerId: null };
+          state.modal = { type: "vehicleTracking", providerId: null, addingProvider: false };
           state.accountMenuOpen = false;
           render();
+        }
+        else if (action === "toggle-add-tracking-provider") {
+          ev.stopPropagation();
+          if (!state.modal || state.modal.type !== "vehicleTracking") return;
+          state.modal.addingProvider = !state.modal.addingProvider;
+          render();
+        }
+        else if (action === "save-tracking-provider") {
+          ev.stopPropagation();
+          var tpNameEl = document.getElementById("tracking-provider-name");
+          var tpUrlEl = document.getElementById("tracking-provider-url");
+          var tpErrEl = document.getElementById("tracking-provider-error");
+          var tpName = tpNameEl ? tpNameEl.value.trim() : "";
+          var tpUrl = normalizeTrackingUrl(tpUrlEl ? tpUrlEl.value : "");
+          var tpValid = true;
+          try { new URL(tpUrl); } catch (e) { tpValid = false; }
+          if (!tpName || !tpUrl || !tpValid) {
+            if (tpErrEl) { tpErrEl.textContent = "Lütfen geçerli bir isim ve link gir."; tpErrEl.style.display = "block"; }
+            return;
+          }
+          var tpList = loadCustomTrackingProviders();
+          var tpId = "custom_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+          tpList.push({ id: tpId, label: tpName, url: tpUrl, custom: true });
+          saveCustomTrackingProviders(tpList);
+          state.modal = { type: "vehicleTracking", providerId: tpId, addingProvider: false };
+          render();
+          toast("Araç takip sistemi eklendi.");
+        }
+        else if (action === "delete-tracking-provider") {
+          ev.stopPropagation();
+          var delId = el.getAttribute("data-id");
+          var delList = loadCustomTrackingProviders();
+          var delProvider = delList.find(function (p) { return p.id === delId; });
+          showConfirm({
+            title: "Araç Takip Sistemini Kaldır",
+            message: (delProvider ? delProvider.label : "Bu sistemi") + " listeden kaldırmak istediğine emin misin?",
+            confirmLabel: "Kaldır",
+            danger: true,
+            onConfirm: function () {
+              var newList = delList.filter(function (p) { return p.id !== delId; });
+              saveCustomTrackingProviders(newList);
+              if (state.modal && state.modal.type === "vehicleTracking" && state.modal.providerId === delId) {
+                state.modal.providerId = null;
+              }
+              render();
+              toast("Kaldırıldı.");
+            }
+          });
         }
         else if (action === "open-help") {
           ev.stopPropagation();
