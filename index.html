@@ -533,7 +533,10 @@
   body.view-only-role [data-action="activate-car"],
   body.view-only-role [data-action="open-terminate-driver"],
   body.view-only-role [data-action="rehire-driver"],
-  body.view-only-role [data-action="open-quick-appt"] {
+  body.view-only-role [data-action="open-quick-appt"],
+  body.view-only-role [data-action="open-add-ubak"],
+  body.view-only-role [data-action="open-edit-ubak"],
+  body.view-only-role [data-action="delete-ubak"] {
     display: none !important;
   }
   /* "Masraf ekleyebilir" izni kapalı üyeler için masraf ekleme düğmelerini gizle. */
@@ -1026,7 +1029,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.5.3"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.5.5"; // Dynamic Version Tracking
   var APP_UPDATED = "31 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -6155,6 +6158,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       backdrop.appendChild(buildMemberPermsModal());
     } else if (state.modal.type === "vehicleTracking") {
       backdrop.appendChild(buildVehicleTrackingModal());
+    } else if (state.modal.type === "addUbak" || state.modal.type === "editUbak") {
+      backdrop.appendChild(buildUbakModal());
     }
     document.body.appendChild(backdrop);
 
@@ -7160,7 +7165,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     } else {
       html += '<ul class="err-list" data-infinite-scroll="activity-log">';
       list.forEach(function (entry) {
-        var icon = entry.icon || (entry.type === "car" ? "🚗" : (entry.type === "driver" ? "🧑‍✈️" : "🧾"));
+        var icon = entry.icon || (entry.type === "car" ? "🚗" : (entry.type === "driver" ? "🧑‍✈️" : (entry.type === "ubak" ? "📘" : "🧾")));
         var isExpanded = !!expandedActivityIds[entry.id];
         var hasDetail = (entry.changes && entry.changes.length) || (entry.snapshot && entry.snapshot.length);
         html += '<li class="err-item act-item' + (isExpanded ? " expanded" : "") + '"' +
@@ -9765,7 +9770,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         // Sadece görüntüleyebilen üyeler bu eylemleri tetikleyemez (ilgili
         // düğmeler CSS ile zaten gizleniyor; bu, programatik/eski DOM
         // durumlarına karşı ikinci bir savunma katmanı).
-        var MANAGE_ONLY_ACTIONS = ["open-add-car", "open-edit-car", "delete-car", "deactivate-car", "activate-car", "open-edit-expense", "delete-expense", "open-add-driver", "open-edit-driver", "delete-driver", "open-terminate-driver", "rehire-driver", "open-quick-appt", "open-add-driver-expense", "delete-driver-expense", "open-edit-driver-expense"];
+        var MANAGE_ONLY_ACTIONS = ["open-add-car", "open-edit-car", "delete-car", "deactivate-car", "activate-car", "open-edit-expense", "delete-expense", "open-add-driver", "open-edit-driver", "delete-driver", "open-terminate-driver", "rehire-driver", "open-quick-appt", "open-add-driver-expense", "delete-driver-expense", "open-edit-driver-expense", "open-add-ubak", "open-edit-ubak", "delete-ubak"];
         var ADD_EXPENSE_ACTIONS = ["open-add-expense"];
         var BACKUP_ACTIONS = ["export-data"];
         var REPORT_ACTIONS = ["open-export-report", "share-report"];
@@ -10068,6 +10073,39 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         else if (action === "load-more-notif-history") {
           notifHistoryVisibleCount += NOTIF_HISTORY_PAGE_SIZE;
           render();
+        }
+        else if (action === "open-add-ubak") {
+          if (!(state.drivers || []).length) { toast("Önce en az bir şoför eklemelisin."); return; }
+          state.modal = { type: "addUbak" };
+          render();
+        }
+        else if (action === "open-edit-ubak") { state.modal = { type: "editUbak", ubakId: el.getAttribute("data-id") }; render(); }
+        else if (action === "delete-ubak") {
+          var ubakId = el.getAttribute("data-id");
+          showConfirm({
+            title: "Ubak Defterini Sil",
+            message: "Bu ubak defterini silmek istediğine emin misin?",
+            confirmLabel: "Sil",
+            danger: true,
+            onConfirm: function () {
+              var deletedNotebook = (state.ubakNotebooks || []).find(function (nb) { return nb.id === ubakId; });
+              var deletedNotebookIndex = (state.ubakNotebooks || []).indexOf(deletedNotebook);
+              state.ubakNotebooks = (state.ubakNotebooks || []).filter(function (nb) { return nb.id !== ubakId; });
+              persistUbakNotebooks();
+              logActivity("ubak", "delete", { summary: "Ubak defteri silindi: " + (deletedNotebook ? deletedNotebook.name : "") });
+              render();
+              toastWithUndo("Ubak defteri silindi.", function () {
+                if (deletedNotebook) {
+                  state.ubakNotebooks = state.ubakNotebooks || [];
+                  state.ubakNotebooks.splice(Math.min(deletedNotebookIndex, state.ubakNotebooks.length), 0, deletedNotebook);
+                  persistUbakNotebooks();
+                  logActivity("ubak", "restore", { summary: "Ubak defteri geri alındı: " + deletedNotebook.name });
+                  render();
+                }
+                toast("Ubak defteri geri alındı.");
+              });
+            }
+          });
         }
         else if (action === "open-add-driver") { state.modal = { type: "addDriver" }; render(); }
         else if (action === "open-add-driver-expense") {
