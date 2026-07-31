@@ -1026,7 +1026,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.5.4"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.5.3"; // Dynamic Version Tracking
   var APP_UPDATED = "31 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1373,6 +1373,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     familyMembers: getLocalData("family", []),
     drivers: getLocalData("drivers", []),
     driverExpenses: getLocalData("driver_expenses", []),
+    ubakNotebooks: getLocalData("ubak_notebooks", []),
     mainSection: "cars",
     selectedCarId: "all",
     view: "panel",
@@ -1512,6 +1513,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       state.budgets = data.budgets || state.budgets || {};
       state.drivers = data.drivers || state.drivers || [];
       state.driverExpenses = data.driverExpenses || state.driverExpenses || [];
+      state.ubakNotebooks = data.ubakNotebooks || state.ubakNotebooks || [];
       state.notifHistory = data.notifHistory || state.notifHistory || [];
       state.activityLog = data.activityLog || state.activityLog || [];
       state.license = data.license || null;
@@ -1858,6 +1860,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     budgets: { local: "budgets", get: function () { return state.budgets; } },
     drivers: { local: "drivers", get: function () { return state.drivers; } },
     driverExpenses: { local: "driver_expenses", get: function () { return state.driverExpenses; } },
+    ubakNotebooks: { local: "ubak_notebooks", get: function () { return state.ubakNotebooks; } },
     activityLog: { local: "activity_log", get: function () { return state.activityLog; } }
   };
   function persistFields(keys) {
@@ -1916,6 +1919,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var docId = dataDocId();
     if (!docId) return;
     db.collection("users").doc(docId).set({ driverExpenses: state.driverExpenses }, { merge: true })
+      .catch(function (err) { console.error(err); });
+  }
+  function persistUbakNotebooks() {
+    setLocalData("ubak_notebooks", state.ubakNotebooks);
+    if (!state.online) { markPendingSync(); return; }
+    var docId = dataDocId();
+    if (!docId) return;
+    db.collection("users").doc(docId).set({ ubakNotebooks: state.ubakNotebooks }, { merge: true })
       .catch(function (err) { console.error(err); });
   }
   // Araç silindiğinde, o araca ait vade/randevu/km hatırlatma dedup
@@ -3370,7 +3381,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // buton tıklamasından çağrıldıysa) gerekirse izin isteme diyaloğu açılabilir.
   function exportData(opts) {
     opts = opts || {};
-    var payload = { cars: state.cars, expenses: state.expenses, family: state.familyMembers, budgets: state.budgets, drivers: state.drivers, driverExpenses: state.driverExpenses, exportedAt: new Date().toISOString() };
+    var payload = { cars: state.cars, expenses: state.expenses, family: state.familyMembers, budgets: state.budgets, drivers: state.drivers, driverExpenses: state.driverExpenses, ubakNotebooks: state.ubakNotebooks, exportedAt: new Date().toISOString() };
     var json = JSON.stringify(payload, null, 2);
     var slug = state.currentUser ? state.currentUser.name.toLowerCase().replace(/[^a-z0-9ığüşöç]+/gi, "-").replace(/^-+|-+$/g, "") : "yedek";
     var fileName = "garaj-defteri-" + slug + "-" + todayStr() + ".json";
@@ -3440,7 +3451,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             state.budgets = data.budgets || {};
             state.drivers = Array.isArray(data.drivers) ? data.drivers : [];
             state.driverExpenses = Array.isArray(data.driverExpenses) ? data.driverExpenses : [];
-            persistFields(["cars", "expenses", "family", "budgets", "drivers", "driverExpenses"]);
+            state.ubakNotebooks = Array.isArray(data.ubakNotebooks) ? data.ubakNotebooks : [];
+            persistFields(["cars", "expenses", "family", "budgets", "drivers", "driverExpenses", "ubakNotebooks"]);
             toast("Yedek geri yüklendi.");
             render();
           }
@@ -3505,6 +3517,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         createPatch.budgets = state.budgets || {};
         createPatch.drivers = state.drivers || [];
         createPatch.driverExpenses = state.driverExpenses || [];
+        createPatch.ubakNotebooks = state.ubakNotebooks || [];
         createPatch.createdAt = firebase.firestore.FieldValue.serverTimestamp();
         docRef.set(createPatch, { merge: true }).catch(function (err) { console.error(err); });
         return;
@@ -3557,6 +3570,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         state.budgets = getLocalData("budgets", {});
         state.drivers = getLocalData("drivers", []);
         state.driverExpenses = getLocalData("driver_expenses", []);
+        state.ubakNotebooks = getLocalData("ubak_notebooks", []);
         render();
         tryOpenPendingDeepLink();
       }
@@ -3971,6 +3985,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       state.budgets = {};
       state.drivers = [];
       state.driverExpenses = [];
+      state.ubakNotebooks = [];
       state.license = null;
       state.householdId = null;
       state.householdInviteToken = null;
@@ -4869,9 +4884,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     // Üyenin erişemediği bir ana bölümde (Araçlar/Şoförler) kalmışsa,
     // erişebildiği ilk bölüme sessizce yönlendir. Takvim herkese açık
     // kaldığı için son çare olarak ona düşülür.
-    if (state.mainSection === "drivers" && !myPerms.seeDrivers) {
+    if ((state.mainSection === "drivers" || state.mainSection === "ubak") && !myPerms.seeDrivers) {
       state.mainSection = myPerms.seeCars ? "cars" : "calendar";
-    } else if (state.mainSection !== "drivers" && state.mainSection !== "calendar" && !myPerms.seeCars) {
+    } else if (state.mainSection !== "drivers" && state.mainSection !== "calendar" && state.mainSection !== "ubak" && !myPerms.seeCars) {
       state.mainSection = myPerms.seeDrivers ? "drivers" : "calendar";
     }
     // "Panel" ve "Analiz" görünümleri masraf/maliyet verisi içerdiği için
@@ -4953,9 +4968,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     if (user) {
       html += '<nav class="view-tabs section-tabs" aria-label="Ana bölüm seçimi" style="margin-bottom:14px">' +
-        (myPerms.seeCars ? '<button class="view-tab ' + (state.mainSection !== "drivers" && state.mainSection !== "calendar" ? "active" : "") + '" data-action="set-main-section" data-section="cars">🚗 Araçlar</button>' : '') +
+        (myPerms.seeCars ? '<button class="view-tab ' + (state.mainSection !== "drivers" && state.mainSection !== "calendar" && state.mainSection !== "ubak" ? "active" : "") + '" data-action="set-main-section" data-section="cars">🚗 Araçlar</button>' : '') +
         (myPerms.seeDrivers ? '<button class="view-tab ' + (state.mainSection === "drivers" ? "active" : "") + '" data-action="set-main-section" data-section="drivers">🧑‍✈️ Şoförler</button>' : '') +
         '<button class="view-tab ' + (state.mainSection === "calendar" ? "active" : "") + '" data-action="set-main-section" data-section="calendar">📅 Takvim' + (calendarHasUrgent ? '<span class="view-tab-flag"></span>' : '') + '</button>' +
+        (myPerms.seeDrivers ? '<button class="view-tab ' + (state.mainSection === "ubak" ? "active" : "") + '" data-action="set-main-section" data-section="ubak">📘 Ubak Defterleri</button>' : '') +
         '</nav>';
     }
 
@@ -4963,6 +4979,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       html += renderDriversSection();
     } else if (state.mainSection === "calendar") {
       html += renderCalendarSection(calendarItems);
+    } else if (state.mainSection === "ubak") {
+      html += renderUbakSection();
     } else {
 
     // car tabs
@@ -5051,7 +5069,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     app.innerHTML = html;
     restoreChartCanvases();
 
-    if (state.mainSection !== "drivers" && state.mainSection !== "calendar" && (state.view === "panel" || state.view === "analiz")) drawCharts();
+    if (state.mainSection !== "drivers" && state.mainSection !== "calendar" && state.mainSection !== "ubak" && (state.view === "panel" || state.view === "analiz")) drawCharts();
     if (state.modal) renderModal();
     if (state.lightbox) renderLightbox();
 
@@ -5362,22 +5380,24 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // Şoförler bölümünden eklenen sade masraf: araç seçimi, kategori,
   // km/litre yok — sadece Şoför, Tutar, Tarih ve opsiyonel Not.
   function buildDriverExpenseModal() {
-    var driversList = visibleDriversForMe().filter(function (d) { return d.employmentStatus !== "terminated"; });
+    var isEdit = state.modal.type === "editDriverExpense";
+    var editingDriverExpense = isEdit ? (state.driverExpenses || []).find(function (de) { return de.id === state.modal.driverExpenseId; }) : null;
+    var driversList = visibleDriversForMe().filter(function (d) { return d.employmentStatus !== "terminated" || (editingDriverExpense && d.id === editingDriverExpense.driverId); });
     var modal = document.createElement("div");
     modal.className = "modal";
     modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
 
-    var driverOptions = driversList.map(function (d) { return '<option value="' + d.id + '">' + esc(d.name) + '</option>'; }).join("");
+    var driverOptions = driversList.map(function (d) { return '<option value="' + d.id + '"' + (editingDriverExpense && editingDriverExpense.driverId === d.id ? " selected" : "") + '>' + esc(d.name) + '</option>'; }).join("");
 
     modal.innerHTML =
-      '<div class="modal-head"><h3>Şoför Masrafı Ekle</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>' +
+      '<div class="modal-head"><h3>' + (isEdit ? "Şoför Masrafını Düzenle" : "Şoför Masrafı Ekle") + '</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>' +
       '<label class="field"><span>Şoför</span><select id="de-driver">' + driverOptions + '</select></label>' +
       '<div class="field-row">' +
-        '<label class="field"><span>Tutar (₺)</span><input id="de-amount" type="text" inputmode="decimal" placeholder="Örn. 1.250,50" /></label>' +
-        '<label class="field"><span>Tarih</span><input id="de-date" type="date" value="' + todayStr() + '" /></label>' +
+        '<label class="field"><span>Tutar (₺)</span><input id="de-amount" type="text" inputmode="decimal" value="' + (editingDriverExpense ? numberToDisplay(editingDriverExpense.amount, true) : "") + '" placeholder="Örn. 1.250,50" /></label>' +
+        '<label class="field"><span>Tarih</span><input id="de-date" type="date" value="' + (editingDriverExpense ? editingDriverExpense.date : todayStr()) + '" /></label>' +
       '</div>' +
-      '<label class="field"><span>Not (opsiyonel)</span><input id="de-note" placeholder="Örn. Yol masrafı" /></label>' +
-      '<button class="btn-primary full" id="de-save" style="margin-top:12px">Kaydet</button>';
+      '<label class="field"><span>Not (opsiyonel)</span><input id="de-note" value="' + (editingDriverExpense ? esc(editingDriverExpense.note || "") : "") + '" placeholder="Örn. Yol masrafı" /></label>' +
+      '<button class="btn-primary full" id="de-save" style="margin-top:12px">' + (isEdit ? "Güncelle" : "Kaydet") + '</button>';
 
     attachThousandsInput(modal.querySelector("#de-amount"), true);
 
@@ -5389,17 +5409,111 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if (!driverId) { toast("Şoför seçmelisin."); return; }
       if (!amount || amount <= 0 || !date) { toast("Tutar ve tarih gerekli."); return; }
       var driver = (state.drivers || []).find(function (d) { return d.id === driverId; });
-      var newDriverExpense = {
-        id: uid(), driverId: driverId, amount: amount, date: date, note: note,
-        addedByUid: state.currentUser ? state.currentUser.id : null,
-        addedByName: state.currentUser ? state.currentUser.name : null
-      };
-      state.driverExpenses = [newDriverExpense].concat(state.driverExpenses || []);
-      persistDriverExpenses();
-      logActivity("driverExpense", "add", { summary: "Şoför masrafı eklendi (" + fmtTL(amount) + ")" + (driver ? " — " + driver.name : "") });
-      closeModal();
-      render();
-      toast("Masraf eklendi.");
+      if (isEdit) {
+        var updatedDriverExpense = Object.assign({}, editingDriverExpense, { driverId: driverId, amount: amount, date: date, note: note });
+        state.driverExpenses = (state.driverExpenses || []).map(function (de) { return de.id === editingDriverExpense.id ? updatedDriverExpense : de; });
+        persistDriverExpenses();
+        logActivity("driverExpense", "edit", { summary: "Şoför masrafı güncellendi (" + fmtTL(amount) + ")" + (driver ? " — " + driver.name : "") });
+        closeModal();
+        render();
+        toast("Masraf güncellendi.");
+      } else {
+        var newDriverExpense = {
+          id: uid(), driverId: driverId, amount: amount, date: date, note: note,
+          addedByUid: state.currentUser ? state.currentUser.id : null,
+          addedByName: state.currentUser ? state.currentUser.name : null
+        };
+        state.driverExpenses = [newDriverExpense].concat(state.driverExpenses || []);
+        persistDriverExpenses();
+        logActivity("driverExpense", "add", { summary: "Şoför masrafı eklendi (" + fmtTL(amount) + ")" + (driver ? " — " + driver.name : "") });
+        closeModal();
+        render();
+        toast("Masraf eklendi.");
+      }
+    });
+
+    return modal;
+  }
+
+  // ---------- Ubak Defterleri ----------
+  function renderUbakSection() {
+    var notebooks = state.ubakNotebooks || [];
+    var driverIndex = {};
+    (state.drivers || []).forEach(function (d) { driverIndex[d.id] = d; });
+
+    var html = '<section class="panel">';
+    html += '<div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:4px;"><h2 style="margin:0; font-family:\'Oswald\', sans-serif; font-size:16px; letter-spacing:0.02em;">📘 Ubak Defterleri</h2></div>';
+    html += '<p class="field-hint" style="margin-top:2px">Ubak defterlerini ekle ve hangi şoföre atandığını burada takip et.</p>';
+    html += '<button type="button" class="btn-primary full" data-action="open-add-ubak" style="margin-bottom:14px"' + ((state.drivers || []).length ? "" : " disabled") + '>+ Ubak Defteri Ekle</button>';
+
+    if (!(state.drivers || []).length) {
+      html += '<p class="field-hint" style="margin-top:-8px">Ubak defteri atayabilmek için önce en az bir şoför eklemelisin.</p>';
+    }
+
+    if (!notebooks.length) {
+      html += '<p class="mon-empty">Henüz ubak defteri eklenmedi.</p>';
+    } else {
+      html += '<ul class="err-list" style="max-height:none">';
+      notebooks.forEach(function (nb) {
+        var driver = driverIndex[nb.driverId];
+        html += '<li class="err-item">' +
+          '<div class="err-item-head">' +
+            '<span class="driver-item-name">' + esc(nb.name) + '</span>' +
+            '<span class="driver-item-actions">' +
+              '<button type="button" class="exp-del" data-action="open-edit-ubak" data-id="' + nb.id + '" title="Düzenle" aria-label="Düzenle">✏️</button>' +
+              '<button type="button" class="exp-del" data-action="delete-ubak" data-id="' + nb.id + '" title="Sil" aria-label="Sil">🗑️</button>' +
+            '</span>' +
+          '</div>' +
+          '<div class="err-item-meta">🧑‍✈️ ' + (driver ? esc(driver.name) : "Şoför atanmadı") + '</div>' +
+        '</li>';
+      });
+      html += '</ul>';
+    }
+
+    html += '</section>';
+    return html;
+  }
+
+  function buildUbakModal() {
+    var isEdit = state.modal.type === "editUbak";
+    var editingNotebook = isEdit ? (state.ubakNotebooks || []).find(function (nb) { return nb.id === state.modal.ubakId; }) : null;
+    var driversList = visibleDriversForMe();
+    var modal = document.createElement("div");
+    modal.className = "modal";
+    modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
+
+    var driverOptions = '<option value="">Seçiniz</option>' + driversList.map(function (d) {
+      return '<option value="' + d.id + '"' + (editingNotebook && editingNotebook.driverId === d.id ? " selected" : "") + '>' + esc(d.name) + '</option>';
+    }).join("");
+
+    modal.innerHTML =
+      '<div class="modal-head"><h3>' + (isEdit ? "Ubak Defterini Düzenle" : "Ubak Defteri Ekle") + '</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>' +
+      '<label class="field"><span>Ubak Defteri İsmi</span><input id="ubak-name" value="' + (editingNotebook ? esc(editingNotebook.name) : "") + '" placeholder="Örn. Defter No 12" /></label>' +
+      '<label class="field"><span>Atanacak Şoför</span><select id="ubak-driver">' + driverOptions + '</select></label>' +
+      '<button class="btn-primary full" id="ubak-save" style="margin-top:12px">' + (isEdit ? "Güncelle" : "Kaydet") + '</button>';
+
+    modal.querySelector("#ubak-save").addEventListener("click", function () {
+      var name = modal.querySelector("#ubak-name").value.trim();
+      var driverId = modal.querySelector("#ubak-driver").value;
+      if (!name) { toast("Ubak defteri ismi gerekli."); return; }
+      if (!driverId) { toast("Şoför seçmelisin."); return; }
+      if (isEdit) {
+        var updatedNotebook = Object.assign({}, editingNotebook, { name: name, driverId: driverId });
+        state.ubakNotebooks = (state.ubakNotebooks || []).map(function (nb) { return nb.id === editingNotebook.id ? updatedNotebook : nb; });
+        persistUbakNotebooks();
+        logActivity("ubak", "edit", { summary: "Ubak defteri güncellendi: " + name });
+        closeModal();
+        render();
+        toast("Ubak defteri güncellendi.");
+      } else {
+        var newNotebook = { id: uid(), name: name, driverId: driverId };
+        state.ubakNotebooks = (state.ubakNotebooks || []).concat([newNotebook]);
+        persistUbakNotebooks();
+        logActivity("ubak", "add", { summary: "Ubak defteri eklendi: " + name });
+        closeModal();
+        render();
+        toast("Ubak defteri eklendi.");
+      }
     });
 
     return modal;
@@ -6031,7 +6145,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       backdrop.appendChild(buildDriverModal());
     } else if (state.modal.type === "terminateDriver") {
       backdrop.appendChild(buildTerminateDriverModal());
-    } else if (state.modal.type === "addDriverExpense") {
+    } else if (state.modal.type === "addDriverExpense" || state.modal.type === "editDriverExpense") {
       backdrop.appendChild(buildDriverExpenseModal());
     } else if (state.modal.type === "bulkImport") {
       backdrop.appendChild(buildBulkImportModal());
@@ -8135,6 +8249,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           '<span class="exp-note">' + (de.note ? esc(de.note) : "—") + '</span></span>' +
           '<span class="exp-date">' + fmtDateTR(de.date) + '</span>' +
           '<span class="exp-amount">' + fmtTL(de.amount) + '</span>' +
+          '<button class="exp-del" data-action="open-edit-driver-expense" data-id="' + de.id + '" title="Düzenle" aria-label="Düzenle">✏️</button>' +
           '<button class="exp-del" data-action="delete-driver-expense" data-id="' + de.id + '" title="Sil" aria-label="Sil">🗑️</button>' +
           '</li>';
       });
@@ -9650,7 +9765,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         // Sadece görüntüleyebilen üyeler bu eylemleri tetikleyemez (ilgili
         // düğmeler CSS ile zaten gizleniyor; bu, programatik/eski DOM
         // durumlarına karşı ikinci bir savunma katmanı).
-        var MANAGE_ONLY_ACTIONS = ["open-add-car", "open-edit-car", "delete-car", "deactivate-car", "activate-car", "open-edit-expense", "delete-expense", "open-add-driver", "open-edit-driver", "delete-driver", "open-terminate-driver", "rehire-driver", "open-quick-appt", "open-add-driver-expense", "delete-driver-expense"];
+        var MANAGE_ONLY_ACTIONS = ["open-add-car", "open-edit-car", "delete-car", "deactivate-car", "activate-car", "open-edit-expense", "delete-expense", "open-add-driver", "open-edit-driver", "delete-driver", "open-terminate-driver", "rehire-driver", "open-quick-appt", "open-add-driver-expense", "delete-driver-expense", "open-edit-driver-expense"];
         var ADD_EXPENSE_ACTIONS = ["open-add-expense"];
         var BACKUP_ACTIONS = ["export-data"];
         var REPORT_ACTIONS = ["open-export-report", "share-report"];
@@ -9961,6 +10076,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           render();
         }
         else if (action === "open-edit-driver") { state.modal = { type: "editDriver", driverId: el.getAttribute("data-id") }; render(); }
+        else if (action === "open-edit-driver-expense") { state.modal = { type: "editDriverExpense", driverExpenseId: el.getAttribute("data-id") }; render(); }
         else if (action === "open-terminate-driver") { state.modal = { type: "terminateDriver", driverId: el.getAttribute("data-id") }; render(); }
         else if (action === "rehire-driver") {
           var rehireDriverId = el.getAttribute("data-id");
