@@ -1026,7 +1026,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.5.2"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.5.3"; // Dynamic Version Tracking
   var APP_UPDATED = "31 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -8032,6 +8032,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           return c.name + (c.plate ? " (" + c.plate + ")" : "");
         }).filter(Boolean);
         var isTerminated = d.employmentStatus === "terminated";
+        var driverExpList = (state.driverExpenses || []).filter(function (de) { return de.driverId === d.id; })
+          .sort(function (a, b) { return b.date < a.date ? -1 : (b.date > a.date ? 1 : 0); });
+        var driverExpTotal = driverExpList.reduce(function (sum, de) { return sum + (de.amount || 0); }, 0);
         html += '<li class="err-item">' +
           '<div class="err-item-head">' +
             '<span class="driver-item-name">' + esc(d.name) + (d.worksAbroad ? '<span class="driver-abroad-badge">🛂 Yurtdışı</span>' : '') + (isTerminated ? '<span class="status-badge terminated">👋 Ayrıldı</span>' : '') + '</span>' +
@@ -8047,6 +8050,22 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           '<div class="err-item-meta">🚗 ' + (carNames.length ? esc(carNames.join(", ")) : "Araç atanmadı") + '</div>' +
           (d.licenseClass ? '<div class="err-item-meta">🪪 Ehliyet: ' + esc(d.licenseClass) + '</div>' : '') +
           (isTerminated && d.terminationDate ? '<div class="err-item-meta">📅 İşten çıkış: ' + esc(fmtDateTR(d.terminationDate)) + '</div>' : '') +
+          (driverExpList.length
+            ? '<div class="driver-expenses-block" style="margin-top:8px; padding-top:8px; border-top:1px solid var(--border)">' +
+                '<div class="err-item-meta" style="font-weight:600">💵 Masraflar (Toplam: ' + fmtTL(driverExpTotal) + ')</div>' +
+                '<ul class="summary-list" style="margin-top:6px">' +
+                  driverExpList.map(function (de) {
+                    return '<li class="summary-row">' +
+                      '<span class="sum-main"><span class="sum-type">' + fmtTL(de.amount) + (de.note ? ' · ' + esc(de.note) : '') + '</span>' +
+                      '<span class="sum-date">' + esc(fmtDateTR(de.date)) + '</span></span>' +
+                      '<span class="sum-extra"><span class="sum-actions">' +
+                        '<button class="exp-del" data-action="delete-driver-expense" data-id="' + de.id + '" title="Sil" aria-label="Sil">🗑️</button>' +
+                      '</span></span>' +
+                    '</li>';
+                  }).join("") +
+                '</ul>' +
+              '</div>'
+            : '') +
         '</li>';
       });
       html += '</ul>';
@@ -9884,6 +9903,33 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
                   render();
                 }
                 toast("Şoför geri alındı.");
+              });
+            }
+          });
+        }
+        else if (action === "delete-driver-expense") {
+          var deId = el.getAttribute("data-id");
+          showConfirm({
+            title: "Masrafı Sil",
+            message: "Bu masrafı silmek istediğine emin misin?",
+            confirmLabel: "Sil",
+            danger: true,
+            onConfirm: function () {
+              var delDriverExp = (state.driverExpenses || []).find(function (de) { return de.id === deId; });
+              var delDriverExpIndex = (state.driverExpenses || []).indexOf(delDriverExp);
+              state.driverExpenses = (state.driverExpenses || []).filter(function (de) { return de.id !== deId; });
+              persistDriverExpenses();
+              logActivity("driverExpense", "delete", { summary: "Şoför masrafı silindi (" + (delDriverExp ? fmtTL(delDriverExp.amount) : "") + ")" });
+              render();
+              toastWithUndo("Masraf silindi.", function () {
+                if (delDriverExp) {
+                  state.driverExpenses = state.driverExpenses || [];
+                  state.driverExpenses.splice(Math.min(delDriverExpIndex, state.driverExpenses.length), 0, delDriverExp);
+                  persistDriverExpenses();
+                  logActivity("driverExpense", "restore", { summary: "Şoför masrafı geri alındı." });
+                  render();
+                }
+                toast("Masraf geri alındı.");
               });
             }
           });
