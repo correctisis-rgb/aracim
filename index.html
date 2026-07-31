@@ -1026,7 +1026,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.5.1"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.5.2"; // Dynamic Version Tracking
   var APP_UPDATED = "31 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1034,16 +1034,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     { id: "sigorta", label: "Sigorta", emoji: "🛡️", color: "#7BC67E" },
     { id: "vergi", label: "Vergi / Muayene", emoji: "📄", color: "#C77DE0" },
     { id: "otopark", label: "Otopark / Geçiş", emoji: "🅿️", color: "#E2574C" },
-    { id: "yolmasrafi", label: "Şoför Yol Masrafı", emoji: "🧳", color: "#4FA8D8", driverExpense: true },
     { id: "diger", label: "Diğer", emoji: "•••", color: "#8B939D" }
   ];
-  // driverExpense: true olan kategoriler şoföre bağlanabilen masraf
-  // türleridir (maaş, yol masrafı vb.). Masraf ekleme/düzenleme formunda
-  // bu kategorilerden biri seçildiğinde "Şoför" alanı gösterilir.
-  function isDriverExpenseCategory(catId) {
-    var c = catById(catId);
-    return !!(c && c.driverExpense);
-  }
   var CAR_COLORS = ["#F2A93B", "#4FA8D8", "#7BC67E", "#C77DE0", "#E2574C"];
   var VEHICLE_TYPES = ["Otomobil", "Ticari (Kamyonet/Panelvan)", "Kamyon", "Minibüs", "Otobüs", "Çekici / Tır", "Römork / Dorse", "Motosiklet", "İş Makinesi", "Diğer"];
   var MONTHS_TR = ["Oca","Şub","Mar","Nis","May","Haz","Tem","Ağu","Eyl","Eki","Kas","Ara"];
@@ -1380,6 +1372,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     expenses: getLocalData("expenses", null),
     familyMembers: getLocalData("family", []),
     drivers: getLocalData("drivers", []),
+    driverExpenses: getLocalData("driver_expenses", []),
     mainSection: "cars",
     selectedCarId: "all",
     view: "panel",
@@ -1516,6 +1509,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       state.familyMembers = data.familyMembers || state.familyMembers || [];
       state.budgets = data.budgets || state.budgets || {};
       state.drivers = data.drivers || state.drivers || [];
+      state.driverExpenses = data.driverExpenses || state.driverExpenses || [];
       state.notifHistory = data.notifHistory || state.notifHistory || [];
       state.activityLog = data.activityLog || state.activityLog || [];
       state.license = data.license || null;
@@ -1861,6 +1855,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     family: { local: "family", firestoreKey: "familyMembers", get: function () { return state.familyMembers; } },
     budgets: { local: "budgets", get: function () { return state.budgets; } },
     drivers: { local: "drivers", get: function () { return state.drivers; } },
+    driverExpenses: { local: "driver_expenses", get: function () { return state.driverExpenses; } },
     activityLog: { local: "activity_log", get: function () { return state.activityLog; } }
   };
   function persistFields(keys) {
@@ -1911,6 +1906,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var docId = dataDocId();
     if (!docId) return;
     db.collection("users").doc(docId).set({ expenses: state.expenses }, { merge: true })
+      .catch(function (err) { console.error(err); });
+  }
+  function persistDriverExpenses() {
+    setLocalData("driver_expenses", state.driverExpenses);
+    if (!state.online) { markPendingSync(); return; }
+    var docId = dataDocId();
+    if (!docId) return;
+    db.collection("users").doc(docId).set({ driverExpenses: state.driverExpenses }, { merge: true })
       .catch(function (err) { console.error(err); });
   }
   // Araç silindiğinde, o araca ait vade/randevu/km hatırlatma dedup
@@ -2081,7 +2084,6 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       { key: "km", label: "Kilometre", type: "number" },
       { key: "liter", label: "Litre", type: "decimal" },
       { key: "payerId", label: "Ödeyen", type: "payer" },
-      { key: "driverId", label: "Şoför", type: "driver" },
       { key: "note", label: "Not" },
       { key: "receipt", label: "Fiş / Fatura görseli", type: "photo" }
     ];
@@ -3366,7 +3368,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // buton tıklamasından çağrıldıysa) gerekirse izin isteme diyaloğu açılabilir.
   function exportData(opts) {
     opts = opts || {};
-    var payload = { cars: state.cars, expenses: state.expenses, family: state.familyMembers, budgets: state.budgets, drivers: state.drivers, exportedAt: new Date().toISOString() };
+    var payload = { cars: state.cars, expenses: state.expenses, family: state.familyMembers, budgets: state.budgets, drivers: state.drivers, driverExpenses: state.driverExpenses, exportedAt: new Date().toISOString() };
     var json = JSON.stringify(payload, null, 2);
     var slug = state.currentUser ? state.currentUser.name.toLowerCase().replace(/[^a-z0-9ığüşöç]+/gi, "-").replace(/^-+|-+$/g, "") : "yedek";
     var fileName = "garaj-defteri-" + slug + "-" + todayStr() + ".json";
@@ -3435,7 +3437,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             state.familyMembers = data.family || [];
             state.budgets = data.budgets || {};
             state.drivers = Array.isArray(data.drivers) ? data.drivers : [];
-            persistFields(["cars", "expenses", "family", "budgets", "drivers"]);
+            state.driverExpenses = Array.isArray(data.driverExpenses) ? data.driverExpenses : [];
+            persistFields(["cars", "expenses", "family", "budgets", "drivers", "driverExpenses"]);
             toast("Yedek geri yüklendi.");
             render();
           }
@@ -3499,6 +3502,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         createPatch.familyMembers = state.familyMembers || [];
         createPatch.budgets = state.budgets || {};
         createPatch.drivers = state.drivers || [];
+        createPatch.driverExpenses = state.driverExpenses || [];
         createPatch.createdAt = firebase.firestore.FieldValue.serverTimestamp();
         docRef.set(createPatch, { merge: true }).catch(function (err) { console.error(err); });
         return;
@@ -3550,6 +3554,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         state.familyMembers = getLocalData("family", []);
         state.budgets = getLocalData("budgets", {});
         state.drivers = getLocalData("drivers", []);
+        state.driverExpenses = getLocalData("driver_expenses", []);
         render();
         tryOpenPendingDeepLink();
       }
@@ -3963,6 +3968,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       state.familyMembers = [];
       state.budgets = {};
       state.drivers = [];
+      state.driverExpenses = [];
       state.license = null;
       state.householdId = null;
       state.householdInviteToken = null;
@@ -5350,6 +5356,52 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     toast("Şoför yeniden işe alındı.");
   }
 
+  // Şoförler bölümünden eklenen sade masraf: araç seçimi, kategori,
+  // km/litre yok — sadece Şoför, Tutar, Tarih ve opsiyonel Not.
+  function buildDriverExpenseModal() {
+    var driversList = visibleDriversForMe().filter(function (d) { return d.employmentStatus !== "terminated"; });
+    var modal = document.createElement("div");
+    modal.className = "modal";
+    modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
+
+    var driverOptions = driversList.map(function (d) { return '<option value="' + d.id + '">' + esc(d.name) + '</option>'; }).join("");
+
+    modal.innerHTML =
+      '<div class="modal-head"><h3>Şoför Masrafı Ekle</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>' +
+      '<label class="field"><span>Şoför</span><select id="de-driver">' + driverOptions + '</select></label>' +
+      '<div class="field-row">' +
+        '<label class="field"><span>Tutar (₺)</span><input id="de-amount" type="text" inputmode="decimal" placeholder="Örn. 1.250,50" /></label>' +
+        '<label class="field"><span>Tarih</span><input id="de-date" type="date" value="' + todayStr() + '" /></label>' +
+      '</div>' +
+      '<label class="field"><span>Not (opsiyonel)</span><input id="de-note" placeholder="Örn. Yol masrafı" /></label>' +
+      '<button class="btn-primary full" id="de-save" style="margin-top:12px">Kaydet</button>';
+
+    attachThousandsInput(modal.querySelector("#de-amount"), true);
+
+    modal.querySelector("#de-save").addEventListener("click", function () {
+      var driverId = modal.querySelector("#de-driver").value;
+      var amount = parseFormattedNumber(modal.querySelector("#de-amount").value);
+      var date = modal.querySelector("#de-date").value;
+      var note = modal.querySelector("#de-note").value.trim();
+      if (!driverId) { toast("Şoför seçmelisin."); return; }
+      if (!amount || amount <= 0 || !date) { toast("Tutar ve tarih gerekli."); return; }
+      var driver = (state.drivers || []).find(function (d) { return d.id === driverId; });
+      var newDriverExpense = {
+        id: uid(), driverId: driverId, amount: amount, date: date, note: note,
+        addedByUid: state.currentUser ? state.currentUser.id : null,
+        addedByName: state.currentUser ? state.currentUser.name : null
+      };
+      state.driverExpenses = [newDriverExpense].concat(state.driverExpenses || []);
+      persistDriverExpenses();
+      logActivity("driverExpense", "add", { summary: "Şoför masrafı eklendi (" + fmtTL(amount) + ")" + (driver ? " — " + driver.name : "") });
+      closeModal();
+      render();
+      toast("Masraf eklendi.");
+    });
+
+    return modal;
+  }
+
   function buildQuickApptModal() {
     var m = state.modal || {};
     // Geriye dönük uyumluluk: eski açılışlarda (push bildirimi derin
@@ -5840,8 +5892,6 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       var showAddedBy = (state.householdMembers || []).length > 1;
       var carByIdForLog = buildCarIndex();
       var memberByIdForLog = buildMemberIndex();
-      var driverByIdForLog = {};
-      (state.drivers || []).forEach(function (d) { driverByIdForLog[d.id] = d; });
       visibleSlice.forEach(function (e) {
         var cat = catById(e.category);
         var car = carByIdForLog[e.carId];
@@ -5849,8 +5899,6 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         if (e.note) noteBits.push(esc(e.note));
         if (e.km != null) noteBits.push(groupThousands(String(e.km)) + " km");
         if (e.liter != null) noteBits.push(String(e.liter).replace(".", ",") + " L");
-        var expDriver = e.driverId ? driverByIdForLog[e.driverId] : null;
-        if (expDriver) noteBits.push("Şoför: " + esc(expDriver.name));
         var payer = e.payerId ? memberByIdForLog[e.payerId] : null;
         if (payer) noteBits.push("Ödeyen: " + esc(payer.name));
         if (showAddedBy && e.addedByName) noteBits.push('<span class="exp-added-by">Ekleyen: ' + esc(e.addedByName) + '</span>');
@@ -5980,6 +6028,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       backdrop.appendChild(buildDriverModal());
     } else if (state.modal.type === "terminateDriver") {
       backdrop.appendChild(buildTerminateDriverModal());
+    } else if (state.modal.type === "addDriverExpense") {
+      backdrop.appendChild(buildDriverExpenseModal());
     } else if (state.modal.type === "bulkImport") {
       backdrop.appendChild(buildBulkImportModal());
     } else if (state.modal.type === "exportReport") {
@@ -7918,7 +7968,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var html = '<section class="panel">';
     html += '<div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:4px;"><h2 style="margin:0; font-family:\'Oswald\', sans-serif; font-size:16px; letter-spacing:0.02em;">🧑‍✈️ Şoförler</h2></div>';
     html += '<p class="field-hint" style="margin-top:2px">Şoförlerini ekle, hangi araç(lar)ı kullandıklarını belirle. Ehliyet, SRC, psikoteknik ve sağlık raporu tarihlerini, yurtdışına çıkacaklar için pasaport ve vize bilgilerini de burada tutabilirsin.</p>';
-    html += '<button type="button" class="btn-primary full" data-action="open-add-driver" style="margin-bottom:14px">+ Şoför Ekle</button>';
+    html += '<div class="field-row" style="margin-bottom:14px">' +
+      '<button type="button" class="btn-primary full" data-action="open-add-driver">+ Şoför Ekle</button>' +
+      '<button type="button" class="btn-secondary full" data-action="open-add-driver-expense"' + (list.length ? "" : " disabled") + '>+ Masraf Ekle</button>' +
+    '</div>';
 
     html += buildEntitySearchBoxHTML("driver-filter-search", "clear-driver-filter", state.driverFilterText, "🔎 İsim, telefon veya araç ile ara...", "Şoförlerde ara");
 
@@ -9296,16 +9349,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         familyMembers.map(function (f) { return '<option value="' + f.id + '"' + (editingExpense && editingExpense.payerId === f.id ? " selected" : "") + '>' + esc(f.name) + '</option>'; }).join("") +
         '</select></label>'
       : "";
-    var driversListForExpense = visibleDriversForMe().filter(function (d) { return d.employmentStatus !== "terminated"; });
-    var driverField = '<label class="field" id="e-driver-field"><span>Şoför</span><select id="e-driver"><option value="">Seçiniz</option>' +
-      driversListForExpense.map(function (d) { return '<option value="' + d.id + '"' + (editingExpense && editingExpense.driverId === d.id ? " selected" : "") + '>' + esc(d.name) + '</option>'; }).join("") +
-      '</select></label>';
-
     modal.innerHTML =
       '<div class="modal-head"><h3>' + (isEdit ? "Masraf Düzenle" : "Masraf Ekle") + '</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>' +
       '<label class="field"><span>Araç</span><select id="e-car">' + carOptions + '</select></label>' +
       '<label class="field"><span>Kategori</span><div class="cat-grid" id="e-cats">' + catChips + '</div></label>' +
-      driverField +
       '<div class="field-row">' +
         '<label class="field"><span>Tutar (₺)</span><input id="e-amount" type="text" inputmode="decimal" value="' + (editingExpense ? numberToDisplay(editingExpense.amount, true) : "") + '" placeholder="Örn. 1.250,50" /></label>' +
         '<label class="field"><span>Tarih</span><input id="e-date" type="date" value="' + (editingExpense ? editingExpense.date : todayStr()) + '" /></label>' +
@@ -9386,11 +9433,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var selectedCat = editingExpense ? editingExpense.category : CATEGORIES[0].id;
     var chips = modal.querySelectorAll(".cat-chip");
     var literField = modal.querySelector("#e-liter-field");
-    var driverFieldEl = modal.querySelector("#e-driver-field");
     function paintChips() {
       chips.forEach(function (ch) { ch.classList.toggle("active", ch.getAttribute("data-cat") === selectedCat); });
       literField.style.display = selectedCat === "yakit" ? "" : "none";
-      driverFieldEl.style.display = isDriverExpenseCategory(selectedCat) ? "" : "none";
     }
     chips.forEach(function (ch) {
       ch.addEventListener("click", function () { selectedCat = ch.getAttribute("data-cat"); paintChips(); });
@@ -9406,23 +9451,19 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       var liter = selectedCat === "yakit" ? parseFormattedNumber(modal.querySelector("#e-liter").value) : null;
       var payerEl = modal.querySelector("#e-payer");
       var payerId = payerEl && payerEl.value ? payerEl.value : null;
-      var driverEl = modal.querySelector("#e-driver");
-      var driverId = isDriverExpenseCategory(selectedCat) && driverEl && driverEl.value ? driverEl.value : null;
       if (!carId || !amount || amount <= 0 || !date) { toast("Tutar ve tarih gerekli."); return; }
       var payload = {
         carId: carId, category: selectedCat, amount: amount, date: date, note: note,
-        km: km, liter: liter, payerId: payerId, driverId: driverId, receipt: modal.__photos.receiptPhoto || null
+        km: km, liter: liter, payerId: payerId, receipt: modal.__photos.receiptPhoto || null
       };
       var catInfo = catById(selectedCat);
       var carForLog = (state.cars || []).find(function (c) { return c.id === carId; });
       var carNameForLog = carForLog ? carForLog.name : "";
-      var driverForLog = driverId ? (state.drivers || []).find(function (d) { return d.id === driverId; }) : null;
-      var driverSuffix = driverForLog ? (" — " + driverForLog.name) : "";
       if (isEdit) {
         var updatedExpense = Object.assign({}, editingExpense, payload);
         var expenseChanges = diffActivityFields(editingExpense, updatedExpense, expenseActivityFieldDefs());
         state.expenses = (state.expenses || []).map(function (e) { return e.id === editingExpense.id ? updatedExpense : e; });
-        logActivity("expense", "edit", { carId: carId, carName: carNameForLog, summary: catInfo.label + " masrafı düzenlendi (" + fmtTL(amount) + ")" + driverSuffix, changes: expenseChanges });
+        logActivity("expense", "edit", { carId: carId, carName: carNameForLog, summary: catInfo.label + " masrafı düzenlendi (" + fmtTL(amount) + ")", changes: expenseChanges });
       } else {
         // "Ekleyen" etiketi için: masraf ilk kez oluşturulurken hane
         // içindeki hangi kullanıcının eklediğini damgalıyoruz. Sonradan
@@ -9431,7 +9472,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         payload.addedByName = state.currentUser ? state.currentUser.name : null;
         var newExpense = Object.assign({ id: uid() }, payload);
         state.expenses = [newExpense].concat(state.expenses || []);
-        logActivity("expense", "add", { carId: carId, carName: carNameForLog, summary: catInfo.label + " masrafı eklendi (" + fmtTL(amount) + ")" + driverSuffix, snapshot: snapshotActivityFields(newExpense, expenseActivityFieldDefs()) });
+        logActivity("expense", "add", { carId: carId, carName: carNameForLog, summary: catInfo.label + " masrafı eklendi (" + fmtTL(amount) + ")", snapshot: snapshotActivityFields(newExpense, expenseActivityFieldDefs()) });
       }
       persistExpenses();
       recalcCarCurrentKm(carId);
@@ -9788,6 +9829,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           render();
         }
         else if (action === "open-add-driver") { state.modal = { type: "addDriver" }; render(); }
+        else if (action === "open-add-driver-expense") {
+          if (!(state.drivers || []).length) { toast("Önce en az bir şoför eklemelisin."); return; }
+          state.modal = { type: "addDriverExpense" };
+          render();
+        }
         else if (action === "open-edit-driver") { state.modal = { type: "editDriver", driverId: el.getAttribute("data-id") }; render(); }
         else if (action === "open-terminate-driver") { state.modal = { type: "terminateDriver", driverId: el.getAttribute("data-id") }; render(); }
         else if (action === "rehire-driver") {
@@ -9810,15 +9856,30 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             onConfirm: function () {
               var deletedDriver = (state.drivers || []).find(function (d) { return d.id === driverId; });
               var deletedDriverIndex = (state.drivers || []).indexOf(deletedDriver);
+              // Şoföre bağlı masraflar da (geri alınabilir şekilde) siliniyor;
+              // orijinal sırayı korumak için index'leriyle birlikte saklanıyor.
+              var removedDriverExpenses = [];
+              (state.driverExpenses || []).forEach(function (de, idx) {
+                if (de.driverId === driverId) removedDriverExpenses.push({ item: de, index: idx });
+              });
               state.drivers = (state.drivers || []).filter(function (d) { return d.id !== driverId; });
-              persistDrivers();
+              if (removedDriverExpenses.length) {
+                state.driverExpenses = (state.driverExpenses || []).filter(function (de) { return de.driverId !== driverId; });
+              }
+              persistFields(removedDriverExpenses.length ? ["drivers", "driverExpenses"] : ["drivers"]);
               logActivity("driver", "delete", { summary: "Şoför silindi: " + (deletedDriver ? deletedDriver.name : ""), snapshot: deletedDriver ? snapshotActivityFields(deletedDriver, driverActivityFieldDefs()) : null });
               render();
               toastWithUndo("Şoför silindi.", function () {
                 if (deletedDriver) {
                   state.drivers = state.drivers || [];
                   state.drivers.splice(Math.min(deletedDriverIndex, state.drivers.length), 0, deletedDriver);
-                  persistDrivers();
+                  if (removedDriverExpenses.length) {
+                    state.driverExpenses = state.driverExpenses || [];
+                    removedDriverExpenses.forEach(function (entry) {
+                      state.driverExpenses.splice(Math.min(entry.index, state.driverExpenses.length), 0, entry.item);
+                    });
+                  }
+                  persistFields(removedDriverExpenses.length ? ["drivers", "driverExpenses"] : ["drivers"]);
                   logActivity("driver", "restore", { summary: "Şoför geri alındı: " + deletedDriver.name });
                   render();
                 }
