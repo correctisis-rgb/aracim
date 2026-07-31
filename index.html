@@ -1026,7 +1026,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.5.3"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.5.4"; // Dynamic Version Tracking
   var APP_UPDATED = "31 Temmuz 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1388,6 +1388,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     carsTabsExpanded: false,
     driversListExpanded: false,
     driverUpcomingExpanded: false,
+    driverExpenseFilters: { search: "", driverId: "all", dateFrom: "", dateTo: "" },
+    driverExpenseVisibleCount: 20,
     calendarVisibleCount: 20,
     summaryVisibleCount: 20,
     logVisibleCount: 20,
@@ -5055,6 +5057,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     bindGlobalActions();
     bindLogFilters();
+    bindDriverExpenseFilters();
     bindLogInfiniteScroll();
     bindEntitySearchFilters();
     bindAnalysisPanel();
@@ -8032,9 +8035,6 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           return c.name + (c.plate ? " (" + c.plate + ")" : "");
         }).filter(Boolean);
         var isTerminated = d.employmentStatus === "terminated";
-        var driverExpList = (state.driverExpenses || []).filter(function (de) { return de.driverId === d.id; })
-          .sort(function (a, b) { return b.date < a.date ? -1 : (b.date > a.date ? 1 : 0); });
-        var driverExpTotal = driverExpList.reduce(function (sum, de) { return sum + (de.amount || 0); }, 0);
         html += '<li class="err-item">' +
           '<div class="err-item-head">' +
             '<span class="driver-item-name">' + esc(d.name) + (d.worksAbroad ? '<span class="driver-abroad-badge">🛂 Yurtdışı</span>' : '') + (isTerminated ? '<span class="status-badge terminated">👋 Ayrıldı</span>' : '') + '</span>' +
@@ -8050,22 +8050,6 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           '<div class="err-item-meta">🚗 ' + (carNames.length ? esc(carNames.join(", ")) : "Araç atanmadı") + '</div>' +
           (d.licenseClass ? '<div class="err-item-meta">🪪 Ehliyet: ' + esc(d.licenseClass) + '</div>' : '') +
           (isTerminated && d.terminationDate ? '<div class="err-item-meta">📅 İşten çıkış: ' + esc(fmtDateTR(d.terminationDate)) + '</div>' : '') +
-          (driverExpList.length
-            ? '<div class="driver-expenses-block" style="margin-top:8px; padding-top:8px; border-top:1px solid var(--border)">' +
-                '<div class="err-item-meta" style="font-weight:600">💵 Masraflar (Toplam: ' + fmtTL(driverExpTotal) + ')</div>' +
-                '<ul class="summary-list" style="margin-top:6px">' +
-                  driverExpList.map(function (de) {
-                    return '<li class="summary-row">' +
-                      '<span class="sum-main"><span class="sum-type">' + fmtTL(de.amount) + (de.note ? ' · ' + esc(de.note) : '') + '</span>' +
-                      '<span class="sum-date">' + esc(fmtDateTR(de.date)) + '</span></span>' +
-                      '<span class="sum-extra"><span class="sum-actions">' +
-                        '<button class="exp-del" data-action="delete-driver-expense" data-id="' + de.id + '" title="Sil" aria-label="Sil">🗑️</button>' +
-                      '</span></span>' +
-                    '</li>';
-                  }).join("") +
-                '</ul>' +
-              '</div>'
-            : '') +
         '</li>';
       });
       html += '</ul>';
@@ -8077,7 +8061,119 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     }
 
     html += '</section>';
+    html += renderDriverExpensesPanel();
     return html;
+  }
+
+  function filterDriverExpenses(list, f) {
+    var driverIndex = {};
+    (state.drivers || []).forEach(function (d) { driverIndex[d.id] = d; });
+    return list.filter(function (de) {
+      if (f.driverId && f.driverId !== "all" && de.driverId !== f.driverId) return false;
+      if (f.dateFrom && de.date < f.dateFrom) return false;
+      if (f.dateTo && de.date > f.dateTo) return false;
+      if (f.search) {
+        var q = f.search.toLocaleLowerCase("tr");
+        var driver = driverIndex[de.driverId];
+        var haystack = ((de.note || "") + " " + (driver ? driver.name : "")).toLocaleLowerCase("tr");
+        if (haystack.indexOf(q) === -1) return false;
+      }
+      return true;
+    });
+  }
+
+  function driverExpenseFiltersActive() {
+    var f = state.driverExpenseFilters || {};
+    return !!(f.search || (f.driverId && f.driverId !== "all") || f.dateFrom || f.dateTo);
+  }
+
+  function renderDriverExpensesPanel() {
+    var allDriverExpenses = (state.driverExpenses || []).slice().sort(function (a, b) { return b.date < a.date ? -1 : (b.date > a.date ? 1 : 0); });
+    var driversForFilter = visibleDriversForMe();
+    var f = state.driverExpenseFilters || (state.driverExpenseFilters = { search: "", driverId: "all", dateFrom: "", dateTo: "" });
+    var filtersActive = driverExpenseFiltersActive();
+    var visible = filterDriverExpenses(allDriverExpenses, f);
+    var driverIndex = {};
+    (state.drivers || []).forEach(function (d) { driverIndex[d.id] = d; });
+
+    var html = '<section class="panel log-panel"><div class="log-header"><h2>💵 Şoför Masraf Kayıtları</h2></div>';
+
+    if (allDriverExpenses.length > 0) {
+      html += '<div class="log-filters">' +
+        '<input type="search" id="de-filter-search" class="log-filter-search" placeholder="🔎 Şoför veya not ara..." value="' + esc(f.search || "") + '" aria-label="Şoför masraflarında ara" />' +
+        (driversForFilter.length > 1
+          ? '<select id="de-filter-driver" aria-label="Şoföre göre filtrele">' +
+              '<option value="all">Tüm Şoförler</option>' +
+              driversForFilter.map(function (d) { return '<option value="' + d.id + '"' + (f.driverId === d.id ? " selected" : "") + '>' + esc(d.name) + '</option>'; }).join("") +
+            '</select>' : '') +
+        '<input type="date" id="de-filter-from" value="' + esc(f.dateFrom || "") + '" title="Başlangıç tarihi" aria-label="Başlangıç tarihi" />' +
+        '<input type="date" id="de-filter-to" value="' + esc(f.dateTo || "") + '" title="Bitiş tarihi" aria-label="Bitiş tarihi" />' +
+        (filtersActive ? '<button type="button" class="log-filter-clear" data-action="clear-driver-expense-filters">✕ Temizle</button>' : '') +
+        '</div>';
+      if (filtersActive) {
+        html += '<p class="log-result-count">' + visible.length + ' / ' + allDriverExpenses.length + ' kayıt gösteriliyor</p>';
+      } else {
+        var grandTotal = allDriverExpenses.reduce(function (sum, de) { return sum + (de.amount || 0); }, 0);
+        html += '<p class="log-result-count">Toplam: ' + fmtTL(grandTotal) + '</p>';
+      }
+    }
+
+    if (!allDriverExpenses.length) {
+      html += '<p class="empty-hint">Henüz şoför masrafı eklenmedi.</p>';
+    } else if (!visible.length) {
+      html += '<p class="empty-hint">Filtrelere uyan kayıt yok. "Temizle" ile tüm kayıtları tekrar görebilirsin.</p>';
+    } else {
+      var deVisibleCount = Math.max(20, state.driverExpenseVisibleCount || 20);
+      var visibleSlice = visible.slice(0, deVisibleCount);
+      var hasMore = visible.length > visibleSlice.length;
+      html += '<ul class="expense-list">';
+      visibleSlice.forEach(function (de) {
+        var driver = driverIndex[de.driverId];
+        html += '<li class="expense-row">' +
+          '<span class="exp-icon-wrap"><span class="exp-icon" style="background:#4FA8D822;color:#4FA8D8">🧑‍✈️</span></span>' +
+          '<span class="exp-main"><span class="exp-cat">' + esc(driver ? driver.name : "Silinmiş Şoför") + '</span>' +
+          '<span class="exp-note">' + (de.note ? esc(de.note) : "—") + '</span></span>' +
+          '<span class="exp-date">' + fmtDateTR(de.date) + '</span>' +
+          '<span class="exp-amount">' + fmtTL(de.amount) + '</span>' +
+          '<button class="exp-del" data-action="delete-driver-expense" data-id="' + de.id + '" title="Sil" aria-label="Sil">🗑️</button>' +
+          '</li>';
+      });
+      html += '</ul>';
+      if (hasMore) {
+        html += '<div class="log-load-more">' +
+          '<button type="button" class="btn-secondary" data-action="load-more-driver-expenses">Daha Fazla Göster (' + (visible.length - visibleSlice.length) + ' kayıt daha)</button>' +
+          '</div>';
+      }
+    }
+    html += '</section>';
+    return html;
+  }
+
+  function bindDriverExpenseFilters() {
+    var searchEl = document.getElementById("de-filter-search");
+    if (searchEl) searchEl.addEventListener("input", debounce(function () {
+      state.driverExpenseFilters.search = searchEl.value;
+      state.driverExpenseVisibleCount = 20;
+      render();
+    }, 200));
+    var driverEl = document.getElementById("de-filter-driver");
+    if (driverEl) driverEl.addEventListener("change", function () {
+      state.driverExpenseFilters.driverId = driverEl.value;
+      state.driverExpenseVisibleCount = 20;
+      render();
+    });
+    var fromEl = document.getElementById("de-filter-from");
+    if (fromEl) fromEl.addEventListener("change", function () {
+      state.driverExpenseFilters.dateFrom = fromEl.value;
+      state.driverExpenseVisibleCount = 20;
+      render();
+    });
+    var toEl = document.getElementById("de-filter-to");
+    if (toEl) toEl.addEventListener("change", function () {
+      state.driverExpenseFilters.dateTo = toEl.value;
+      state.driverExpenseVisibleCount = 20;
+      render();
+    });
   }
 
   function buildDriverModal() {
@@ -9554,7 +9650,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         // Sadece görüntüleyebilen üyeler bu eylemleri tetikleyemez (ilgili
         // düğmeler CSS ile zaten gizleniyor; bu, programatik/eski DOM
         // durumlarına karşı ikinci bir savunma katmanı).
-        var MANAGE_ONLY_ACTIONS = ["open-add-car", "open-edit-car", "delete-car", "deactivate-car", "activate-car", "open-edit-expense", "delete-expense", "open-add-driver", "open-edit-driver", "delete-driver", "open-terminate-driver", "rehire-driver", "open-quick-appt"];
+        var MANAGE_ONLY_ACTIONS = ["open-add-car", "open-edit-car", "delete-car", "deactivate-car", "activate-car", "open-edit-expense", "delete-expense", "open-add-driver", "open-edit-driver", "delete-driver", "open-terminate-driver", "rehire-driver", "open-quick-appt", "open-add-driver-expense", "delete-driver-expense"];
         var ADD_EXPENSE_ACTIONS = ["open-add-expense"];
         var BACKUP_ACTIONS = ["export-data"];
         var REPORT_ACTIONS = ["open-export-report", "share-report"];
@@ -9615,6 +9711,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           window.scrollTo(0, prevScrollYForLog);
         }
         else if (action === "clear-driver-filter") { state.driverFilterText = ""; render(); }
+        else if (action === "load-more-driver-expenses") {
+          var prevScrollYForDE = window.scrollY;
+          state.driverExpenseVisibleCount = (state.driverExpenseVisibleCount || 20) + 20;
+          render();
+          window.scrollTo(0, prevScrollYForDE);
+        }
         else if (action === "toggle-panel-section") {
           ev.stopPropagation();
           var pKey = el.getAttribute("data-panel-key");
@@ -9786,6 +9888,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         else if (action === "clear-log-filters") {
           state.logFilters = { search: "", category: "all", carId: "all", dateFrom: "", dateTo: "" };
           state.logVisibleCount = 20;
+          render();
+        }
+        else if (action === "clear-driver-expense-filters") {
+          state.driverExpenseFilters = { search: "", driverId: "all", dateFrom: "", dateTo: "" };
+          state.driverExpenseVisibleCount = 20;
           render();
         }
         else if (action === "clear-activity-log-filters") {
