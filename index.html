@@ -1072,7 +1072,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.6.2"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.6.3"; // Dynamic Version Tracking
   var APP_UPDATED = "10 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1963,7 +1963,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         // pendingSyncCount'u artırıp hem state'i koruyoruz hem de bağlantı
         // düzelince syncOfflineData() ile otomatik tekrar deneniyor.
         markPendingSync();
-        toast("Değişiklik buluta kaydedilemedi, tekrar denenecek.");
+        var code2 = err && err.code ? err.code : "bilinmeyen hata";
+        toast("Değişiklik buluta kaydedilemedi (" + code2 + "), tekrar denenecek.");
       });
   }
   // NOT: Bu kontrol sadece kullanıcıya anında geri bildirim vermek için
@@ -1997,7 +1998,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     // applyHouseholdData'nın state üzerine yazmasını tamamen durdurur hem de
     // syncOfflineData() bağlantı/izin düzelince otomatik tekrar dener.
     markPendingSync();
-    toast((label || "Veri") + " buluta kaydedilemedi, tekrar denenecek.");
+    var code = err && err.code ? err.code : "bilinmeyen hata";
+    toast((label || "Veri") + " buluta kaydedilemedi (" + code + "), tekrar denenecek.");
   }
   function persistCars() {
     setLocalData("cars", state.cars);
