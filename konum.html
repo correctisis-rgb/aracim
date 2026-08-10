@@ -39,6 +39,12 @@
   }
   @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
   .footer-hint { font-size: 12px; color: #6b7280; margin-top: 18px; }
+  .bg-warning {
+    margin-top: 14px; padding: 12px; border-radius: 10px; font-size: 12.5px; line-height: 1.5;
+    background: #33290f; color: #f2c14e; text-align: left; display: none;
+  }
+  .bg-warning.show { display: block; }
+  .bg-warning strong { color: #ffd166; }
 </style>
 </head>
 <body>
@@ -49,6 +55,7 @@
   <div id="statusBox" class="status wait" style="display:none"></div>
   <button id="startBtn" class="btn-start" style="display:none">Paylaşımı Başlat</button>
   <button id="stopBtn" class="btn-stop" style="display:none">Paylaşımı Durdur</button>
+  <div id="bgWarning" class="bg-warning"></div>
   <p class="footer-hint">Bu sayfa "Garaj Defteri" uygulamasına aittir. Konumun sadece seni bu linkle davet eden hane tarafından görülür.</p>
 </div>
 
@@ -76,12 +83,72 @@
   var statusBox = document.getElementById("statusBox");
   var startBtn = document.getElementById("startBtn");
   var stopBtn = document.getElementById("stopBtn");
+  var bgWarningEl = document.getElementById("bgWarning");
 
   function setStatus(text, cls) {
     statusBox.style.display = "block";
     statusBox.className = "status " + (cls || "wait");
     statusBox.innerHTML = text;
   }
+
+  // ---------- Ekranı uyanık tutma (Wake Lock) ----------
+  // Telefon ekranı otomatik kilitlenirse (bir süre dokunulmazsa) tarayıcı
+  // sekmeyi arka plana atar ve konum güncellemeleri durur. Wake Lock API,
+  // bu OTOMATİK kilitlenmeyi engeller — ekran açık kaldığı sürece paylaşım
+  // kesintisiz devam eder. ANCAK: kullanıcı telefonun kilit/güç düğmesine
+  // ELLE basarsa ya da başka bir uygulamaya tamamen geçerse (App Switcher),
+  // Wake Lock bunu engelleyemez; bu durumda tarayıcı (özellikle iOS
+  // Safari'de) sekmeyi neredeyse anında durdurur — bu, tarayıcının kendi
+  // pil/güvenlik kısıtlamasıdır, kodla aşılamaz. Bu yüzden kullanıcıya
+  // aşağıda net bir uyarı gösteriyoruz.
+  var wakeLock = null;
+  var wakeLockSupported = "wakeLock" in navigator;
+  var sharingActive = false;
+
+  function requestWakeLock() {
+    if (!wakeLockSupported || !sharingActive) return;
+    navigator.wakeLock.request("screen").then(function (lock) {
+      wakeLock = lock;
+      wakeLock.addEventListener("release", function () {
+        wakeLock = null;
+      });
+    }).catch(function (err) {
+      // Bazı tarayıcılar (ör. düşük pil modu) reddedebilir; sessizce yut,
+      // paylaşım yine de devam eder (sadece ekran otomatik kilitlenebilir).
+      console.warn("Wake Lock alınamadı:", err);
+    });
+  }
+  function releaseWakeLock() {
+    if (wakeLock) { wakeLock.release().catch(function () {}); wakeLock = null; }
+  }
+
+  function updateBgWarning() {
+    if (!sharingActive) { bgWarningEl.className = "bg-warning"; return; }
+    if (!wakeLockSupported) {
+      bgWarningEl.innerHTML = "⚠️ <strong>Bu tarayıcı ekranı otomatik açık tutmayı desteklemiyor.</strong> Kesintisiz konum paylaşımı için ekranı elle açık tut ve bu sekmeden çıkma.";
+      bgWarningEl.className = "bg-warning show";
+    } else {
+      bgWarningEl.innerHTML = "ℹ️ Ekranın kilitlenmesini engelledik, konum arka planda da gönderilmeye devam edecek. <strong>Ancak</strong> telefonu elle kilitlersen ya da tamamen başka bir uygulamaya geçersen, tarayıcı konum göndermeyi durdurabilir — en sağlıklısı bu sekmeyi/ekranı açık tutmak.";
+      bgWarningEl.className = "bg-warning show";
+    }
+  }
+
+  // Sekme görünürlüğü değiştiğinde: (a) tekrar öne geldiğinde Wake Lock'u
+  // yeniden iste (tarayıcılar sekme arka plana alınınca kilidi otomatik
+  // serbest bırakır) ve taze bir konum gönder; (b) arka plana alındığında
+  // kullanıcıyı bilgilendir.
+  document.addEventListener("visibilitychange", function () {
+    if (!sharingActive) return;
+    if (document.visibilityState === "visible") {
+      requestWakeLock();
+      setStatus('<span class="pulse"></span>Konum paylaşılıyor…', "ok");
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(onPosition, function () {}, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
+      }
+    } else {
+      setStatus("⏸️ Sekme arka planda — tarayıcı izin verdiği sürece göndermeye devam ediyor.", "wait");
+    }
+  });
 
   function getShareId() {
     var params = new URLSearchParams(window.location.search);
@@ -135,6 +202,11 @@
     }
     startBtn.disabled = true;
     setStatus("Konum izni isteniyor…", "wait");
+    sharingActive = true;
+    // Kullanıcı tıklaması (gesture) içinde çağrıldığı için Wake Lock isteği
+    // burada güvenle yapılabilir.
+    requestWakeLock();
+    updateBgWarning();
 
     watchId = navigator.geolocation.watchPosition(onPosition, onPositionError, {
       enableHighAccuracy: true,
@@ -146,7 +218,10 @@
   function onPosition(pos) {
     startBtn.style.display = "none";
     stopBtn.style.display = "block";
-    setStatus('<span class="pulse"></span>Konum paylaşılıyor…', "ok");
+    if (document.visibilityState === "visible") {
+      setStatus('<span class="pulse"></span>Konum paylaşılıyor…', "ok");
+    }
+    updateBgWarning();
 
     docRef.set({
       lat: pos.coords.latitude,
@@ -171,10 +246,13 @@
   }
 
   function stopSharing() {
+    sharingActive = false;
     if (watchId !== null) {
       navigator.geolocation.clearWatch(watchId);
       watchId = null;
     }
+    releaseWakeLock();
+    updateBgWarning();
     docRef.set({ active: false }, { merge: true }).catch(function () {});
     stopBtn.style.display = "none";
     startBtn.style.display = "block";
