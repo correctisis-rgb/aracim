@@ -1072,7 +1072,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.6.1"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.6.2"; // Dynamic Version Tracking
   var APP_UPDATED = "10 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1953,7 +1953,18 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     }
     db.collection("users").doc(docId).set(patch, { merge: true })
       .then(clearInFlight)
-      .catch(function (err) { console.error(err); clearInFlight(); });
+      .catch(function (err) {
+        console.error(err);
+        clearInFlight();
+        // Bkz. handleFieldWriteFailure yorumu: başarısız yazmadan sonra
+        // in-flight kilidini kaldırıp sessizce devam edersek, araya giren
+        // bir sonraki (henüz bizim değişikliğimizi içermeyen) snapshot yeni
+        // eklenen/değiştirilen kaydı yerel state'ten siler. Bunun yerine
+        // pendingSyncCount'u artırıp hem state'i koruyoruz hem de bağlantı
+        // düzelince syncOfflineData() ile otomatik tekrar deneniyor.
+        markPendingSync();
+        toast("Değişiklik buluta kaydedilemedi, tekrar denenecek.");
+      });
   }
   // NOT: Bu kontrol sadece kullanıcıya anında geri bildirim vermek için
   // (UX). Gerçek güvenlik sınırı Firestore Security Rules'ta olmalı,
@@ -1974,6 +1985,20 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return vehicleLimitReached(0);
   }
   var PLAN_LIMIT_EXCEEDED_MESSAGE = "Plan limitiniz aşıldı, düzenlemeye devam edebilmek için fazla aracı silmeniz gerekiyor.";
+  function handleFieldWriteFailure(fieldKey, err, label) {
+    console.error(err);
+    inFlightFieldWrites[fieldKey] = Math.max(0, (inFlightFieldWrites[fieldKey] || 0) - 1);
+    // Yazma başarısız olduğunda (izin hatası, ağ kopması vb.) sessizce
+    // in-flight kilidini kaldırıp devam edersek, araya giren bir sonraki
+    // onSnapshot (henüz bizim değişikliğimizi içermeyen ESKİ sunucu verisi)
+    // yerel state'teki (kaydedilememiş) değişikliği siler — kullanıcıya
+    // "ekledim ama kayboldu" gibi görünür. Bunun yerine offline-sync
+    // mekanizmasını (pendingSyncCount) devreye sokuyoruz: bu, hem
+    // applyHouseholdData'nın state üzerine yazmasını tamamen durdurur hem de
+    // syncOfflineData() bağlantı/izin düzelince otomatik tekrar dener.
+    markPendingSync();
+    toast((label || "Veri") + " buluta kaydedilemedi, tekrar denenecek.");
+  }
   function persistCars() {
     setLocalData("cars", state.cars);
     if (!state.online) { markPendingSync(); return; }
@@ -1982,7 +2007,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     inFlightFieldWrites.cars = (inFlightFieldWrites.cars || 0) + 1;
     db.collection("users").doc(docId).set({ cars: state.cars }, { merge: true })
       .then(function () { inFlightFieldWrites.cars = Math.max(0, inFlightFieldWrites.cars - 1); })
-      .catch(function (err) { console.error(err); inFlightFieldWrites.cars = Math.max(0, inFlightFieldWrites.cars - 1); });
+      .catch(function (err) { handleFieldWriteFailure("cars", err, "Araç"); });
   }
   function persistExpenses() {
     setLocalData("expenses", state.expenses);
@@ -1992,7 +2017,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     inFlightFieldWrites.expenses = (inFlightFieldWrites.expenses || 0) + 1;
     db.collection("users").doc(docId).set({ expenses: state.expenses }, { merge: true })
       .then(function () { inFlightFieldWrites.expenses = Math.max(0, inFlightFieldWrites.expenses - 1); })
-      .catch(function (err) { console.error(err); inFlightFieldWrites.expenses = Math.max(0, inFlightFieldWrites.expenses - 1); });
+      .catch(function (err) { handleFieldWriteFailure("expenses", err, "Masraf"); });
   }
   function persistDriverExpenses() {
     setLocalData("driver_expenses", state.driverExpenses);
@@ -2002,7 +2027,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     inFlightFieldWrites.driverExpenses = (inFlightFieldWrites.driverExpenses || 0) + 1;
     db.collection("users").doc(docId).set({ driverExpenses: state.driverExpenses }, { merge: true })
       .then(function () { inFlightFieldWrites.driverExpenses = Math.max(0, inFlightFieldWrites.driverExpenses - 1); })
-      .catch(function (err) { console.error(err); inFlightFieldWrites.driverExpenses = Math.max(0, inFlightFieldWrites.driverExpenses - 1); });
+      .catch(function (err) { handleFieldWriteFailure("driverExpenses", err, "Şoför masrafı"); });
   }
   function persistUbakNotebooks() {
     setLocalData("ubak_notebooks", state.ubakNotebooks);
@@ -2012,7 +2037,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     inFlightFieldWrites.ubakNotebooks = (inFlightFieldWrites.ubakNotebooks || 0) + 1;
     db.collection("users").doc(docId).set({ ubakNotebooks: state.ubakNotebooks }, { merge: true })
       .then(function () { inFlightFieldWrites.ubakNotebooks = Math.max(0, inFlightFieldWrites.ubakNotebooks - 1); })
-      .catch(function (err) { console.error(err); inFlightFieldWrites.ubakNotebooks = Math.max(0, inFlightFieldWrites.ubakNotebooks - 1); });
+      .catch(function (err) { handleFieldWriteFailure("ubakNotebooks", err, "Defter"); });
   }
   // Araç silindiğinde, o araca ait vade/randevu/km hatırlatma dedup
   // anahtarları (bkz. send-reminders.js -> stateKey = car.id + "_" + ...)
@@ -2088,7 +2113,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     inFlightFieldWrites.drivers = (inFlightFieldWrites.drivers || 0) + 1;
     db.collection("users").doc(docId).set({ drivers: state.drivers }, { merge: true })
       .then(function () { inFlightFieldWrites.drivers = Math.max(0, inFlightFieldWrites.drivers - 1); })
-      .catch(function (err) { console.error(err); inFlightFieldWrites.drivers = Math.max(0, inFlightFieldWrites.drivers - 1); });
+      .catch(function (err) { handleFieldWriteFailure("drivers", err, "Şoför"); });
   }
 
   // ---------- 🗺️ Şoför Canlı Konum Takibi ----------
@@ -3325,6 +3350,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         familyMembers: state.familyMembers,
         budgets: state.budgets,
         drivers: state.drivers,
+        driverExpenses: state.driverExpenses,
+        ubakNotebooks: state.ubakNotebooks,
         activityLog: state.activityLog
       }, { merge: true }).then(function() {
         clearPendingSync();
@@ -4277,6 +4304,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       freePlanCheckedThisSession = false;
       maybeRunAutoBackup();
     }, 6 * 60 * 60 * 1000);
+    // Çevrimiçiyken başarısız olan bir yazma (izin hatası, anlık ağ
+    // sorunu vb.) pendingSyncCount'u artırıp bekletiyor (bkz.
+    // handleFieldWriteFailure / persistFields catch). Bu bekleyen
+    // değişiklikler daha önce sadece "online" olayında tekrar deneniyordu;
+    // kullanıcı hiç çevrimdışı olmadıysa (sürekli online) bu tetiklenmez ve
+    // değişiklik hiç senkronize olmazdı. Bu yüzden ayrıca periyodik olarak
+    // da tekrar deniyoruz.
+    setInterval(function () {
+      if (state.currentUser && (state.pendingSyncCount || 0) > 0) syncOfflineData();
+    }, 15 * 1000);
     window.addEventListener("online", function () { 
       state.online = true; 
       syncOfflineData();
