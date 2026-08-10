@@ -167,6 +167,11 @@
   .update-banner-dismiss:hover { opacity: 1; }
   body:has(.update-banner) { padding-top: 40px; }
 
+  .harita-map-box {
+    width: 100%; height: 420px; border-radius: 12px; overflow: hidden;
+    border: 1px solid var(--border); margin-top: 10px; background: var(--surface-2);
+  }
+  @media (max-width: 640px) { .harita-map-box { height: 320px; } }
   .harita-marker-icon { display: flex; flex-direction: column; align-items: center; pointer-events: none; }
   .harita-marker-pin {
     width: 34px; height: 34px; border-radius: 50%;
@@ -1067,7 +1072,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.5.8"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.5.9"; // Dynamic Version Tracking
   var APP_UPDATED = "10 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
