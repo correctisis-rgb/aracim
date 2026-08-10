@@ -1072,7 +1072,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.6.5"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.6.6"; // Dynamic Version Tracking
   var APP_UPDATED = "10 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -5480,6 +5480,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         }
       }
     }
+
+    // render() her çağrıldığında app.innerHTML tamamen yenilendiği için,
+    // harita bölümündeyken hesap menüsü açma/kapama, modal açma gibi
+    // haritayla ilgisi olmayan bir eylem bile #harita-map div'ini yeni bir
+    // DOM elemanı olarak baştan oluşturuyordu. Bu durumda Leaflet haritası
+    // (haritaMap değişkeni hâlâ eski/artık sayfada olmayan container'a bağlı
+    // olduğundan) hiç yeniden kurulmuyor ve harita tamamen kayboluyordu.
+    // Bu yüzden mainSection "harita" olduğu her render() sonunda haritayı
+    // (varsa) yeni container'a taşı/yeniden kur.
+    if (state.mainSection === "harita") { setTimeout(initHaritaMapIfNeeded, 0); }
   }
 
   function getOnboardingSteps() {
