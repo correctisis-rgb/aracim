@@ -420,7 +420,7 @@
   .doc-thumb-btn img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .doc-thumb-btn.empty { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 18px; }
 
-  .modal-backdrop { position: fixed; inset: 0; background: #00000090; display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
+  .modal-backdrop { position: fixed; inset: 0; background: #00000090; display: flex; align-items: center; justify-content: center; z-index: 1050; padding: 16px; }
   .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px; width: 100%; max-width: 400px; max-height: 90vh; overflow-y: auto; }
   .modal.wide { max-width: 460px; }
   .modal.modal-admin { max-width: 560px; }
@@ -486,13 +486,13 @@
   }
 
   /* ---------- Lightbox ---------- */
-  .lightbox-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.92); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 20px; cursor: zoom-out; animation: fadeIn 0.25s ease-out; }
+  .lightbox-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.92); display: flex; align-items: center; justify-content: center; z-index: 1100; padding: 20px; cursor: zoom-out; animation: fadeIn 0.25s ease-out; }
   .lightbox-content { position: relative; max-width: 90%; max-height: 85vh; display: flex; flex-direction: column; align-items: center; }
   .lightbox-backdrop img { max-width: 100%; max-height: 80vh; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,0.8); object-fit: contain; border: 2px solid var(--border); }
   .lightbox-caption { color: var(--text); margin-top: 12px; font-family: 'Oswald', sans-serif; font-size: 16px; letter-spacing: 0.05em; text-align: center; background: rgba(0,0,0,0.6); padding: 6px 16px; border-radius: 20px; }
   @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
-  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--surface-2); border: 1px solid var(--border); color: var(--text); padding: 10px 16px; border-radius: 8px; font-size: 13px; z-index: 70; box-shadow: 0 6px 20px #00000060; max-width: calc(100vw - 32px); text-align: center; }
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--surface-2); border: 1px solid var(--border); color: var(--text); padding: 10px 16px; border-radius: 8px; font-size: 13px; z-index: 1120; box-shadow: 0 6px 20px #00000060; max-width: calc(100vw - 32px); text-align: center; }
   .toast-undo { display: flex; align-items: center; gap: 12px; text-align: left; }
   .toast-undo-btn { background: none; border: 1px solid var(--amber); color: var(--amber); border-radius: 6px; padding: 5px 11px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; white-space: nowrap; flex-shrink: 0; }
   .toast-undo-btn:hover { background: color-mix(in srgb, var(--amber) 16%, transparent); }
@@ -634,7 +634,7 @@
   .account-avatar-fallback { background: var(--amber); color: #1B1F24; text-align: center; font-weight: 700; font-size: 12px; }
   .account-name { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .account-chevron { color: var(--muted); font-size: 10px; }
-  .account-menu { position: absolute; top: calc(100% + 8px); right: 0; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 6px; min-width: 170px; max-width: calc(100vw - 24px); box-shadow: 0 10px 30px #00000050; z-index: 40; }
+  .account-menu { position: absolute; top: calc(100% + 8px); right: 0; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 6px; min-width: 170px; max-width: calc(100vw - 24px); box-shadow: 0 10px 30px #00000050; z-index: 1150; }
   .account-menu-item { display: flex; align-items: center; gap: 8px; width: 100%; background: none; border: none; color: var(--text); font-size: 13px; padding: 9px 10px; border-radius: 7px; cursor: pointer; text-align: left; font-family: inherit; }
   .account-menu-item:hover { background: var(--bg); }
   .account-menu-item.danger { color: var(--red); }
@@ -732,7 +732,7 @@
   .btn-danger.full { width: 100%; justify-content: center; }
 
   /* ---------- in-app confirm popup ---------- */
-  .confirm-backdrop { z-index: 65; }
+  .confirm-backdrop { z-index: 1060; }
   .confirm-modal { max-width: 340px; }
   .confirm-modal .modal-head { margin-bottom: 10px; }
   .confirm-message { font-size: 13.5px; color: var(--text); line-height: 1.55; margin: 0 0 18px; }
@@ -1072,7 +1072,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.6.6"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.6.7"; // Dynamic Version Tracking
   var APP_UPDATED = "10 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
