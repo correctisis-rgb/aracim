@@ -197,6 +197,27 @@
   .view-tab.active { background: var(--surface-2); color: var(--text); }
   .view-tab-flag { position: absolute; top: 4px; right: 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--red); }
 
+  /* ---------- Ana bölüm sekmeleri (Araçlar/Şoförler/Takvim/Ubak Defterleri) ----------
+     Dar ekranlarda satıra sarmak yerine tek satırda kalıp yatay kaydırmalı olsun,
+     böylece son sekme bir alt satıra düşmüyor. */
+  @media (max-width: 640px) {
+    .view-tabs.section-tabs {
+      flex-wrap: nowrap;
+      width: 100%;
+      max-width: 100%;
+      overflow-x: auto;
+      overflow-y: hidden;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    .view-tabs.section-tabs::-webkit-scrollbar { display: none; }
+    .view-tabs.section-tabs .view-tab {
+      flex-shrink: 0;
+      white-space: nowrap;
+      padding: 10px 12px;
+    }
+  }
+
   /* ---------- Admin Panel sekme çubuğu ---------- */
   /* Az sayıda (5) sekme olduğu için yatay kaydırma yerine gerektiğinde
      ikinci satıra sarar; böylece hem alt tarafta çirkin bir yatay scrollbar
@@ -1029,8 +1050,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.5.5"; // Dynamic Version Tracking
-  var APP_UPDATED = "31 Temmuz 2026";
+  var APP_VERSION = "v2.5.6"; // Dynamic Version Tracking
+  var APP_UPDATED = "10 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
