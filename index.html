@@ -1073,7 +1073,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.6.8"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.6.9"; // Dynamic Version Tracking
   var APP_UPDATED = "10 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -2215,6 +2215,27 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return Math.floor(hr / 24) + " gün önce";
   }
 
+  // Şoförün konum paylaşan sekmesi/uygulaması kapatılır, bağlantı koparsa
+  // ya da izin geri alınırsa, "active" bayrağı hiç false yazılmayabilir
+  // (bu, sadece 'Paylaşımı Durdur' ile elle tetiklenir) — bu durumda eski
+  // bir konum sonsuza kadar 🟢 "aktif" görünürdü. Bu yüzden ayrıca son
+  // güncellemenin üzerinden belli bir süre (DRIVER_LOCATION_STALE_MS)
+  // geçip geçmediğine bakıyoruz; geçtiyse bayrak ne olursa olsun pasif
+  // sayılır.
+  var DRIVER_LOCATION_STALE_MS = 3 * 60 * 1000; // 3 dakika
+  function driverLocationTimestampMs(dateLike) {
+    if (!dateLike) return 0;
+    var ms;
+    try { ms = dateLike.toDate ? dateLike.toDate().getTime() : new Date(dateLike).getTime(); } catch (e) { return 0; }
+    return (!ms || isNaN(ms)) ? 0 : ms;
+  }
+  function isDriverLocationLive(loc) {
+    if (!loc || loc.active === false) return false;
+    var ms = driverLocationTimestampMs(loc.updatedAt);
+    if (!ms) return false;
+    return (Date.now() - ms) < DRIVER_LOCATION_STALE_MS;
+  }
+
   var haritaMap = null;
   var haritaMarkers = {}; // shareId -> L.Marker
 
@@ -2232,7 +2253,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     html += '<ul class="err-list" style="max-height:none; margin-top:12px">';
     driversWithShare.forEach(function (d) {
       var loc = state.driverLocations ? state.driverLocations[d.shareId] : null;
-      var active = loc && loc.active !== false;
+      var active = isDriverLocationLive(loc);
       html += '<li class="err-item harita-driver-row" data-action="focus-harita-driver" data-id="' + d.id + '" style="cursor:pointer">' +
         '<div class="err-item-head">' +
           '<span class="driver-item-name">' + (active ? '🟢 ' : '⚪ ') + esc(d.name) + '</span>' +
@@ -2276,7 +2297,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       var loc = state.driverLocations ? state.driverLocations[d.shareId] : null;
       if (!loc || typeof loc.lat !== "number" || typeof loc.lng !== "number") return;
       seen[d.shareId] = true;
-      var active = loc.active !== false;
+      var active = isDriverLocationLive(loc);
       var icon = L.divIcon({
         className: "harita-marker-icon",
         html: '<div class="harita-marker-pin' + (active ? "" : " harita-marker-pin-inactive") + '">🚕</div><div class="harita-marker-label">' + esc(d.name) + '</div>',
@@ -2318,7 +2339,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       var row = document.querySelector('.harita-driver-row[data-id="' + d.id + '"]');
       if (!row) return;
       var loc = state.driverLocations ? state.driverLocations[d.shareId] : null;
-      var active = loc && loc.active !== false;
+      var active = isDriverLocationLive(loc);
       var nameEl = row.querySelector(".driver-item-name");
       if (nameEl) nameEl.textContent = (active ? "🟢 " : "⚪ ") + d.name;
       var metaEl = row.querySelector(".err-item-meta");
@@ -4370,6 +4391,18 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     setInterval(function () {
       if (state.currentUser && (state.pendingSyncCount || 0) > 0) syncOfflineData();
     }, 15 * 1000);
+    // Şoförün konum göndermeyi kesmesi (sekmeyi kapatması, bağlantısını
+    // kaybetmesi vb.) her zaman yeni bir Firestore güncellemesi
+    // TETİKLEMEZ — bu durumda ekran, yeni bir konum pingi ya da sayfa
+    // etkileşimi gelene kadar eski "🟢 aktif" durumunda takılı kalırdı.
+    // Harita ekranındayken periyodik olarak tazeleyerek, hiç yeni ping
+    // gelmese bile DRIVER_LOCATION_STALE_MS süresi dolunca ⚪ pasife
+    // otomatik geçmesini sağlıyoruz.
+    setInterval(function () {
+      if (state.currentUser && state.mainSection === "harita" && document.getElementById("harita-map")) {
+        refreshHaritaLiveUI();
+      }
+    }, 20 * 1000);
     window.addEventListener("online", function () { 
       state.online = true; 
       syncOfflineData();
@@ -6589,7 +6622,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     var shareUrl = d.shareId ? buildDriverShareUrl(d.shareId) : "";
     var loc = d.shareId && state.driverLocations ? state.driverLocations[d.shareId] : null;
-    var active = loc && loc.active !== false;
+    var active = isDriverLocationLive(loc);
 
     var html = '<div class="modal-head"><h3>📍 ' + esc(d.name) + ' — Konum Paylaşımı</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>';
 
