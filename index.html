@@ -1072,7 +1072,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.6.0"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.6.1"; // Dynamic Version Tracking
   var APP_UPDATED = "10 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1555,26 +1555,32 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     // uygulanacak. Aksi halde offline'da eklenen aktivite geçmişi kayıtları
     // (ve diğer değişiklikler) bu eski veriyle ezilip kayboluyordu.
     if (!(state.pendingSyncCount > 0)) {
-      state.cars = data.cars || state.cars || [];
-      state.expenses = data.expenses || state.expenses || [];
-      state.familyMembers = data.familyMembers || state.familyMembers || [];
-      state.budgets = data.budgets || state.budgets || {};
-      state.drivers = data.drivers || state.drivers || [];
-      state.driverExpenses = data.driverExpenses || state.driverExpenses || [];
-      state.ubakNotebooks = data.ubakNotebooks || state.ubakNotebooks || [];
+      // Az önce persistFields/persistCars/persistDrivers vb. ile yazdığımız
+      // ama Firestore'un henüz "yazma tamamlandı" onayını vermediği alanlar
+      // burada atlanır (bkz. inFlightFieldWrites) — aksi halde araya giren
+      // eski/ara bir snapshot, henüz sunucuya ulaşmamış yerel değişikliği
+      // (yeni eklenen araç, yeni oluşturulan konum paylaşım linki vb.)
+      // state üzerinden siler gibi görünürdü.
+      var driversChangedBySnapshot = false;
+      if (!inFlightFieldWrites.cars) { state.cars = data.cars || state.cars || []; setLocalData("cars", state.cars); }
+      if (!inFlightFieldWrites.expenses) { state.expenses = data.expenses || state.expenses || []; setLocalData("expenses", state.expenses); }
+      if (!inFlightFieldWrites.familyMembers) { state.familyMembers = data.familyMembers || state.familyMembers || []; setLocalData("family", state.familyMembers); }
+      if (!inFlightFieldWrites.budgets) { state.budgets = data.budgets || state.budgets || {}; setLocalData("budgets", state.budgets); }
+      if (!inFlightFieldWrites.drivers) { state.drivers = data.drivers || state.drivers || []; driversChangedBySnapshot = true; }
+      if (!inFlightFieldWrites.driverExpenses) { state.driverExpenses = data.driverExpenses || state.driverExpenses || []; }
+      if (!inFlightFieldWrites.ubakNotebooks) { state.ubakNotebooks = data.ubakNotebooks || state.ubakNotebooks || []; }
       state.notifHistory = data.notifHistory || state.notifHistory || [];
       state.activityLog = data.activityLog || state.activityLog || [];
       state.license = data.license || null;
       state.householdPendingDeletion = data.pendingDeletion || null;
-      setLocalData("cars", state.cars);
-      setLocalData("expenses", state.expenses);
-      setLocalData("family", state.familyMembers);
-      setLocalData("budgets", state.budgets);
       setLocalData("notif_history", state.notifHistory);
       setLocalData("activity_log", state.activityLog);
-      // Şoför listesi (ve dolayısıyla şareId'ler) her güncellendiğinde canlı
-      // konum dinleyicisini de güncel şoför setine göre yeniden kur.
-      subscribeDriverLocations();
+      // Şoför listesi (ve dolayısıyla şareId'ler) güncellendiğinde canlı
+      // konum dinleyicisini de güncel şoför setine göre yeniden kur — ama
+      // sadece drivers gerçekten bu snapshot'tan güncellendiyse; her
+      // household snapshot'ında körü körüne çağırmak gereksiz yeniden
+      // abonelik/render trafiği yaratıp yarış durumu ihtimalini artırıyordu.
+      if (driversChangedBySnapshot) subscribeDriverLocations();
     }
     setTimeout(maybeRunAutoBackup, 0);
     // Üye listesi artık TÜM memberProfiles anahtarlarından değil, GÜNCEL
@@ -1914,20 +1920,40 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     ubakNotebooks: { local: "ubak_notebooks", get: function () { return state.ubakNotebooks; } },
     activityLog: { local: "activity_log", get: function () { return state.activityLog; } }
   };
+  // In-flight yazma kilidi: bir alan için persistFields() çağrıldıktan sonra
+  // Firestore'a yazma tamamlanana kadar, o alan adı burada "kirli" (dirty)
+  // olarak işaretlenir. applyHouseholdData() bu süre boyunca gelen
+  // onSnapshot verilerinde o alanın üzerine YAZMAZ — çünkü snapshot henüz
+  // bizim son yazdığımız değeri yansıtmıyor olabilir (yazma sunucuya
+  // ulaşmadan araya giren eski/ara bir snapshot, az önce eklediğimiz aracı
+  // ya da şoför paylaşım linkini yerel state'ten siliyordu). Yazma
+  // tamamlandığında (başarılı ya da hatalı fark etmez) kilit kaldırılır;
+  // zaten o noktadan sonra gelecek snapshot güncel veriyi taşır.
+  var inFlightFieldWrites = {};
   function persistFields(keys) {
     var patch = {};
+    var firestoreKeys = [];
     keys.forEach(function (k) {
       var cfg = PERSIST_FIELD_MAP[k];
       if (!cfg) return;
       var val = cfg.get();
       setLocalData(cfg.local, val);
-      patch[cfg.firestoreKey || k] = val;
+      var fk = cfg.firestoreKey || k;
+      patch[fk] = val;
+      firestoreKeys.push(fk);
     });
     if (!state.online) { markPendingSync(); return; }
     var docId = dataDocId();
     if (!docId) return;
+    firestoreKeys.forEach(function (fk) { inFlightFieldWrites[fk] = (inFlightFieldWrites[fk] || 0) + 1; });
+    function clearInFlight() {
+      firestoreKeys.forEach(function (fk) {
+        inFlightFieldWrites[fk] = Math.max(0, (inFlightFieldWrites[fk] || 0) - 1);
+      });
+    }
     db.collection("users").doc(docId).set(patch, { merge: true })
-      .catch(function (err) { console.error(err); });
+      .then(clearInFlight)
+      .catch(function (err) { console.error(err); clearInFlight(); });
   }
   // NOT: Bu kontrol sadece kullanıcıya anında geri bildirim vermek için
   // (UX). Gerçek güvenlik sınırı Firestore Security Rules'ta olmalı,
@@ -1953,32 +1979,40 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (!state.online) { markPendingSync(); return; }
     var docId = dataDocId();
     if (!docId) return;
+    inFlightFieldWrites.cars = (inFlightFieldWrites.cars || 0) + 1;
     db.collection("users").doc(docId).set({ cars: state.cars }, { merge: true })
-      .catch(function (err) { console.error(err); });
+      .then(function () { inFlightFieldWrites.cars = Math.max(0, inFlightFieldWrites.cars - 1); })
+      .catch(function (err) { console.error(err); inFlightFieldWrites.cars = Math.max(0, inFlightFieldWrites.cars - 1); });
   }
   function persistExpenses() {
     setLocalData("expenses", state.expenses);
     if (!state.online) { markPendingSync(); return; }
     var docId = dataDocId();
     if (!docId) return;
+    inFlightFieldWrites.expenses = (inFlightFieldWrites.expenses || 0) + 1;
     db.collection("users").doc(docId).set({ expenses: state.expenses }, { merge: true })
-      .catch(function (err) { console.error(err); });
+      .then(function () { inFlightFieldWrites.expenses = Math.max(0, inFlightFieldWrites.expenses - 1); })
+      .catch(function (err) { console.error(err); inFlightFieldWrites.expenses = Math.max(0, inFlightFieldWrites.expenses - 1); });
   }
   function persistDriverExpenses() {
     setLocalData("driver_expenses", state.driverExpenses);
     if (!state.online) { markPendingSync(); return; }
     var docId = dataDocId();
     if (!docId) return;
+    inFlightFieldWrites.driverExpenses = (inFlightFieldWrites.driverExpenses || 0) + 1;
     db.collection("users").doc(docId).set({ driverExpenses: state.driverExpenses }, { merge: true })
-      .catch(function (err) { console.error(err); });
+      .then(function () { inFlightFieldWrites.driverExpenses = Math.max(0, inFlightFieldWrites.driverExpenses - 1); })
+      .catch(function (err) { console.error(err); inFlightFieldWrites.driverExpenses = Math.max(0, inFlightFieldWrites.driverExpenses - 1); });
   }
   function persistUbakNotebooks() {
     setLocalData("ubak_notebooks", state.ubakNotebooks);
     if (!state.online) { markPendingSync(); return; }
     var docId = dataDocId();
     if (!docId) return;
+    inFlightFieldWrites.ubakNotebooks = (inFlightFieldWrites.ubakNotebooks || 0) + 1;
     db.collection("users").doc(docId).set({ ubakNotebooks: state.ubakNotebooks }, { merge: true })
-      .catch(function (err) { console.error(err); });
+      .then(function () { inFlightFieldWrites.ubakNotebooks = Math.max(0, inFlightFieldWrites.ubakNotebooks - 1); })
+      .catch(function (err) { console.error(err); inFlightFieldWrites.ubakNotebooks = Math.max(0, inFlightFieldWrites.ubakNotebooks - 1); });
   }
   // Araç silindiğinde, o araca ait vade/randevu/km hatırlatma dedup
   // anahtarları (bkz. send-reminders.js -> stateKey = car.id + "_" + ...)
@@ -2051,8 +2085,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (!state.online) { markPendingSync(); return; }
     var docId = dataDocId();
     if (!docId) return;
+    inFlightFieldWrites.drivers = (inFlightFieldWrites.drivers || 0) + 1;
     db.collection("users").doc(docId).set({ drivers: state.drivers }, { merge: true })
-      .catch(function (err) { console.error(err); });
+      .then(function () { inFlightFieldWrites.drivers = Math.max(0, inFlightFieldWrites.drivers - 1); })
+      .catch(function (err) { console.error(err); inFlightFieldWrites.drivers = Math.max(0, inFlightFieldWrites.drivers - 1); });
   }
 
   // ---------- 🗺️ Şoför Canlı Konum Takibi ----------
@@ -4255,17 +4291,43 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         render();
       }
     });
+    var authStateLastUid = null;
     auth.onAuthStateChanged(function (fbUser) {
       if (fbUser) {
-        // E-posta/şifre ile oluşturulmuş ama henüz doğrulanmamış hesaplar
-        // uygulamaya alınmaz; önce doğrulama bekleme ekranı gösterilir.
-        if (!fbUser.emailVerified) {
-          renderVerifyGate(fbUser);
+        // onAuthStateChanged sadece gerçek giriş/çıkışta değil, Firebase'in
+        // arka planda token yenilemesi, sekme odağı, ağ yeniden bağlanması
+        // gibi durumlarda da tekrar tetiklenebiliyor. Bu tekrar
+        // tetiklenmelerde fbUser.emailVerified önbellekteki (bayat) değeri
+        // taşıyabiliyor ve zaten doğrulanmış bir kullanıcıyı yanlışlıkla
+        // doğrulama bekleme ekranına atabiliyordu. Bu yüzden aynı kullanıcı
+        // için ikinci ve sonraki tetiklenmelerde emailVerified kontrolünü
+        // tazelemeden (reload) tekrar sormuyoruz; sadece gerçek bir
+        // giriş/hesap değişiminde taze veri çekip kontrol ediyoruz.
+        if (fbUser.uid !== authStateLastUid) {
+          fbUser.reload().then(function () {
+            if (!fbUser.emailVerified) {
+              renderVerifyGate(fbUser);
+              return;
+            }
+            authStateLastUid = fbUser.uid;
+            clearVerifyGatePoll();
+            loginAs(fbUser);
+          }).catch(function () {
+            // reload başarısız olursa (ör. anlık bağlantı sorunu) elimizdeki
+            // en son bilinen değere göre devam et; kullanıcıyı gereksiz
+            // yere doğrulama ekranına atmamak, yanlışlıkla içeri almaktan
+            // daha az sorunlu.
+            if (!fbUser.emailVerified) { renderVerifyGate(fbUser); return; }
+            authStateLastUid = fbUser.uid;
+            clearVerifyGatePoll();
+            loginAs(fbUser);
+          });
           return;
         }
-        clearVerifyGatePoll();
-        loginAs(fbUser);
+        // Aynı kullanıcı için tekrar tetiklenme (token yenileme vb.) —
+        // zaten giriş yapılmış durumda, doğrulama kapısına tekrar sokma.
       } else {
+        authStateLastUid = null;
         clearVerifyGatePoll();
         if (unsubscribeUserDoc) { unsubscribeUserDoc(); unsubscribeUserDoc = null; }
         if (unsubscribeHouseholdDoc) { unsubscribeHouseholdDoc(); unsubscribeHouseholdDoc = null; }
