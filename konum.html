@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Konum Paylaşımı — Garaj Defteri</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    background: #0f1115; color: #f2f2f2; min-height: 100vh;
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  .card {
+    width: 100%; max-width: 420px; background: #191c22; border-radius: 16px;
+    padding: 28px 22px; text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+  }
+  .icon { font-size: 48px; margin-bottom: 8px; }
+  h1 { font-size: 19px; margin: 0 0 6px; font-weight: 700; }
+  .driver-name { color: #ffb020; font-weight: 700; }
+  p { color: #b7bcc7; font-size: 14px; line-height: 1.5; margin: 10px 0; }
+  .status {
+    margin: 18px 0; padding: 14px; border-radius: 10px; font-size: 14px; font-weight: 600;
+    background: #22262f;
+  }
+  .status.ok { background: #123321; color: #4ade80; }
+  .status.err { background: #331414; color: #f87171; }
+  .status.wait { background: #22262f; color: #f2c14e; }
+  button {
+    width: 100%; padding: 15px; font-size: 16px; font-weight: 700; border: none;
+    border-radius: 10px; cursor: pointer; margin-top: 10px;
+  }
+  .btn-start { background: #ffb020; color: #1a1a1a; }
+  .btn-start:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-stop { background: #2a2e37; color: #f2f2f2; }
+  .pulse {
+    display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+    background: #4ade80; margin-right: 6px; animation: pulse 1.4s infinite;
+  }
+  @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+  .footer-hint { font-size: 12px; color: #6b7280; margin-top: 18px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="icon">📍</div>
+  <h1 id="title">Konum Paylaşımı</h1>
+  <p id="intro">Yükleniyor…</p>
+  <div id="statusBox" class="status wait" style="display:none"></div>
+  <button id="startBtn" class="btn-start" style="display:none">Paylaşımı Başlat</button>
+  <button id="stopBtn" class="btn-stop" style="display:none">Paylaşımı Durdur</button>
+  <p class="footer-hint">Bu sayfa "Garaj Defteri" uygulamasına aittir. Konumun sadece seni bu linkle davet eden hane tarafından görülür.</p>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  var firebaseConfig = {
+    apiKey: "AIzaSyCcfODFLDPVA4zr7L6xKPjEA6-Vle3XPio",
+    authDomain: "garaj-defteri-2bcdd.firebaseapp.com",
+    projectId: "garaj-defteri-2bcdd",
+    storageBucket: "garaj-defteri-2bcdd.firebasestorage.app",
+    messagingSenderId: "983721667235",
+    appId: "1:983721667235:web:6e47457841795e700ded16"
+  };
+  firebase.initializeApp(firebaseConfig);
+  var auth = firebase.auth();
+  var db = firebase.firestore();
+
+  var titleEl = document.getElementById("title");
+  var introEl = document.getElementById("intro");
+  var statusBox = document.getElementById("statusBox");
+  var startBtn = document.getElementById("startBtn");
+  var stopBtn = document.getElementById("stopBtn");
+
+  function setStatus(text, cls) {
+    statusBox.style.display = "block";
+    statusBox.className = "status " + (cls || "wait");
+    statusBox.innerHTML = text;
+  }
+
+  function getShareId() {
+    var params = new URLSearchParams(window.location.search);
+    return params.get("id");
+  }
+
+  var shareId = getShareId();
+  var watchId = null;
+  var docRef = null;
+
+  if (!shareId) {
+    titleEl.textContent = "Geçersiz Link";
+    introEl.textContent = "Bu link eksik veya hatalı görünüyor. Lütfen size gönderilen linki tekrar kontrol edin.";
+  } else {
+    docRef = db.collection("driverLocations").doc(shareId);
+    init();
+  }
+
+  function init() {
+    introEl.textContent = "Bağlanılıyor…";
+    auth.signInAnonymously().then(function () {
+      return docRef.get();
+    }).then(function (snap) {
+      if (!snap.exists || snap.data().revoked === true) {
+        titleEl.textContent = "Paylaşım Linki Geçersiz";
+        introEl.textContent = "Bu paylaşım linki artık aktif değil. Yeni bir link almak için hane sahibinle iletişime geç.";
+        return;
+      }
+      introEl.innerHTML = "Konumunu paylaşmak için aşağıdaki düğmeye bas. Konumun sadece seni davet eden kişi tarafından görülebilir.";
+      startBtn.style.display = "block";
+      startBtn.addEventListener("click", startSharing);
+      stopBtn.addEventListener("click", stopSharing);
+    }).catch(function (err) {
+      console.error(err);
+      titleEl.textContent = "Bağlantı Hatası";
+      introEl.textContent = "Sunucuya bağlanılamadı. İnternet bağlantını kontrol edip sayfayı yenile.";
+    });
+  }
+
+  function startSharing() {
+    if (!navigator.geolocation) {
+      setStatus("Bu tarayıcı konum paylaşımını desteklemiyor.", "err");
+      return;
+    }
+    startBtn.disabled = true;
+    setStatus("Konum izni isteniyor…", "wait");
+
+    watchId = navigator.geolocation.watchPosition(onPosition, onPositionError, {
+      enableHighAccuracy: true,
+      maximumAge: 5000,
+      timeout: 20000
+    });
+  }
+
+  function onPosition(pos) {
+    startBtn.style.display = "none";
+    stopBtn.style.display = "block";
+    setStatus('<span class="pulse"></span>Konum paylaşılıyor…', "ok");
+
+    docRef.set({
+      lat: pos.coords.latitude,
+      lng: pos.coords.longitude,
+      speed: pos.coords.speed || 0,
+      heading: pos.coords.heading || null,
+      accuracy: pos.coords.accuracy || null,
+      active: true,
+      revoked: false,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true }).catch(function (err) { console.error("konum yazma hatası", err); });
+  }
+
+  function onPositionError(err) {
+    console.error(err);
+    startBtn.disabled = false;
+    if (err.code === err.PERMISSION_DENIED) {
+      setStatus("Konum izni reddedildi. Paylaşabilmek için tarayıcı ayarlarından konum iznini açman gerekiyor.", "err");
+    } else {
+      setStatus("Konum alınamadı. Lütfen tekrar dene.", "err");
+    }
+  }
+
+  function stopSharing() {
+    if (watchId !== null) {
+      navigator.geolocation.clearWatch(watchId);
+      watchId = null;
+    }
+    docRef.set({ active: false }, { merge: true }).catch(function () {});
+    stopBtn.style.display = "none";
+    startBtn.style.display = "block";
+    startBtn.disabled = false;
+    setStatus("Paylaşım durduruldu.", "wait");
+  }
+
+  window.addEventListener("beforeunload", function () {
+    if (watchId !== null && docRef) {
+      docRef.set({ active: false }, { merge: true }).catch(function () {});
+    }
+  });
+})();
+</script>
+</body>
+</html>
