@@ -1072,7 +1072,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.6.4"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.6.5"; // Dynamic Version Tracking
   var APP_UPDATED = "10 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1654,13 +1654,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // izinler. Bu alan hiç ayarlanmamışsa (özellik eklenmeden önce katılmış
   // üyeler dahil) eski "role" alanından ("edit"/"view") makul bir varsayılan
   // türetilir, böylece mevcut üyelerin erişimi aniden değişmez.
-  var ALL_HOUSEHOLD_PERMS = ["seeCars", "seeDrivers", "seeExpenses", "addExpense", "manage", "backup", "report", "bulkImport", "activityLog", "offline"];
+  var ALL_HOUSEHOLD_PERMS = ["seeCars", "seeDrivers", "seeHarita", "seeExpenses", "addExpense", "manage", "backup", "report", "bulkImport", "activityLog", "offline"];
   function normalizeMemberPerms(p) {
     if (p && p.perms && typeof p.perms === "object") {
       var pr = p.perms;
       return {
         seeCars: pr.seeCars !== false,
         seeDrivers: pr.seeDrivers !== false,
+        seeHarita: pr.seeHarita !== false,
         seeExpenses: pr.seeExpenses !== false,
         addExpense: pr.addExpense !== false,
         manage: pr.manage !== false,
@@ -1676,6 +1677,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return {
       seeCars: true,
       seeDrivers: true,
+      seeHarita: true,
       seeExpenses: true,
       addExpense: !legacyView,
       manage: !legacyView,
@@ -1690,7 +1692,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (!state.currentUser) return normalizeMemberPerms(null);
     // Hane sahibi her zaman tam yetkilidir; kendine kısıtlama koyamaz.
     if (state.householdId === state.currentUser.id) {
-      return { seeCars: true, seeDrivers: true, seeExpenses: true, addExpense: true, manage: true, backup: true, report: true, bulkImport: true, activityLog: true, offline: true };
+      return { seeCars: true, seeDrivers: true, seeHarita: true, seeExpenses: true, addExpense: true, manage: true, backup: true, report: true, bulkImport: true, activityLog: true, offline: true };
     }
     var mine = (state.householdMembers || []).find(function (m) { return m.uid === state.currentUser.id; });
     return mine ? mine.perms : normalizeMemberPerms(null);
@@ -5264,10 +5266,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     document.body.classList.toggle("no-bulk-import", !myPerms.bulkImport);
     document.body.classList.toggle("no-activity-log", !myPerms.activityLog);
 
-    // Üyenin erişemediği bir ana bölümde (Araçlar/Şoförler) kalmışsa,
+    // Üyenin erişemediği bir ana bölümde (Araçlar/Şoförler/Harita) kalmışsa,
     // erişebildiği ilk bölüme sessizce yönlendir. Takvim herkese açık
     // kaldığı için son çare olarak ona düşülür.
-    if ((state.mainSection === "drivers" || state.mainSection === "ubak" || state.mainSection === "harita") && !myPerms.seeDrivers) {
+    if (state.mainSection === "harita" && !myPerms.seeHarita) {
+      state.mainSection = myPerms.seeDrivers ? "drivers" : (myPerms.seeCars ? "cars" : "calendar");
+    } else if ((state.mainSection === "drivers" || state.mainSection === "ubak") && !myPerms.seeDrivers) {
       state.mainSection = myPerms.seeCars ? "cars" : "calendar";
     } else if (state.mainSection !== "drivers" && state.mainSection !== "calendar" && state.mainSection !== "ubak" && state.mainSection !== "harita" && !myPerms.seeCars) {
       state.mainSection = myPerms.seeDrivers ? "drivers" : "calendar";
@@ -5355,7 +5359,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         (myPerms.seeDrivers ? '<button class="view-tab ' + (state.mainSection === "drivers" ? "active" : "") + '" data-action="set-main-section" data-section="drivers">🧑‍✈️ Şoförler</button>' : '') +
         '<button class="view-tab ' + (state.mainSection === "calendar" ? "active" : "") + '" data-action="set-main-section" data-section="calendar">📅 Takvim' + (calendarHasUrgent ? '<span class="view-tab-flag"></span>' : '') + '</button>' +
         (myPerms.seeDrivers ? '<button class="view-tab ' + (state.mainSection === "ubak" ? "active" : "") + '" data-action="set-main-section" data-section="ubak">📘 Ubak Defterleri</button>' : '') +
-        (myPerms.seeDrivers ? '<button class="view-tab ' + (state.mainSection === "harita" ? "active" : "") + '" data-action="set-main-section" data-section="harita">🗺️ Harita</button>' : '') +
+        (myPerms.seeHarita ? '<button class="view-tab ' + (state.mainSection === "harita" ? "active" : "") + '" data-action="set-main-section" data-section="harita">🗺️ Harita</button>' : '') +
         '</nav>';
     }
 
@@ -7162,6 +7166,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   var HOUSEHOLD_PERM_DEFS = [
     { key: "seeCars", icon: "🚗", label: "Araçları görebilir", hint: "Kapalıysa 'Araçlar' sekmesini hiç göremez." },
     { key: "seeDrivers", icon: "🧑‍✈️", label: "Şoförleri görebilir", hint: "Kapalıysa 'Şoförler' sekmesini hiç göremez." },
+    { key: "seeHarita", icon: "🗺️", label: "Harita'yı görebilir", hint: "Kapalıysa 'Harita' sekmesini hiç göremez (şoförlerin canlı konumu)." },
     { key: "seeExpenses", icon: "💰", label: "Masrafları görebilir", hint: "Kapalıysa masraf kaydı listesini, Panel ve Analiz (maliyet) görünümlerini göremez; sadece bakım özetini (Özet) görür." },
     { key: "addExpense", icon: "➕", label: "Masraf ekleyebilir", hint: "Yeni masraf kaydı girebilir." },
     { key: "manage", icon: "✏️", label: "Araç / şoför ekleyip düzenleyebilir", hint: "Araç ve şoför ekleme, düzenleme, silme; masraf düzenleme/silme dahil." },
@@ -7191,7 +7196,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       copySources.push({
         uid: state.householdId,
         label: "👑 Hane Sahibi (tam yetki)",
-        perms: { seeCars: true, seeDrivers: true, seeExpenses: true, addExpense: true, manage: true, backup: true, report: true, bulkImport: true, activityLog: true, offline: true }
+        perms: { seeCars: true, seeDrivers: true, seeHarita: true, seeExpenses: true, addExpense: true, manage: true, backup: true, report: true, bulkImport: true, activityLog: true, offline: true }
       });
     }
     (state.householdMembers || []).forEach(function (m) {
