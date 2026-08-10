@@ -1072,7 +1072,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.6.3"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.6.4"; // Dynamic Version Tracking
   var APP_UPDATED = "10 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -2171,7 +2171,21 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
               if (change.type === "removed") { delete state.driverLocations[change.doc.id]; return; }
               state.driverLocations[change.doc.id] = change.doc.data();
             });
-            if (state.mainSection === "harita") { render(); setTimeout(initHaritaMapIfNeeded, 0); }
+            if (state.mainSection === "harita") {
+              // Harita zaten ekrandaysa (kullanıcı o an haritayı görüntülüyorsa),
+              // her konum pingi için TÜM sayfayı (header/nav/panel dahil)
+              // yeniden çizmek yerine — ki bu, haritanın barındığı div'i yok
+              // edip yeniden oluşturarak zoom/pan/popup sıfırlanmasına ve
+              // gözle görülür bir "titreme/yenilenme" hissine yol açıyordu —
+              // sadece marker konumlarını ve liste metnini hafifçe güncelliyoruz.
+              // Harita ekranda değilse (yeni girildiyse) normal tam render gerekir.
+              if (document.getElementById("harita-map")) {
+                refreshHaritaLiveUI();
+              } else {
+                render();
+                setTimeout(initHaritaMapIfNeeded, 0);
+              }
+            }
           }, function (err) { console.error("driverLocations dinleme hatası", err); });
         unsubs.push(unsub);
       })(chunk);
@@ -2287,6 +2301,30 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     } else if (bounds.length > 1) {
       haritaMap.fitBounds(bounds, { padding: [30, 30], maxZoom: 15 });
     }
+  }
+
+  // Harita ekrandayken gelen canlı konum pingleri için tam render() yerine
+  // kullanılan hafif güncelleyici: sadece marker'ları (updateHaritaMarkers)
+  // ve alttaki şoför listesindeki durum/zaman metnini günceller; header,
+  // nav, panel gibi geri kalan DOM'a dokunmaz. Bu sayede harita her konum
+  // güncellemesinde "titremez" / baştan yüklenmez.
+  function refreshHaritaLiveUI() {
+    updateHaritaMarkers();
+    var driversWithShare = (visibleDriversForMe() || []).filter(function (d) { return d.shareId && d.employmentStatus !== "terminated"; });
+    driversWithShare.forEach(function (d) {
+      var row = document.querySelector('.harita-driver-row[data-id="' + d.id + '"]');
+      if (!row) return;
+      var loc = state.driverLocations ? state.driverLocations[d.shareId] : null;
+      var active = loc && loc.active !== false;
+      var nameEl = row.querySelector(".driver-item-name");
+      if (nameEl) nameEl.textContent = (active ? "🟢 " : "⚪ ") + d.name;
+      var metaEl = row.querySelector(".err-item-meta");
+      if (metaEl) {
+        metaEl.textContent = loc
+          ? (active ? "Son güncelleme: " + timeAgoTR(loc.updatedAt) : "Paylaşım durduruldu / bekleniyor")
+          : "Henüz konum gelmedi, şoförün linke tıklaması gerekiyor.";
+      }
+    });
   }
 
   function focusHaritaDriver(driverId) {
@@ -2843,6 +2881,19 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // --- Oturum/cihaz denetimi: giriş anında kim, hangi cihazdan bağlandı ---
   var pendingAuthAction = null; // loginAs() tarafından okunur; sayfa yenilemede (sessiz oturum geri yükleme) log YAZILMAZ.
   var verifyGatePollTimer = null; // e-posta doğrulama bekleme ekranında birkaç saniyede bir otomatik kontrol eder
+  // E-posta doğrulama ZORUNLULUĞU bu tarihten SONRA oluşturulan hesaplar
+  // için geçerlidir. Bu özellik eklenmeden önce kayıt olmuş kullanıcılar o
+  // sırada hiç doğrulama istenmediği için e-postalarını hiç doğrulamamış
+  // olabilir (Firebase Auth'ta emailVerified:false). Bu tarih kontrolü
+  // olmadan, mevcut/eski kullanıcılar aniden "E-postanı Doğrula" ekranına
+  // kilitlenip hesaplarına hiç giremez hale geliyordu. Yeni kayıtlar için
+  // doğrulama hâlâ zorunlu; sadece bu tarihten ÖNCE açılmış hesaplar muaf.
+  var EMAIL_VERIFICATION_REQUIRED_SINCE = new Date("2026-08-10T00:00:00Z").getTime();
+  function isGrandfatheredFromEmailVerification(fbUser) {
+    var createdMs = (fbUser && fbUser.metadata && fbUser.metadata.creationTime)
+      ? new Date(fbUser.metadata.creationTime).getTime() : 0;
+    return !!createdMs && createdMs < EMAIL_VERIFICATION_REQUIRED_SINCE;
+  }
   var verifyGateResendCooldownUntil = 0;
   var autoBackupCheckedThisSession = false; // applyHouseholdData() içinde bir oturumda bir kez kontrol edilsin diye.
   var freePlanCheckedThisSession = false; // her oturumda bir kez /api/activate-free-plan çağrılsın diye.
@@ -4344,7 +4395,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         // giriş/hesap değişiminde taze veri çekip kontrol ediyoruz.
         if (fbUser.uid !== authStateLastUid) {
           fbUser.reload().then(function () {
-            if (!fbUser.emailVerified) {
+            if (!fbUser.emailVerified && !isGrandfatheredFromEmailVerification(fbUser)) {
               renderVerifyGate(fbUser);
               return;
             }
@@ -4356,7 +4407,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             // en son bilinen değere göre devam et; kullanıcıyı gereksiz
             // yere doğrulama ekranına atmamak, yanlışlıkla içeri almaktan
             // daha az sorunlu.
-            if (!fbUser.emailVerified) { renderVerifyGate(fbUser); return; }
+            if (!fbUser.emailVerified && !isGrandfatheredFromEmailVerification(fbUser)) { renderVerifyGate(fbUser); return; }
             authStateLastUid = fbUser.uid;
             clearVerifyGatePoll();
             loginAs(fbUser);
