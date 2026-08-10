@@ -550,6 +550,7 @@
   body.view-only-role [data-action="open-add-driver"],
   body.view-only-role [data-action="open-edit-driver"],
   body.view-only-role [data-action="delete-driver"],
+  body.view-only-role [data-action="open-driver-share"],
   body.view-only-role [data-action="deactivate-car"],
   body.view-only-role [data-action="activate-car"],
   body.view-only-role [data-action="open-terminate-driver"],
@@ -812,6 +813,8 @@
   <div class="gd-loading"><div class="loading-dot"></div><p>Garaj defteri açılıyor…</p></div>
 </div>
 
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
@@ -1050,7 +1053,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.5.6"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.5.7"; // Dynamic Version Tracking
   var APP_UPDATED = "10 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1415,6 +1418,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     driverUpcomingExpanded: false,
     driverExpenseFilters: { search: "", driverId: "all", dateFrom: "", dateTo: "" },
     driverExpenseVisibleCount: 20,
+    driverLocations: {}, // { [shareId]: { lat, lng, updatedAt, active, driverId, ... } }
+    mapSelectedDriverId: null,
     calendarVisibleCount: 20,
     summaryVisibleCount: 20,
     logVisibleCount: 20,
@@ -1548,6 +1553,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       setLocalData("budgets", state.budgets);
       setLocalData("notif_history", state.notifHistory);
       setLocalData("activity_log", state.activityLog);
+      // Şoför listesi (ve dolayısıyla şareId'ler) her güncellendiğinde canlı
+      // konum dinleyicisini de güncel şoför setine göre yeniden kur.
+      subscribeDriverLocations();
     }
     setTimeout(maybeRunAutoBackup, 0);
     // Üye listesi artık TÜM memberProfiles anahtarlarından değil, GÜNCEL
@@ -2026,6 +2034,175 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (!docId) return;
     db.collection("users").doc(docId).set({ drivers: state.drivers }, { merge: true })
       .catch(function (err) { console.error(err); });
+  }
+
+  // ---------- 🗺️ Şoför Canlı Konum Takibi ----------
+  // Her şoför için tek kullanımlık bir "paylaşım linki" (shareId) üretilir ve
+  // driver kaydına yazılır (drivers listesiyle birlikte Firestore'a persist edilir).
+  // Şoför bu linki (konum.html?id=shareId) telefonunda açıp izin verirse,
+  // tarayıcısı konumunu üst seviye "driverLocations/{shareId}" koleksiyonuna
+  // (giriş yapmadan, anonim Firebase Auth ile) yazar. Bu ekran da o koleksiyonu
+  // dinleyip haritada gösterir. Not: Firestore güvenlik kurallarının
+  // driverLocations koleksiyonuna anonim yazma/okuma izni vermesi gerekir,
+  // bkz. konum.html içindeki yorum ve kurulum notu.
+  function buildDriverShareUrl(shareId) {
+    return APP_SHARE_URL + "konum.html?id=" + shareId;
+  }
+
+  function startDriverShare(driverId) {
+    var d = (state.drivers || []).find(function (x) { return x.id === driverId; });
+    if (!d) return null;
+    if (!d.shareId) {
+      d.shareId = uid();
+      persistDrivers();
+    }
+    return d.shareId;
+  }
+
+  function stopDriverShare(driverId) {
+    var d = (state.drivers || []).find(function (x) { return x.id === driverId; });
+    if (!d || !d.shareId) return;
+    var oldShareId = d.shareId;
+    d.shareId = null;
+    persistDrivers();
+    // Firestore'daki konum kaydını da pasif işaretle (silmiyoruz, sadece
+    // "active:false" yapıyoruz; konum.html zaten kapalı bir shareId ile
+    // yazamayacak çünkü doc artık hiçbir sürücüye bağlı değil).
+    db.collection("driverLocations").doc(oldShareId).set({ active: false }, { merge: true }).catch(function () {});
+    if (state.driverLocations && state.driverLocations[oldShareId]) delete state.driverLocations[oldShareId];
+  }
+
+  var unsubscribeDriverLocations = null;
+  function subscribeDriverLocations() {
+    if (unsubscribeDriverLocations) { unsubscribeDriverLocations(); unsubscribeDriverLocations = null; }
+    var shareIds = (visibleDriversForMe() || []).map(function (d) { return d.shareId; }).filter(Boolean);
+    if (!shareIds.length) { state.driverLocations = {}; return; }
+    // Firestore "in" sorgusu en fazla 10 id destekler; 10'dan fazla paylaşım
+    // aktifse birden fazla dinleyici açılır.
+    var unsubs = [];
+    for (var i = 0; i < shareIds.length; i += 10) {
+      var chunk = shareIds.slice(i, i + 10);
+      (function (chunk) {
+        var unsub = db.collection("driverLocations").where(firebase.firestore.FieldPath.documentId(), "in", chunk)
+          .onSnapshot(function (snap) {
+            snap.docChanges().forEach(function (change) {
+              if (change.type === "removed") { delete state.driverLocations[change.doc.id]; return; }
+              state.driverLocations[change.doc.id] = change.doc.data();
+            });
+            if (state.mainSection === "harita") { render(); updateHaritaMarkers(); }
+          }, function (err) { console.error("driverLocations dinleme hatası", err); });
+        unsubs.push(unsub);
+      })(chunk);
+    }
+    unsubscribeDriverLocations = function () { unsubs.forEach(function (u) { u(); }); };
+  }
+
+  function driverForShareId(shareId) {
+    return (state.drivers || []).find(function (d) { return d.shareId === shareId; }) || null;
+  }
+
+  function timeAgoTR(dateLike) {
+    if (!dateLike) return "";
+    var ms;
+    try { ms = dateLike.toDate ? dateLike.toDate().getTime() : new Date(dateLike).getTime(); } catch (e) { return ""; }
+    if (!ms || isNaN(ms)) return "";
+    var diff = Math.max(0, Date.now() - ms);
+    var sec = Math.floor(diff / 1000);
+    if (sec < 60) return "az önce";
+    var min = Math.floor(sec / 60);
+    if (min < 60) return min + " dk önce";
+    var hr = Math.floor(min / 60);
+    if (hr < 24) return hr + " sa önce";
+    return Math.floor(hr / 24) + " gün önce";
+  }
+
+  var haritaMap = null;
+  var haritaMarkers = {}; // shareId -> L.Marker
+
+  function renderHaritaSection() {
+    var driversWithShare = (visibleDriversForMe() || []).filter(function (d) { return d.shareId && d.employmentStatus !== "terminated"; });
+    var html = '<section class="panel">';
+    html += '<div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:4px;"><h2 style="margin:0; font-family:\'Oswald\', sans-serif; font-size:16px; letter-spacing:0.02em;">🗺️ Şoför Konum Haritası</h2></div>';
+    html += '<p class="field-hint" style="margin-top:2px">Şoförlerine 🧑‍✈️ Şoförler bölümünden 📍 ikonuna dokunarak bir konum paylaşım linki oluştur ve gönder; linke tıklayıp izin verdiklerinde konumları burada canlı görünür.</p>';
+    if (!driversWithShare.length) {
+      html += '<p class="mon-empty">Henüz konum paylaşımı aktif bir şoför yok. 🧑‍✈️ Şoförler sekmesinden bir şoförün yanındaki 📍 ikonuna dokunarak paylaşım linki oluşturabilirsin.</p>';
+      html += '</section>';
+      return html;
+    }
+    html += '<div id="harita-map" class="harita-map-box"></div>';
+    html += '<ul class="err-list" style="max-height:none; margin-top:12px">';
+    driversWithShare.forEach(function (d) {
+      var loc = state.driverLocations ? state.driverLocations[d.shareId] : null;
+      var active = loc && loc.active !== false;
+      html += '<li class="err-item harita-driver-row" data-action="focus-harita-driver" data-id="' + d.id + '" style="cursor:pointer">' +
+        '<div class="err-item-head">' +
+          '<span class="driver-item-name">' + (active ? '🟢 ' : '⚪ ') + esc(d.name) + '</span>' +
+        '</div>' +
+        '<div class="err-item-meta">' + (loc ? (active ? "Son güncelleme: " + timeAgoTR(loc.updatedAt) : "Paylaşım durduruldu / bekleniyor") : "Henüz konum gelmedi, şoförün linke tıklaması gerekiyor.") + '</div>' +
+      '</li>';
+    });
+    html += '</ul>';
+    html += '</section>';
+    return html;
+  }
+
+  function initHaritaMapIfNeeded() {
+    var box = document.getElementById("harita-map");
+    if (!box || typeof L === "undefined") return;
+    if (haritaMap) { setTimeout(function () { haritaMap.invalidateSize(); }, 50); updateHaritaMarkers(); return; }
+    haritaMap = L.map(box).setView([39.0, 35.0], 6); // Türkiye geneli varsayılan görünüm
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '© OpenStreetMap katkıda bulunanlar',
+      maxZoom: 19
+    }).addTo(haritaMap);
+    updateHaritaMarkers();
+  }
+
+  function updateHaritaMarkers() {
+    if (!haritaMap || typeof L === "undefined") return;
+    var driversWithShare = (visibleDriversForMe() || []).filter(function (d) { return d.shareId && d.employmentStatus !== "terminated"; });
+    var seen = {};
+    var bounds = [];
+    driversWithShare.forEach(function (d) {
+      var loc = state.driverLocations ? state.driverLocations[d.shareId] : null;
+      if (!loc || typeof loc.lat !== "number" || typeof loc.lng !== "number") return;
+      seen[d.shareId] = true;
+      var active = loc.active !== false;
+      var icon = L.divIcon({
+        className: "harita-marker-icon",
+        html: '<div class="harita-marker-pin' + (active ? "" : " harita-marker-pin-inactive") + '">🚕</div><div class="harita-marker-label">' + esc(d.name) + '</div>',
+        iconSize: [1, 1]
+      });
+      if (haritaMarkers[d.shareId]) {
+        haritaMarkers[d.shareId].setLatLng([loc.lat, loc.lng]);
+        haritaMarkers[d.shareId].setIcon(icon);
+      } else {
+        haritaMarkers[d.shareId] = L.marker([loc.lat, loc.lng], { icon: icon }).addTo(haritaMap);
+      }
+      haritaMarkers[d.shareId].bindPopup(
+        '<strong>' + esc(d.name) + '</strong><br/>' +
+        (active ? "🟢 Aktif · " : "⚪ Durduruldu · ") + esc(timeAgoTR(loc.updatedAt)) +
+        (typeof loc.speed === "number" && loc.speed > 0 ? "<br/>Hız: ~" + Math.round(loc.speed * 3.6) + " km/s" : "")
+      );
+      bounds.push([loc.lat, loc.lng]);
+    });
+    Object.keys(haritaMarkers).forEach(function (shareId) {
+      if (!seen[shareId]) { haritaMap.removeLayer(haritaMarkers[shareId]); delete haritaMarkers[shareId]; }
+    });
+    if (bounds.length === 1) {
+      haritaMap.setView(bounds[0], 14);
+    } else if (bounds.length > 1) {
+      haritaMap.fitBounds(bounds, { padding: [30, 30], maxZoom: 15 });
+    }
+  }
+
+  function focusHaritaDriver(driverId) {
+    var d = (state.drivers || []).find(function (x) { return x.id === driverId; });
+    if (!d || !d.shareId || !haritaMap) return;
+    var loc = state.driverLocations ? state.driverLocations[d.shareId] : null;
+    if (!loc || typeof loc.lat !== "number") return;
+    haritaMap.setView([loc.lat, loc.lng], 15);
+    if (haritaMarkers[d.shareId]) haritaMarkers[d.shareId].openPopup();
   }
 
   // ---------- Aktivite geçmişi (kim ne değiştirdi/sildi) ----------
@@ -4908,9 +5085,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     // Üyenin erişemediği bir ana bölümde (Araçlar/Şoförler) kalmışsa,
     // erişebildiği ilk bölüme sessizce yönlendir. Takvim herkese açık
     // kaldığı için son çare olarak ona düşülür.
-    if ((state.mainSection === "drivers" || state.mainSection === "ubak") && !myPerms.seeDrivers) {
+    if ((state.mainSection === "drivers" || state.mainSection === "ubak" || state.mainSection === "harita") && !myPerms.seeDrivers) {
       state.mainSection = myPerms.seeCars ? "cars" : "calendar";
-    } else if (state.mainSection !== "drivers" && state.mainSection !== "calendar" && state.mainSection !== "ubak" && !myPerms.seeCars) {
+    } else if (state.mainSection !== "drivers" && state.mainSection !== "calendar" && state.mainSection !== "ubak" && state.mainSection !== "harita" && !myPerms.seeCars) {
       state.mainSection = myPerms.seeDrivers ? "drivers" : "calendar";
     }
     // "Panel" ve "Analiz" görünümleri masraf/maliyet verisi içerdiği için
@@ -4992,10 +5169,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     if (user) {
       html += '<nav class="view-tabs section-tabs" aria-label="Ana bölüm seçimi" style="margin-bottom:14px">' +
-        (myPerms.seeCars ? '<button class="view-tab ' + (state.mainSection !== "drivers" && state.mainSection !== "calendar" && state.mainSection !== "ubak" ? "active" : "") + '" data-action="set-main-section" data-section="cars">🚗 Araçlar</button>' : '') +
+        (myPerms.seeCars ? '<button class="view-tab ' + (state.mainSection !== "drivers" && state.mainSection !== "calendar" && state.mainSection !== "ubak" && state.mainSection !== "harita" ? "active" : "") + '" data-action="set-main-section" data-section="cars">🚗 Araçlar</button>' : '') +
         (myPerms.seeDrivers ? '<button class="view-tab ' + (state.mainSection === "drivers" ? "active" : "") + '" data-action="set-main-section" data-section="drivers">🧑‍✈️ Şoförler</button>' : '') +
         '<button class="view-tab ' + (state.mainSection === "calendar" ? "active" : "") + '" data-action="set-main-section" data-section="calendar">📅 Takvim' + (calendarHasUrgent ? '<span class="view-tab-flag"></span>' : '') + '</button>' +
         (myPerms.seeDrivers ? '<button class="view-tab ' + (state.mainSection === "ubak" ? "active" : "") + '" data-action="set-main-section" data-section="ubak">📘 Ubak Defterleri</button>' : '') +
+        (myPerms.seeDrivers ? '<button class="view-tab ' + (state.mainSection === "harita" ? "active" : "") + '" data-action="set-main-section" data-section="harita">🗺️ Harita</button>' : '') +
         '</nav>';
     }
 
@@ -5005,6 +5183,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       html += renderCalendarSection(calendarItems);
     } else if (state.mainSection === "ubak") {
       html += renderUbakSection();
+    } else if (state.mainSection === "harita") {
+      html += renderHaritaSection();
     } else {
 
     // car tabs
@@ -5093,7 +5273,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     app.innerHTML = html;
     restoreChartCanvases();
 
-    if (state.mainSection !== "drivers" && state.mainSection !== "calendar" && state.mainSection !== "ubak" && (state.view === "panel" || state.view === "analiz")) drawCharts();
+    if (state.mainSection !== "drivers" && state.mainSection !== "calendar" && state.mainSection !== "ubak" && state.mainSection !== "harita" && (state.view === "panel" || state.view === "analiz")) drawCharts();
     if (state.modal) renderModal();
     if (state.lightbox) renderLightbox();
 
@@ -6179,6 +6359,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       backdrop.appendChild(buildMemberPermsModal());
     } else if (state.modal.type === "vehicleTracking") {
       backdrop.appendChild(buildVehicleTrackingModal());
+    } else if (state.modal.type === "driverShare") {
+      backdrop.appendChild(buildDriverShareModal());
     } else if (state.modal.type === "addUbak" || state.modal.type === "editUbak") {
       backdrop.appendChild(buildUbakModal());
     }
@@ -6192,6 +6374,66 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       var newListEl = backdrop.querySelector(".modal .err-list");
       if (newListEl) newListEl.scrollTop = prevListScrollTop;
     }
+  }
+
+  function buildDriverShareModal() {
+    var driverId = state.modal.driverId;
+    var d = (state.drivers || []).find(function (x) { return x.id === driverId; });
+    var modal = document.createElement("div");
+    modal.className = "modal";
+    modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
+
+    if (!d) {
+      modal.innerHTML = '<div class="modal-head"><h3>📍 Konum Paylaşımı</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>' +
+        '<p class="empty-hint">Şoför bulunamadı.</p>';
+      return modal;
+    }
+
+    var shareUrl = d.shareId ? buildDriverShareUrl(d.shareId) : "";
+    var loc = d.shareId && state.driverLocations ? state.driverLocations[d.shareId] : null;
+    var active = loc && loc.active !== false;
+
+    var html = '<div class="modal-head"><h3>📍 ' + esc(d.name) + ' — Konum Paylaşımı</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>';
+
+    if (!d.shareId) {
+      html += '<p class="field-hint" style="margin-top:-4px">Bu şoför için bir konum paylaşım linki oluştur. Linki şoföre gönder; şoför linke tıklayıp konum izni verdiğinde konumu bu ekranda ve 🗺️ Harita sekmesinde canlı görünür. Şoförün uygulamaya giriş yapması gerekmiyor.</p>';
+      html += '<button type="button" class="btn-primary full" data-action="driver-share-start" data-id="' + d.id + '">🔗 Paylaşım Linki Oluştur</button>';
+    } else {
+      html += '<p class="field-hint" style="margin-top:-4px">' + (active ? "🟢 Şoför şu anda konum paylaşıyor." : (loc ? "⚪ Paylaşım linki oluşturuldu ama şoför henüz konum paylaşmaya başlamadı ya da paylaşımı durdurdu." : "⚪ Paylaşım linki oluşturuldu, şoförün linke tıklayıp izin vermesi bekleniyor.")) + '</p>';
+      html += '<div class="qr-code-text" id="driver-share-url-text">' + esc(shareUrl) + '</div>';
+      html += '<div class="budget-row">' +
+        '<button type="button" class="btn-secondary full" id="driver-share-copy">📋 Linki Kopyala</button>' +
+        '<button type="button" class="btn-primary full" id="driver-share-send">📤 Gönder</button>' +
+      '</div>';
+      if (loc) {
+        html += '<p class="field-hint">Son güncelleme: ' + esc(timeAgoTR(loc.updatedAt)) + '</p>';
+      }
+      html += '<button type="button" class="btn-secondary full" style="margin-top:6px" data-action="driver-share-stop" data-id="' + d.id + '">⛔ Paylaşımı Durdur</button>';
+    }
+
+    modal.innerHTML = html;
+
+    var copyBtn = modal.querySelector("#driver-share-copy");
+    if (copyBtn) copyBtn.addEventListener("click", function () {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(shareUrl).then(function () { toast("Link kopyalandı."); }).catch(function () { toast("Kopyalanamadı, elle seçip kopyalayabilirsin."); });
+      } else {
+        toast("Kopyalanamadı, elle seçip kopyalayabilirsin.");
+      }
+    });
+    var sendBtn = modal.querySelector("#driver-share-send");
+    if (sendBtn) sendBtn.addEventListener("click", function () {
+      var text = esc === null ? shareUrl : (d.name + " için konum paylaşım linki:\n" + shareUrl + "\n\nKonumunu görebilmemiz için lütfen bu linke tıklayıp izin ver.");
+      if (navigator.share) {
+        navigator.share({ title: "Konum Paylaşım Linki", text: text }).catch(function () {});
+      } else if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { toast("Paylaşılamadı, mesaj panoya kopyalandı."); }).catch(function () { toast("Kopyalanamadı, elle seçip kopyalayabilirsin."); });
+      } else {
+        toast("Bu cihazda paylaşım desteklenmiyor, linki elle kopyala.");
+      }
+    });
+
+    return modal;
   }
 
   function buildHouseholdQRModal() {
@@ -8179,6 +8421,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           '<div class="err-item-head">' +
             '<span class="driver-item-name">' + esc(d.name) + (d.worksAbroad ? '<span class="driver-abroad-badge">🛂 Yurtdışı</span>' : '') + (isTerminated ? '<span class="status-badge terminated">👋 Ayrıldı</span>' : '') + '</span>' +
             '<span class="driver-item-actions">' +
+              (isTerminated ? '' : '<button type="button" class="exp-del driver-share-btn' + (d.shareId ? ' driver-share-btn-active' : '') + '" data-action="open-driver-share" data-id="' + d.id + '" title="Konum Paylaşım Linki" aria-label="Konum Paylaşım Linki">📍</button>') +
               '<button type="button" class="exp-del" data-action="open-edit-driver" data-id="' + d.id + '" title="Düzenle" aria-label="Düzenle">✏️</button>' +
               (isTerminated
                 ? '<button type="button" class="exp-del" data-action="rehire-driver" data-id="' + d.id + '" title="Yeniden İşe Al" aria-label="Yeniden İşe Al">🔄</button>'
@@ -9791,7 +10034,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         // Sadece görüntüleyebilen üyeler bu eylemleri tetikleyemez (ilgili
         // düğmeler CSS ile zaten gizleniyor; bu, programatik/eski DOM
         // durumlarına karşı ikinci bir savunma katmanı).
-        var MANAGE_ONLY_ACTIONS = ["open-add-car", "open-edit-car", "delete-car", "deactivate-car", "activate-car", "open-edit-expense", "delete-expense", "open-add-driver", "open-edit-driver", "delete-driver", "open-terminate-driver", "rehire-driver", "open-quick-appt", "open-add-driver-expense", "delete-driver-expense", "open-edit-driver-expense", "open-add-ubak", "open-edit-ubak", "delete-ubak"];
+        var MANAGE_ONLY_ACTIONS = ["open-add-car", "open-edit-car", "delete-car", "deactivate-car", "activate-car", "open-edit-expense", "delete-expense", "open-add-driver", "open-edit-driver", "delete-driver", "open-terminate-driver", "rehire-driver", "open-quick-appt", "open-add-driver-expense", "delete-driver-expense", "open-edit-driver-expense", "open-add-ubak", "open-edit-ubak", "delete-ubak", "open-driver-share", "driver-share-start", "driver-share-stop"];
         var ADD_EXPENSE_ACTIONS = ["open-add-expense"];
         var BACKUP_ACTIONS = ["export-data"];
         var REPORT_ACTIONS = ["open-export-report", "share-report"];
@@ -9877,6 +10120,28 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           state.mainSection = el.getAttribute("data-section");
           state.accountMenuOpen = false;
           render();
+          if (state.mainSection === "harita") { setTimeout(initHaritaMapIfNeeded, 0); }
+        }
+        else if (action === "open-driver-share") {
+          state.modal = { type: "driverShare", driverId: el.getAttribute("data-id") };
+          render();
+        }
+        else if (action === "driver-share-start") {
+          var shareDriverId = el.getAttribute("data-id");
+          startDriverShare(shareDriverId);
+          subscribeDriverLocations();
+          state.modal = { type: "driverShare", driverId: shareDriverId };
+          render();
+        }
+        else if (action === "driver-share-stop") {
+          var stopDriverId = el.getAttribute("data-id");
+          stopDriverShare(stopDriverId);
+          subscribeDriverLocations();
+          state.modal = { type: "driverShare", driverId: stopDriverId };
+          render();
+        }
+        else if (action === "focus-harita-driver") {
+          focusHaritaDriver(el.getAttribute("data-id"));
         }
         else if (action === "dismiss-onboarding") { state.onboardingDismissed = true; setLocalData("onboarding_dismissed", true); render(); }
         else if (action === "open-add-car") { state.modal = { type: "addCar" }; render(); }
