@@ -105,7 +105,14 @@
     auth.signInAnonymously().then(function () {
       return docRef.get();
     }).then(function (snap) {
-      if (!snap.exists || snap.data().revoked === true) {
+      // NOT: snap.exists === false, bu shareId'nin HİÇ kullanılmamış (yeni
+      // oluşturulmuş) bir link olduğu anlamına gelir — bu normaldir, çünkü
+      // driverLocations/{shareId} dokümanı ancak şoför "Paylaşımı Başlat"a
+      // basıp ilk konumu gönderdiğinde (onPosition() içinde) oluşturulur.
+      // Bu yüzden "geçersiz link" durumu SADECE doküman VAR ve revoked:true
+      // ise geçerlidir; doküman yokluğu tek başına geçersizlik anlamına
+      // gelmez.
+      if (snap.exists && snap.data().revoked === true) {
         titleEl.textContent = "Paylaşım Linki Geçersiz";
         introEl.textContent = "Bu paylaşım linki artık aktif değil. Yeni bir link almak için hane sahibinle iletişime geç.";
         return;
