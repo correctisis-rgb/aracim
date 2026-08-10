@@ -1072,7 +1072,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.5.9"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.6.0"; // Dynamic Version Tracking
   var APP_UPDATED = "10 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -2108,7 +2108,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
               if (change.type === "removed") { delete state.driverLocations[change.doc.id]; return; }
               state.driverLocations[change.doc.id] = change.doc.data();
             });
-            if (state.mainSection === "harita") { render(); updateHaritaMarkers(); }
+            if (state.mainSection === "harita") { render(); setTimeout(initHaritaMapIfNeeded, 0); }
           }, function (err) { console.error("driverLocations dinleme hatası", err); });
         unsubs.push(unsub);
       })(chunk);
@@ -2168,6 +2168,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   function initHaritaMapIfNeeded() {
     var box = document.getElementById("harita-map");
     if (!box || typeof L === "undefined") return;
+    // render() her çağrıldığında #harita-map div'i yeni bir DOM elemanı olarak
+    // yeniden oluşturuluyor (innerHTML ile). Eğer elimizdeki haritaMap hâlâ
+    // ESKİ (artık sayfada olmayan) div'e bağlıysa, onu tamamen bırakıp yeni
+    // div üzerinde haritayı yeniden kurmamız gerekiyor; aksi halde harita
+    // görünmez olur (konum güncellemesi sonrası "kaybolma" sorunu buydu).
+    if (haritaMap && haritaMap.getContainer() !== box) {
+      haritaMap.remove();
+      haritaMap = null;
+      haritaMarkers = {};
+    }
     if (haritaMap) { setTimeout(function () { haritaMap.invalidateSize(); }, 50); updateHaritaMarkers(); return; }
     haritaMap = L.map(box).setView([39.0, 35.0], 6); // Türkiye geneli varsayılan görünüm
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
