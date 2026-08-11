@@ -679,6 +679,10 @@
   .mon-empty { text-align: center; color: var(--muted); font-size: 12.5px; padding: 22px 10px; }
   .mon-loading { text-align: center; color: var(--muted); font-size: 12.5px; padding: 22px 10px; }
   .err-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; max-height: 340px; overflow-y: auto; }
+  .route-report-summary { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 12px; }
+  .route-report-summary > div { background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+  .route-report-summary strong { font-size: 16px; font-family: 'Oswald', sans-serif; letter-spacing: 0.01em; }
+  .route-report-summary span { font-size: 11.5px; color: var(--muted); }
   .err-item { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
   .err-item-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
   .err-item-time { font-size: 10.5px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
@@ -1073,7 +1077,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.7.0"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.7.1"; // Dynamic Version Tracking
   var APP_UPDATED = "11 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -2239,13 +2243,34 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   var haritaMap = null;
   var haritaMarkers = {}; // shareId -> L.Marker
 
+  function elapsedSinceTR(dateLike) {
+    var ms = driverLocationTimestampMs(dateLike);
+    if (!ms) return "";
+    var diffMin = Math.floor(Math.max(0, Date.now() - ms) / 60000);
+    if (diffMin < 1) return "az önce";
+    if (diffMin < 60) return diffMin + " dk";
+    var hr = Math.floor(diffMin / 60);
+    var min = diffMin % 60;
+    return hr + " sa" + (min > 0 ? " " + min + " dk" : "");
+  }
+  // loc.moving/loc.speedKmh/loc.stoppedSince, konum.html tarafından yazılır
+  // (bkz. onPosition()). Eski konum.html sürümüyle paylaşılan linklerde bu
+  // alanlar hiç gelmeyebilir; bu yüzden her yerde "typeof ... !== undefined"
+  // ile kontrol edip nazikçe geri düşüyoruz.
+  function haritaSpeedMovementText(loc) {
+    var speedKmh = typeof loc.speedKmh === "number" ? loc.speedKmh : Math.round((loc.speed || 0) * 3.6);
+    var moving = typeof loc.moving === "boolean" ? loc.moving : speedKmh >= 5;
+    if (!moving) {
+      var stoppedTxt = loc.stoppedSince ? elapsedSinceTR(loc.stoppedSince) + "'dır duruyor" : "duruyor";
+      return "🛑 " + stoppedTxt;
+    }
+    return "🚗 " + speedKmh + " km/s ile gidiyor";
+  }
+
   function haritaDriverMetaText(loc, active) {
     if (!loc) return "Henüz konum gelmedi, şoförün linke tıklaması gerekiyor.";
-    if (active) return "Son güncelleme: " + timeAgoTR(loc.updatedAt);
-    // Pasif ama daha önce en az bir konum gelmiş: durum metnine, en son ne
-    // zaman paylaşıldığını da ekliyoruz — sadece "durduruldu/bekleniyor"
-    // demek, ne zamandır güncel olmadığını belirsiz bırakıyordu.
-    return "Son paylaşım: " + timeAgoTR(loc.updatedAt) + " (şu an aktif değil)";
+    if (!active) return "Son paylaşım: " + timeAgoTR(loc.updatedAt) + " (şu an aktif değil)";
+    return haritaSpeedMovementText(loc) + " · Son güncelleme: " + timeAgoTR(loc.updatedAt);
   }
 
   function renderHaritaSection() {
@@ -2263,11 +2288,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     driversWithShare.forEach(function (d) {
       var loc = state.driverLocations ? state.driverLocations[d.shareId] : null;
       var active = isDriverLocationLive(loc);
-      html += '<li class="err-item harita-driver-row" data-action="focus-harita-driver" data-id="' + d.id + '" style="cursor:pointer">' +
-        '<div class="err-item-head">' +
+      html += '<li class="err-item harita-driver-row" data-id="' + d.id + '">' +
+        '<div class="err-item-head" data-action="focus-harita-driver" data-id="' + d.id + '" style="cursor:pointer">' +
           '<span class="driver-item-name">' + (active ? '🟢 ' : '⚪ ') + esc(d.name) + '</span>' +
         '</div>' +
-        '<div class="err-item-meta">' + haritaDriverMetaText(loc, active) + '</div>' +
+        '<div class="err-item-meta" data-action="focus-harita-driver" data-id="' + d.id + '" style="cursor:pointer">' + haritaDriverMetaText(loc, active) + '</div>' +
+        '<button type="button" class="btn-secondary" style="margin-top:8px; padding:6px 10px; font-size:12.5px" data-action="open-driver-route-report" data-id="' + d.id + '">📊 Geçmiş Rota</button>' +
       '</li>';
     });
     html += '</ul>';
@@ -2309,9 +2335,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       var active = isDriverLocationLive(loc);
       var icon = L.divIcon({
         className: "harita-marker-icon",
-        html: '<div class="harita-marker-pin' + (active ? "" : " harita-marker-pin-inactive") + '">🚕</div><div class="harita-marker-label">' + esc(d.name) + '</div>',
-        iconSize: [90, 56],
-        iconAnchor: [45, 17]
+        html: '<div class="harita-marker-pin' + (active ? "" : " harita-marker-pin-inactive") + '">🚕</div><div class="harita-marker-label">' + esc(d.name) + (active ? '<br/><span style="font-weight:400; font-size:10px; opacity:0.85">' + esc(haritaSpeedMovementText(loc)) + '</span>' : '') + '</div>',
+        iconSize: [100, 68],
+        iconAnchor: [50, 17]
       });
       if (haritaMarkers[d.shareId]) {
         haritaMarkers[d.shareId].setLatLng([loc.lat, loc.lng]);
@@ -2321,8 +2347,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       }
       haritaMarkers[d.shareId].bindPopup(
         '<strong>' + esc(d.name) + '</strong><br/>' +
-        (active ? "🟢 Aktif · " : "⚪ Durduruldu · ") + esc(timeAgoTR(loc.updatedAt)) +
-        (typeof loc.speed === "number" && loc.speed > 0 ? "<br/>Hız: ~" + Math.round(loc.speed * 3.6) + " km/s" : "")
+        (active ? "🟢 Aktif" : "⚪ Durduruldu") + " · " + esc(timeAgoTR(loc.updatedAt)) +
+        (active ? "<br/>" + esc(haritaSpeedMovementText(loc)) : "")
       );
       bounds.push([loc.lat, loc.lng]);
     });
@@ -2363,6 +2389,233 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (!loc || typeof loc.lat !== "number") return;
     haritaMap.setView([loc.lat, loc.lng], 15);
     if (haritaMarkers[d.shareId]) haritaMarkers[d.shareId].openPopup();
+  }
+
+  // ---------- Geçmiş Rota Raporu (son 30 gün) ----------
+  // Her yolculuk parçası (trip), driverLocations/{shareId}/trips/{tripId}
+  // altında AYRI ve küçük bir dokümanda tutulur (bkz. konum.html). Ana
+  // driverLocations belgesine hiçbir geçmiş veri eklenmiyor — bu yüzden bu
+  // özellik, eski fotoğraf sorunundaki gibi bir belge boyutu sorununa yol
+  // AÇMAZ; her trip dokümanı birkaç KB'ta kalır ve koleksiyonlardaki
+  // doküman sayısının Firestore'da bir üst sınırı yoktur.
+  //
+  // 30 GÜNDEN ESKİ VERİLERİ SİLME: Bu projede zamanlanmış bir sunucu görevi
+  // (Cloud Function) YOK — bu yüzden temizlik, birisi bir şoförün "Geçmiş
+  // Rota" raporunu her AÇTIĞINDA çalışır (aşağıda purgeOldDriverTrips).
+  // Yani otomatik/arka planda değil, "fırsat buldukça" (opportunistic) bir
+  // temizliktir: rapor hiç açılmazsa eski veriler orada kalmaya devam eder.
+  // Tam otomatik silme istenirse, bir Cloud Function + Cloud Scheduler
+  // kurulması gerekir (bu, Firebase konsolundan ayrıca kurulacak bir
+  // sunucu tarafı iş; bu dosyanın kapsamı dışında).
+  var DRIVER_TRIP_RETENTION_DAYS = 30;
+
+  function purgeOldDriverTrips(shareId) {
+    if (!shareId) return;
+    var cutoff = new Date(Date.now() - DRIVER_TRIP_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+    db.collection("driverLocations").doc(shareId).collection("trips")
+      .where("startedAt", "<", cutoff)
+      .limit(200)
+      .get()
+      .then(function (snap) {
+        if (snap.empty) return;
+        var batch = db.batch();
+        snap.forEach(function (doc) { batch.delete(doc.ref); });
+        return batch.commit();
+      })
+      .catch(function (err) { console.warn("eski rota kayıtları temizlenemedi", err); });
+  }
+
+  function loadDriverRouteReport(shareId, dateStr) {
+    if (!state.modal || state.modal.type !== "driverRouteReport") return;
+    state.modal.loading = true;
+    state.modal.error = null;
+    var dayStart = new Date(dateStr + "T00:00:00");
+    var dayEnd = new Date(dateStr + "T23:59:59.999");
+    db.collection("driverLocations").doc(shareId).collection("trips")
+      .where("startedAt", ">=", dayStart)
+      .where("startedAt", "<=", dayEnd)
+      .orderBy("startedAt", "asc")
+      .get()
+      .then(function (snap) {
+        // Kullanıcı bu arada pencereyi kapatmış ya da başka bir tarih/şoför
+        // seçmiş olabilir — eskimiş bir yanıtla ekranı güncellemeyelim.
+        if (!state.modal || state.modal.type !== "driverRouteReport" || state.modal.shareId !== shareId || state.modal.date !== dateStr) return;
+        var trips = [];
+        snap.forEach(function (doc) {
+          var t = doc.data();
+          t.id = doc.id;
+          trips.push(t);
+        });
+        state.modal.trips = trips;
+        state.modal.loading = false;
+        render();
+      })
+      .catch(function (err) {
+        console.error(err);
+        if (!state.modal || state.modal.type !== "driverRouteReport") return;
+        state.modal.loading = false;
+        state.modal.error = "Veriler yüklenemedi. İnternet bağlantını kontrol edip tekrar dene.";
+        render();
+      });
+  }
+
+  function computeRouteReportSummary(trips) {
+    var totalDistanceKm = 0, totalMovingMs = 0, totalStoppedMs = 0;
+    trips.forEach(function (t) {
+      var s = driverLocationTimestampMs(t.startedAt), e = driverLocationTimestampMs(t.endedAt);
+      totalMovingMs += Math.max(0, e - s);
+      totalDistanceKm += (typeof t.distanceKm === "number" ? t.distanceKm : 0);
+    });
+    for (var i = 1; i < trips.length; i++) {
+      var prevEnd = driverLocationTimestampMs(trips[i - 1].endedAt);
+      var curStart = driverLocationTimestampMs(trips[i].startedAt);
+      if (curStart > prevEnd) totalStoppedMs += (curStart - prevEnd);
+    }
+    var avgSpeedKmh = totalMovingMs > 0 ? Math.round(totalDistanceKm / (totalMovingMs / 3600000)) : 0;
+    return {
+      totalDistanceKm: Math.round(totalDistanceKm * 10) / 10,
+      totalMovingMin: Math.round(totalMovingMs / 60000),
+      totalStoppedMin: Math.round(totalStoppedMs / 60000),
+      avgSpeedKmh: avgSpeedKmh
+    };
+  }
+
+  function formatMinutesTR(min) {
+    min = Math.max(0, min || 0);
+    if (min < 60) return min + " dk";
+    var hr = Math.floor(min / 60), rem = min % 60;
+    return hr + " sa" + (rem > 0 ? " " + rem + " dk" : "");
+  }
+  function formatClockTR(dateLike) {
+    var ms = driverLocationTimestampMs(dateLike);
+    if (!ms) return "—";
+    var d = new Date(ms);
+    return pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+  }
+  function daysAgoStr(n) {
+    var d = new Date();
+    d.setDate(d.getDate() - n);
+    return d.toISOString().slice(0, 10);
+  }
+
+  // Rapor penceresi içindeki mini harita — canlı takip haritasından (haritaMap)
+  // tamamen ayrı bir Leaflet örneği. Modal her render()'da yeniden
+  // oluşturulduğu için (bkz. render() sonundaki genel harita yeniden bağlama
+  // mantığıyla aynı sebep), aynı "container değiştiyse yeniden kur" deseni
+  // burada da uygulanıyor.
+  var routeReportMap = null;
+  var routeReportLayers = [];
+  function initRouteReportMapIfNeeded() {
+    var box = document.getElementById("route-report-map");
+    if (!box || typeof L === "undefined") {
+      if (routeReportMap) { routeReportMap.remove(); routeReportMap = null; routeReportLayers = []; }
+      return;
+    }
+    if (routeReportMap && routeReportMap.getContainer() !== box) {
+      routeReportMap.remove();
+      routeReportMap = null;
+    }
+    if (!routeReportMap) {
+      routeReportMap = L.map(box, { zoomControl: true }).setView([41.0082, 28.9784], 12);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "© OpenStreetMap katkıda bulunanlar",
+        maxZoom: 19
+      }).addTo(routeReportMap);
+    } else {
+      setTimeout(function () { routeReportMap.invalidateSize(); }, 50);
+    }
+    drawRouteReportTrips();
+  }
+  function drawRouteReportTrips() {
+    if (!routeReportMap) return;
+    routeReportLayers.forEach(function (l) { routeReportMap.removeLayer(l); });
+    routeReportLayers = [];
+    var trips = (state.modal && state.modal.trips) || [];
+    var bounds = [];
+    var colors = ["#ffb020", "#4ade80", "#60a5fa", "#f87171", "#c084fc", "#fb923c", "#2dd4bf"];
+    trips.forEach(function (t, idx) {
+      var path = (t.path || []).map(function (p) { return [p.lat, p.lng]; }).filter(function (p) { return typeof p[0] === "number" && typeof p[1] === "number"; });
+      if (path.length === 0) return;
+      var color = colors[idx % colors.length];
+      if (path.length >= 2) {
+        var line = L.polyline(path, { color: color, weight: 4, opacity: 0.85 }).addTo(routeReportMap);
+        routeReportLayers.push(line);
+      }
+      path.forEach(function (pt) { bounds.push(pt); });
+      var startMarker = L.circleMarker(path[0], { radius: 5, color: "#fff", weight: 2, fillColor: "#4ade80", fillOpacity: 1 })
+        .bindTooltip((idx + 1) + ". yolculuk başladı: " + formatClockTR(t.startedAt), { direction: "top" }).addTo(routeReportMap);
+      routeReportLayers.push(startMarker);
+      var endMarker = L.circleMarker(path[path.length - 1], { radius: 5, color: "#fff", weight: 2, fillColor: "#f87171", fillOpacity: 1 })
+        .bindTooltip((idx + 1) + ". yolculuk bitti: " + formatClockTR(t.endedAt), { direction: "top" }).addTo(routeReportMap);
+      routeReportLayers.push(endMarker);
+    });
+    if (bounds.length === 1) routeReportMap.setView(bounds[0], 14);
+    else if (bounds.length > 1) routeReportMap.fitBounds(bounds, { padding: [24, 24], maxZoom: 16 });
+  }
+  function bindDriverRouteReportModal() {
+    if (!state.modal || state.modal.type !== "driverRouteReport") return;
+    var dateInput = document.getElementById("route-report-date");
+    if (dateInput) {
+      dateInput.addEventListener("change", function () {
+        if (!state.modal || state.modal.type !== "driverRouteReport") return;
+        var newDate = dateInput.value;
+        if (!newDate) return;
+        state.modal.date = newDate;
+        state.modal.trips = null;
+        render();
+        loadDriverRouteReport(state.modal.shareId, newDate);
+      });
+    }
+    if (state.modal.trips && state.modal.trips.length > 0) {
+      setTimeout(initRouteReportMapIfNeeded, 0);
+    }
+  }
+
+  function buildDriverRouteReportModal() {
+    var modal = document.createElement("div");
+    modal.className = "modal";
+    modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
+    var m = state.modal;
+    var driver = (state.drivers || []).find(function (d) { return d.id === m.driverId; });
+    var driverName = driver ? driver.name : "Şoför";
+    var minDateStr = daysAgoStr(DRIVER_TRIP_RETENTION_DAYS - 1);
+    var maxDateStr = todayStr();
+
+    var html = '<div class="modal-head"><h3>📊 ' + esc(driverName) + ' — Geçmiş Rota</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>';
+    html += '<label class="field"><span>Tarih</span><input type="date" id="route-report-date" value="' + esc(m.date) + '" min="' + minDateStr + '" max="' + maxDateStr + '"></label>';
+    html += '<p class="field-hint" style="margin-top:-4px">Sadece son ' + DRIVER_TRIP_RETENTION_DAYS + ' günlük veri tutulur, öncesi otomatik silinir.</p>';
+
+    if (m.loading) {
+      html += '<p class="field-hint">Yükleniyor…</p>';
+    } else if (m.error) {
+      html += '<p class="field-hint" style="color:var(--red)">' + esc(m.error) + '</p>';
+    } else if (!m.trips || m.trips.length === 0) {
+      html += '<p class="field-hint">Bu tarihte kayıtlı hareket verisi yok (şoför paylaşımı hiç başlatmamış ya da hiç hareket etmemiş olabilir).</p>';
+    } else {
+      var sum = computeRouteReportSummary(m.trips);
+      html += '<div class="route-report-summary">' +
+        '<div><strong>' + sum.totalDistanceKm + ' km</strong><span>Toplam mesafe</span></div>' +
+        '<div><strong>' + formatMinutesTR(sum.totalMovingMin) + '</strong><span>Hareket süresi</span></div>' +
+        '<div><strong>' + formatMinutesTR(sum.totalStoppedMin) + '</strong><span>Duruş süresi*</span></div>' +
+        '<div><strong>' + sum.avgSpeedKmh + ' km/s</strong><span>Ortalama hız</span></div>' +
+      '</div>';
+      html += '<p class="field-hint" style="margin-top:2px">*Sadece kaydedilen yolculuklar arasındaki duruşları kapsar; paylaşımın hiç açık olmadığı saatler dahil değildir.</p>';
+      html += '<div id="route-report-map" class="harita-map-box" style="height:280px; margin-top:10px;"></div>';
+      html += '<ul class="err-list" style="margin-top:12px">';
+      m.trips.forEach(function (t, idx) {
+        html += '<li class="err-item">' +
+          '<div class="err-item-head"><span>🚗 ' + (idx + 1) + '. Yolculuk</span></div>' +
+          '<div class="err-item-meta">' + formatClockTR(t.startedAt) + ' – ' + formatClockTR(t.endedAt) +
+          ' · ' + (typeof t.distanceKm === "number" ? t.distanceKm : 0) + ' km' +
+          ' · Ort. ' + (t.avgSpeedKmh || 0) + ' km/s' +
+          (typeof t.maxSpeedKmh === "number" && t.maxSpeedKmh > 0 ? ' · Maks ' + t.maxSpeedKmh + ' km/s' : '') +
+          '</div></li>';
+      });
+      html += '</ul>';
+    }
+
+    modal.innerHTML = html;
+    return modal;
   }
 
   // ---------- Aktivite geçmişi (kim ne değiştirdi/sildi) ----------
@@ -5510,6 +5763,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     bindEntitySearchFilters();
     bindAnalysisPanel();
     bindVehicleTrackingModal();
+    bindDriverRouteReportModal();
 
     if (activeId) {
       var restoredEl = document.getElementById(activeId);
@@ -6599,6 +6853,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       backdrop.appendChild(buildDriverShareModal());
     } else if (state.modal.type === "addUbak" || state.modal.type === "editUbak") {
       backdrop.appendChild(buildUbakModal());
+    } else if (state.modal.type === "driverRouteReport") {
+      backdrop.appendChild(buildDriverRouteReportModal());
     }
     document.body.appendChild(backdrop);
 
@@ -10379,6 +10635,15 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         }
         else if (action === "focus-harita-driver") {
           focusHaritaDriver(el.getAttribute("data-id"));
+        }
+        else if (action === "open-driver-route-report") {
+          var reportDriverId = el.getAttribute("data-id");
+          var reportDriver = (state.drivers || []).find(function (x) { return x.id === reportDriverId; });
+          if (!reportDriver || !reportDriver.shareId) { toast("Bu şoför için konum paylaşımı hiç kurulmamış."); return; }
+          state.modal = { type: "driverRouteReport", driverId: reportDriverId, shareId: reportDriver.shareId, date: todayStr(), trips: null, loading: true, error: null };
+          render();
+          purgeOldDriverTrips(reportDriver.shareId);
+          loadDriverRouteReport(reportDriver.shareId, state.modal.date);
         }
         else if (action === "dismiss-onboarding") { state.onboardingDismissed = true; setLocalData("onboarding_dismissed", true); render(); }
         else if (action === "open-add-car") { state.modal = { type: "addCar" }; render(); }
