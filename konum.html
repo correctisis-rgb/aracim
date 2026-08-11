@@ -226,23 +226,42 @@
     updateBgWarning();
 
     // ---------- Duruyor / gidiyor tespiti ----------
-    // GPS'in verdiği anlık hız (m/s) genelde güvenilirdir; km/s'e çevirip
-    // 5 km/s altını "duruyor" sayıyoruz (GPS gürültüsünü tolere etmek için
-    // sıfır yerine küçük bir eşik kullanıyoruz). "wasStopped" ile SADECE
-    // hareketten durmaya GEÇİŞ anında yeni bir "stoppedSince" zaman damgası
-    // yazıyoruz; durmaya devam ederken bu alanı tekrar yazmıyoruz (merge:true
-    // sayesinde eski değeri korur) — böylece "kaç dakikadır duruyor" hane
-    // tarafında doğru hesaplanabiliyor. Bu, dokümana yeni alan eklemekten
-    // başka bir şey değil; geçmiş kaydı TUTMUYORUZ, doküman boyutu sabit
-    // kalıyor.
-    var speedMps = typeof pos.coords.speed === "number" && pos.coords.speed > 0 ? pos.coords.speed : 0;
-    var speedKmh = Math.round(speedMps * 3.6);
+    // ÖNEMLİ DÜZELTME: pos.coords.speed tarayıcıda/telefonda ÇOK SIK null
+    // gelir (özellikle GPS sinyali zayıfken, ilk birkaç ping'de, ya da bazı
+    // Android/iOS tarayıcılarında hiç desteklenmez) — eski kod null'u da
+    // "hız 0, yani duruyor" sayıyordu. Bu da aracın FİİLEN HAREKET
+    // HALİNDEYKEN bile sürekli "duruyor" görünmesine, dolayısıyla her
+    // GPS ping'inde bir yolculuğun kapanıp hemen yenisinin açılmasına
+    // (ekranda "12:40-12:40, 0 km" gibi onlarca sahte yolculuk) yol
+    // açıyordu. Düzeltme: GPS hız değeri yoksa/null ise, ardışık iki konum
+    // arasındaki mesafe/süreden bir "yedek hız" hesaplıyoruz.
+    var nowMs = Date.now();
+    var gpsSpeedKmh = (typeof pos.coords.speed === "number" && !isNaN(pos.coords.speed))
+      ? Math.round(Math.max(0, pos.coords.speed) * 3.6)
+      : null;
+    var fallbackSpeedKmh = null;
+    if (lastSpeedFix) {
+      var dtMs = nowMs - lastSpeedFix.tMs;
+      // Çok kısa aralıklarda mesafe/süre hesabı GPS gürültüsünden aşırı
+      // dalgalanır; en az 3 sn beklenmeden yedek hız hesaplanmıyor.
+      var accOk = (!pos.coords.accuracy || pos.coords.accuracy <= 60) &&
+        (!lastSpeedFix.accuracy || lastSpeedFix.accuracy <= 60);
+      if (dtMs >= 3000 && accOk) {
+        var distKm = haversineKm(lastSpeedFix.lat, lastSpeedFix.lng, pos.coords.latitude, pos.coords.longitude);
+        fallbackSpeedKmh = Math.round(distKm / (dtMs / 3600000));
+      }
+    }
+    lastSpeedFix = { lat: pos.coords.latitude, lng: pos.coords.longitude, tMs: nowMs, accuracy: pos.coords.accuracy || null };
+
+    // GPS'in kendi hız değeri varsa ona güveniyoruz; yoksa yedek (mesafe
+    // bazlı) hıza, o da hesaplanamadıysa (ör. ilk ping) 0'a düşüyoruz.
+    var speedKmh = gpsSpeedKmh !== null ? gpsSpeedKmh : (fallbackSpeedKmh !== null ? fallbackSpeedKmh : 0);
     var isStopped = speedKmh < 5;
 
     var patch = {
       lat: pos.coords.latitude,
       lng: pos.coords.longitude,
-      speed: speedMps,
+      speed: speedKmh / 3.6,
       speedKmh: speedKmh,
       moving: !isStopped,
       heading: pos.coords.heading || null,
@@ -267,9 +286,20 @@
     // kadar) ayrı ve küçük bir dokümanda topluyoruz. Duruşları ayrıca
     // kaydetmiyoruz; iki yolculuk arasındaki boşluk zaten "durmuş" demek —
     // rapor tarafı bunu iki trip'in zaman farkından hesaplıyor.
+    //
+    // DÜZELTME: kısa süreli duruşlar (trafik ışığı, kavşak, GPS gürültüsü)
+    // artık yolculuğu HEMEN sonlandırmıyor. "isStopped" true olduğu ANDAN
+    // itibaren bir bekleme (STOP_CONFIRM_MS) başlatılıyor; bu süre boyunca
+    // hareket tekrar algılanırsa yolculuk hiç bölünmeden devam ediyor. Süre
+    // dolmadan hareket başlarsa "dur-kalk" tek bir rota/yolculuk olarak
+    // kaydedilmiş olur. Süre dolarsa yolculuk gerçekten sonlanır.
     if (isStopped) {
-      if (currentTripRef) endCurrentTrip();
+      if (stopSince === null) stopSince = nowMs;
+      if (currentTripRef && (nowMs - stopSince) >= STOP_CONFIRM_MS) {
+        endCurrentTrip();
+      }
     } else {
+      stopSince = null;
       if (!currentTripRef) startNewTrip(pos.coords.latitude, pos.coords.longitude);
       else updateCurrentTrip(pos.coords.latitude, pos.coords.longitude, speedKmh);
     }
@@ -281,7 +311,10 @@
   var currentTripStartedAtMs = 0;  // yerel süre/hız hesapları için (sunucu değil)
   var currentTripDistanceKm = 0;
   var currentTripMaxSpeedKmh = 0;
-  var lastRecordedPoint = null;    // {lat,lng,tMs}
+  var lastRecordedPoint = null;    // {lat,lng,tMs} — rota noktası seyreltme için
+  var lastSpeedFix = null;         // {lat,lng,tMs,accuracy} — yedek hız hesabı için (trip'ten bağımsız)
+  var stopSince = null;            // şu anki kesintisiz "duruyor" döneminin başlangıcı (yerel, ms)
+  var STOP_CONFIRM_MS = 90000;     // 90 sn kesintisiz durmadan yolculuk sonlandırılmaz (kısa duraklamalar rotayı bölmesin)
   var TRIP_POINT_MIN_INTERVAL_MS = 20000; // en az 20 sn'de bir nokta
   var TRIP_POINT_MIN_DISTANCE_KM = 0.025; // veya en az 25 m hareket ettiyse
   var TRIP_MAX_POINTS = 500; // çok uzun yolculuklarda doküman şişmesin diye seyreltilir
@@ -346,10 +379,24 @@
 
   function endCurrentTrip() {
     if (!currentTripRef) return;
-    currentTripRef.set({ endedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true }).catch(function () {});
+    var ref = currentTripRef;
+    // Hiç ikinci bir nokta kaydedilmemiş (gerçek hareket doğrulanmamış)
+    // ya da mesafesi ölçüm hatası düzeyinde (<50 m) bir "yolculuk" ise,
+    // bu gerçek bir sefer değil, GPS gürültüsünün ürünüdür — rapor
+    // ekranında "0 km, 0 dk" gibi anlamsız satırlar olarak görünmemesi
+    // için kaydetmeden siliyoruz.
+    var isPhantomTrip = currentTripPath.length < 2 || currentTripDistanceKm < 0.05;
+    if (isPhantomTrip) {
+      ref.delete().catch(function () {});
+    } else {
+      ref.set({ endedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true }).catch(function () {});
+    }
     currentTripRef = null;
     currentTripPath = [];
+    currentTripDistanceKm = 0;
+    currentTripMaxSpeedKmh = 0;
     lastRecordedPoint = null;
+    stopSince = null;
   }
 
   function onPositionError(err) {
