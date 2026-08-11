@@ -260,11 +260,16 @@
     setStatus("Paylaşım durduruldu.", "wait");
   }
 
-  window.addEventListener("beforeunload", function () {
-    if (watchId !== null && docRef) {
-      docRef.set({ active: false }, { merge: true }).catch(function () {});
-    }
-  });
+  // NOT: Daha önce burada "beforeunload" (sekme/tarayıcı kapanırken)
+  // active:false yazan bir dinleyici vardı. Bu KALDIRILDI — çünkü mobil
+  // tarayıcılarda bu olay, şoför sadece uygulamayı değiştirdiğinde veya
+  // telefonu kilitlediğinde de tetiklenebiliyor; bu da paylaşımı hiç
+  // durdurmamışken "⚪ pasif" görünmesine yol açıyordu. Artık paylaşım
+  // SADECE şoför "Paylaşımı Durdur" butonuna elle bastığında (stopSharing)
+  // durduruluyor. Gerçekten terk edilmiş/bağlantısı kopmuş paylaşımlar,
+  // hane tarafındaki 3 dakikalık "son güncelleme" eşiği ile zaten otomatik
+  // olarak pasif gösteriliyor — updatedAt alanı üzerinden, active bayrağına
+  // gerek kalmadan.
 })();
 </script>
 </body>
