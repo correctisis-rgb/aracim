@@ -1077,7 +1077,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.7.3"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.7.4"; // Dynamic Version Tracking
   var APP_UPDATED = "11 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1333,7 +1333,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   function uploadToCloudinary(blob, folder) {
     var formData = new FormData();
-    formData.append("file", blob);
+    // Blob'un kendi adı olmadığı için tarayıcı bunu genelde "blob" gibi
+    // sabit bir isimle gönderiyor. unique_filename:false + overwrite:false
+    // ayarlı preset'lerde bu, her yüklemenin AYNI public_id'ye denk gelip
+    // Cloudinary'nin yeni içeriği hiç işlemeden ilk yüklenen görselin
+    // URL'ini geri döndürmesine yol açıyordu (tüm fotoğraflar aynı görünüyordu).
+    // Her seferinde benzersiz bir dosya adı vererek bunu önlüyoruz.
+    var uniqueName = "photo_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8) + ".jpg";
+    formData.append("file", blob, uniqueName);
     formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
     if (folder) formData.append("folder", folder);
     return fetch("https://api.cloudinary.com/v1_1/" + CLOUDINARY_CLOUD_NAME + "/image/upload", {
