@@ -1077,7 +1077,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.7.1"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.7.2"; // Dynamic Version Tracking
   var APP_UPDATED = "11 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -2444,6 +2444,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         snap.forEach(function (doc) {
           var t = doc.data();
           t.id = doc.id;
+          // Güvenlik filtresi: gerçek hareket içermeyen (ör. GPS
+          // gürültüsünden doğmuş, aynı dakikada başlayıp biten, 0 km'lik)
+          // eski/hayalet yolculuk kayıtları varsa raporda gösterme.
+          var path = t.path || [];
+          var isPhantom = path.length < 2 || (typeof t.distanceKm === "number" && t.distanceKm < 0.05);
+          if (isPhantom) return;
           trips.push(t);
         });
         state.modal.trips = trips;
