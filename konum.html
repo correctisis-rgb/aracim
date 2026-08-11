@@ -158,6 +158,7 @@
   var shareId = getShareId();
   var watchId = null;
   var docRef = null;
+  var wasStopped = false; // duruyor/gidiyor geçişini tespit etmek için
 
   if (!shareId) {
     titleEl.textContent = "Geçersiz Link";
@@ -203,6 +204,7 @@
     startBtn.disabled = true;
     setStatus("Konum izni isteniyor…", "wait");
     sharingActive = true;
+    wasStopped = false;
     // Kullanıcı tıklaması (gesture) içinde çağrıldığı için Wake Lock isteği
     // burada güvenle yapılabilir.
     requestWakeLock();
@@ -223,16 +225,131 @@
     }
     updateBgWarning();
 
-    docRef.set({
+    // ---------- Duruyor / gidiyor tespiti ----------
+    // GPS'in verdiği anlık hız (m/s) genelde güvenilirdir; km/s'e çevirip
+    // 5 km/s altını "duruyor" sayıyoruz (GPS gürültüsünü tolere etmek için
+    // sıfır yerine küçük bir eşik kullanıyoruz). "wasStopped" ile SADECE
+    // hareketten durmaya GEÇİŞ anında yeni bir "stoppedSince" zaman damgası
+    // yazıyoruz; durmaya devam ederken bu alanı tekrar yazmıyoruz (merge:true
+    // sayesinde eski değeri korur) — böylece "kaç dakikadır duruyor" hane
+    // tarafında doğru hesaplanabiliyor. Bu, dokümana yeni alan eklemekten
+    // başka bir şey değil; geçmiş kaydı TUTMUYORUZ, doküman boyutu sabit
+    // kalıyor.
+    var speedMps = typeof pos.coords.speed === "number" && pos.coords.speed > 0 ? pos.coords.speed : 0;
+    var speedKmh = Math.round(speedMps * 3.6);
+    var isStopped = speedKmh < 5;
+
+    var patch = {
       lat: pos.coords.latitude,
       lng: pos.coords.longitude,
-      speed: pos.coords.speed || 0,
+      speed: speedMps,
+      speedKmh: speedKmh,
+      moving: !isStopped,
       heading: pos.coords.heading || null,
       accuracy: pos.coords.accuracy || null,
       active: true,
       revoked: false,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    }, { merge: true }).catch(function (err) { console.error("konum yazma hatası", err); });
+    };
+    if (isStopped && !wasStopped) {
+      patch.stoppedSince = firebase.firestore.FieldValue.serverTimestamp();
+    } else if (!isStopped) {
+      patch.stoppedSince = firebase.firestore.FieldValue.delete();
+    }
+    wasStopped = isStopped;
+
+    docRef.set(patch, { merge: true }).catch(function (err) { console.error("konum yazma hatası", err); });
+
+    // ---------- Rota / geçmiş kaydı (trip) ----------
+    // Her tekil GPS pingini kaydetmiyoruz — bu, eski fotoğraf sorunundaki
+    // gibi belge şişmesine yol açardı. Bunun yerine, hareket eden her
+    // "yolculuk parçasını" (durmadan harekete geçişten, tekrar durmaya
+    // kadar) ayrı ve küçük bir dokümanda topluyoruz. Duruşları ayrıca
+    // kaydetmiyoruz; iki yolculuk arasındaki boşluk zaten "durmuş" demek —
+    // rapor tarafı bunu iki trip'in zaman farkından hesaplıyor.
+    if (isStopped) {
+      if (currentTripRef) endCurrentTrip();
+    } else {
+      if (!currentTripRef) startNewTrip(pos.coords.latitude, pos.coords.longitude);
+      else updateCurrentTrip(pos.coords.latitude, pos.coords.longitude, speedKmh);
+    }
+  }
+
+  // ---------- Trip (yolculuk parçası) yardımcıları ----------
+  var currentTripRef = null;
+  var currentTripPath = [];        // [{lat,lng}] — seyreltilmiş rota noktaları
+  var currentTripStartedAtMs = 0;  // yerel süre/hız hesapları için (sunucu değil)
+  var currentTripDistanceKm = 0;
+  var currentTripMaxSpeedKmh = 0;
+  var lastRecordedPoint = null;    // {lat,lng,tMs}
+  var TRIP_POINT_MIN_INTERVAL_MS = 20000; // en az 20 sn'de bir nokta
+  var TRIP_POINT_MIN_DISTANCE_KM = 0.025; // veya en az 25 m hareket ettiyse
+  var TRIP_MAX_POINTS = 500; // çok uzun yolculuklarda doküman şişmesin diye seyreltilir
+
+  function haversineKm(lat1, lng1, lat2, lng2) {
+    var R = 6371;
+    var dLat = (lat2 - lat1) * Math.PI / 180;
+    var dLng = (lng2 - lng1) * Math.PI / 180;
+    var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+  }
+
+  function startNewTrip(lat, lng) {
+    currentTripRef = docRef.collection("trips").doc();
+    currentTripStartedAtMs = Date.now();
+    currentTripPath = [{ lat: lat, lng: lng }];
+    currentTripDistanceKm = 0;
+    currentTripMaxSpeedKmh = 0;
+    lastRecordedPoint = { lat: lat, lng: lng, tMs: currentTripStartedAtMs };
+    currentTripRef.set({
+      startedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      endedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      distanceKm: 0,
+      avgSpeedKmh: 0,
+      maxSpeedKmh: 0,
+      path: currentTripPath
+    }).catch(function (err) { console.error("trip başlatma hatası", err); });
+  }
+
+  function updateCurrentTrip(lat, lng, speedKmh) {
+    if (!currentTripRef) return;
+    var now = Date.now();
+    if (speedKmh > currentTripMaxSpeedKmh) currentTripMaxSpeedKmh = speedKmh;
+    var shouldRecordPoint = !lastRecordedPoint ||
+      (now - lastRecordedPoint.tMs >= TRIP_POINT_MIN_INTERVAL_MS) ||
+      (haversineKm(lastRecordedPoint.lat, lastRecordedPoint.lng, lat, lng) >= TRIP_POINT_MIN_DISTANCE_KM);
+    if (!shouldRecordPoint) return;
+
+    if (lastRecordedPoint) {
+      currentTripDistanceKm += haversineKm(lastRecordedPoint.lat, lastRecordedPoint.lng, lat, lng);
+    }
+    currentTripPath.push({ lat: lat, lng: lng });
+    if (currentTripPath.length > TRIP_MAX_POINTS) {
+      var thinned = [];
+      for (var i = 0; i < currentTripPath.length; i += 2) thinned.push(currentTripPath[i]);
+      currentTripPath = thinned;
+    }
+    lastRecordedPoint = { lat: lat, lng: lng, tMs: now };
+
+    var durationHr = Math.max((now - currentTripStartedAtMs) / 3600000, 1 / 3600);
+    var avgSpeedKmh = Math.round(currentTripDistanceKm / durationHr);
+    currentTripRef.set({
+      endedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      distanceKm: Math.round(currentTripDistanceKm * 100) / 100,
+      avgSpeedKmh: avgSpeedKmh,
+      maxSpeedKmh: currentTripMaxSpeedKmh,
+      path: currentTripPath
+    }, { merge: true }).catch(function (err) { console.error("trip güncelleme hatası", err); });
+  }
+
+  function endCurrentTrip() {
+    if (!currentTripRef) return;
+    currentTripRef.set({ endedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true }).catch(function () {});
+    currentTripRef = null;
+    currentTripPath = [];
+    lastRecordedPoint = null;
   }
 
   function onPositionError(err) {
@@ -251,6 +368,7 @@
       navigator.geolocation.clearWatch(watchId);
       watchId = null;
     }
+    endCurrentTrip();
     releaseWakeLock();
     updateBgWarning();
     docRef.set({ active: false }, { merge: true }).catch(function () {});
