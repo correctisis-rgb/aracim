@@ -1073,8 +1073,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.6.9"; // Dynamic Version Tracking
-  var APP_UPDATED = "10 Ağustos 2026";
+  var APP_VERSION = "v2.7.0"; // Dynamic Version Tracking
+  var APP_UPDATED = "11 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -2239,6 +2239,15 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   var haritaMap = null;
   var haritaMarkers = {}; // shareId -> L.Marker
 
+  function haritaDriverMetaText(loc, active) {
+    if (!loc) return "Henüz konum gelmedi, şoförün linke tıklaması gerekiyor.";
+    if (active) return "Son güncelleme: " + timeAgoTR(loc.updatedAt);
+    // Pasif ama daha önce en az bir konum gelmiş: durum metnine, en son ne
+    // zaman paylaşıldığını da ekliyoruz — sadece "durduruldu/bekleniyor"
+    // demek, ne zamandır güncel olmadığını belirsiz bırakıyordu.
+    return "Son paylaşım: " + timeAgoTR(loc.updatedAt) + " (şu an aktif değil)";
+  }
+
   function renderHaritaSection() {
     var driversWithShare = (visibleDriversForMe() || []).filter(function (d) { return d.shareId && d.employmentStatus !== "terminated"; });
     var html = '<section class="panel">';
@@ -2258,7 +2267,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         '<div class="err-item-head">' +
           '<span class="driver-item-name">' + (active ? '🟢 ' : '⚪ ') + esc(d.name) + '</span>' +
         '</div>' +
-        '<div class="err-item-meta">' + (loc ? (active ? "Son güncelleme: " + timeAgoTR(loc.updatedAt) : "Paylaşım durduruldu / bekleniyor") : "Henüz konum gelmedi, şoförün linke tıklaması gerekiyor.") + '</div>' +
+        '<div class="err-item-meta">' + haritaDriverMetaText(loc, active) + '</div>' +
       '</li>';
     });
     html += '</ul>';
@@ -2343,11 +2352,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       var nameEl = row.querySelector(".driver-item-name");
       if (nameEl) nameEl.textContent = (active ? "🟢 " : "⚪ ") + d.name;
       var metaEl = row.querySelector(".err-item-meta");
-      if (metaEl) {
-        metaEl.textContent = loc
-          ? (active ? "Son güncelleme: " + timeAgoTR(loc.updatedAt) : "Paylaşım durduruldu / bekleniyor")
-          : "Henüz konum gelmedi, şoförün linke tıklaması gerekiyor.";
-      }
+      if (metaEl) metaEl.textContent = haritaDriverMetaText(loc, active);
     });
   }
 
