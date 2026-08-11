@@ -1077,7 +1077,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.7.2"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.7.3"; // Dynamic Version Tracking
   var APP_UPDATED = "11 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1326,6 +1326,34 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // tamamen belleğe okunup decode edilmesi, özellikle eski/yavaş telefonlarda arayüzü
   // kilitleyebiliyor. Bu yüzden sıkıştırmaya başlamadan önce boyutu kontrol ediyoruz.
   var MAX_PHOTO_UPLOAD_MB = 5;
+
+  // ---------- cloudinary ----------
+  var CLOUDINARY_CLOUD_NAME = "tdkavncf";
+  var CLOUDINARY_UPLOAD_PRESET = "ml_default";
+
+  function uploadToCloudinary(blob, folder) {
+    var formData = new FormData();
+    formData.append("file", blob);
+    formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+    if (folder) formData.append("folder", folder);
+    return fetch("https://api.cloudinary.com/v1_1/" + CLOUDINARY_CLOUD_NAME + "/image/upload", {
+      method: "POST",
+      body: formData
+    }).then(function (res) {
+      if (!res.ok) throw new Error("UPLOAD_FAILED");
+      return res.json();
+    }).then(function (data) {
+      return data.secure_url;
+    });
+  }
+
+  function folderForPhotoKey(key) {
+    var uid = (state.currentUser && state.currentUser.id) || "misafir";
+    if (key === "carPhoto" || key === "ruhsatPhoto") return "garaj-defteri/" + uid + "/araclar";
+    if (key === "receiptPhoto") return "garaj-defteri/" + uid + "/masraflar";
+    return "garaj-defteri/" + uid + "/diger";
+  }
+
   function compressImage(file, maxDim, quality) {
     maxDim = maxDim || 900; quality = quality || 0.72;
     return new Promise(function (resolve, reject) {
@@ -1344,7 +1372,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           canvas.width = w; canvas.height = h;
           var ctx = canvas.getContext("2d");
           ctx.drawImage(img, 0, 0, w, h);
-          resolve(canvas.toDataURL("image/jpeg", quality));
+          canvas.toBlob(function (blob) {
+            if (!blob) { reject(new Error("COMPRESS_FAILED")); return; }
+            resolve(blob);
+          }, "image/jpeg", quality);
         };
         img.onerror = reject;
         img.src = reader.result;
@@ -1356,13 +1387,15 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   function handlePhotoCompressError(err) {
     if (err && err.message === "TOO_LARGE") {
       toast("Fotoğraf çok büyük (maks. " + MAX_PHOTO_UPLOAD_MB + "MB). Daha düşük çözünürlüklü bir fotoğraf seçin.");
+    } else if (err && err.message === "UPLOAD_FAILED") {
+      toast("Fotoğraf sunucuya yüklenemedi, internetini kontrol edip tekrar dener misin?");
     } else {
       toast("Fotoğraf yüklenemedi.");
     }
   }
-  // input[type=file] değişince ilgili .photo-upload kutusunda "İşleniyor..."
-  // göstererek sıkıştırma sürerken arayüzün donmuş görünmesini önler.
-  function bindPhotoUploadInput(input, onDone, maxDim, quality) {
+  // input[type=file] değişince ilgili .photo-upload kutusunda "Yükleniyor..."
+  // göstererek sıkıştırma + Cloudinary yüklemesi sürerken arayüzün donmuş görünmesini önler.
+  function bindPhotoUploadInput(input, onDone, maxDim, quality, folder) {
     input.addEventListener("change", function (ev) {
       var file = ev.target.files && ev.target.files[0];
       if (!file) return;
@@ -1370,14 +1403,17 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       var labelEl = box ? box.querySelector(".pu-label") : null;
       var prevLabelHtml = labelEl ? labelEl.innerHTML : null;
       if (box) box.classList.add("is-processing");
-      if (labelEl) labelEl.innerHTML = "⏳<br/>İşleniyor...";
-      compressImage(file, maxDim || 900, quality || 0.72).then(function (dataUrl) {
-        onDone(dataUrl);
-      }).catch(function (err) {
-        if (box) box.classList.remove("is-processing");
-        if (labelEl && prevLabelHtml !== null) labelEl.innerHTML = prevLabelHtml;
-        handlePhotoCompressError(err);
-      });
+      if (labelEl) labelEl.innerHTML = "⏳<br/>Yükleniyor...";
+      compressImage(file, maxDim || 900, quality || 0.72)
+        .then(function (blob) { return uploadToCloudinary(blob, folder); })
+        .then(function (url) {
+          onDone(url);
+        })
+        .catch(function (err) {
+          if (box) box.classList.remove("is-processing");
+          if (labelEl && prevLabelHtml !== null) labelEl.innerHTML = prevLabelHtml;
+          handlePhotoCompressError(err);
+        });
     });
   }
 
@@ -7376,12 +7412,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     function bindAvatarInput() {
       var input = modal.querySelector("#avatar-file");
-      bindPhotoUploadInput(input, function (dataUrl) {
-        modal.__avatar = dataUrl;
+      bindPhotoUploadInput(input, function (url) {
+        modal.__avatar = url;
         var box = modal.querySelector("#pu-avatar");
-        box.innerHTML = '<img src="' + dataUrl + '" alt="Profil fotoğrafı" /><input type="file" accept="image/*" id="avatar-file" aria-label="Profil fotoğrafı yükle" />';
+        box.innerHTML = '<img src="' + url + '" alt="Profil fotoğrafı" /><input type="file" accept="image/*" id="avatar-file" aria-label="Profil fotoğrafı yükle" />';
         bindAvatarInput();
-      }, 300, 0.8);
+      }, 300, 0.8, "garaj-defteri/" + (state.currentUser ? state.currentUser.id : "misafir") + "/profil");
     }
     bindAvatarInput();
 
@@ -8713,11 +8749,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     modal.__photos = { carPhoto: car ? car.photo : null, ruhsatPhoto: car ? car.ruhsat : null };
 
     modal.querySelectorAll(".photo-upload input[type=file]").forEach(function (input) {
-      bindPhotoUploadInput(input, function (dataUrl) {
+      bindPhotoUploadInput(input, function (url) {
         var key = input.getAttribute("data-key");
-        modal.__photos[key] = dataUrl;
+        modal.__photos[key] = url;
         refreshPhotoBox(modal, key);
-      });
+      }, 900, 0.72, folderForPhotoKey(input.getAttribute("data-key")));
     });
     modal.querySelectorAll(".photo-remove").forEach(function (btn) {
       btn.addEventListener("click", function (ev) {
@@ -10303,10 +10339,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       : '<span class="pu-label">📷<br/>' + label + ' ekle</span>') +
       '<input type="file" accept="image/*" data-key="' + key + '" aria-label="' + esc(label) + ' yükle" />';
     var fileInput = box.querySelector("input[type=file]");
-    bindPhotoUploadInput(fileInput, function (dataUrl) {
-      modal.__photos[key] = dataUrl;
+    bindPhotoUploadInput(fileInput, function (url) {
+      modal.__photos[key] = url;
       refreshPhotoBox(modal, key);
-    });
+    }, 900, 0.72, folderForPhotoKey(key));
     var removeBtn = box.querySelector(".photo-remove");
     if (removeBtn) removeBtn.addEventListener("click", function (ev) {
       ev.stopPropagation();
@@ -10406,11 +10442,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     modal.__photos = { receiptPhoto: editingExpense ? editingExpense.receipt || null : null };
     modal.querySelectorAll(".photo-upload input[type=file]").forEach(function (input) {
-      bindPhotoUploadInput(input, function (dataUrl) {
+      bindPhotoUploadInput(input, function (url) {
         var key = input.getAttribute("data-key");
-        modal.__photos[key] = dataUrl;
+        modal.__photos[key] = url;
         refreshPhotoBox(modal, key);
-      });
+      }, 900, 0.72, folderForPhotoKey(input.getAttribute("data-key")));
     });
     modal.querySelectorAll(".photo-remove").forEach(function (btn) {
       btn.addEventListener("click", function (ev) {
