@@ -401,7 +401,7 @@
   }
 
   function endCurrentTrip() {
-    if (!currentTripRef) return;
+    if (!currentTripRef) return Promise.resolve();
     var ref = currentTripRef;
     // Hiç ikinci bir nokta kaydedilmemiş (gerçek hareket doğrulanmamış)
     // ya da mesafesi ölçüm hatası düzeyinde (<50 m) bir "yolculuk" ise,
@@ -409,17 +409,20 @@
     // ekranında "0 km, 0 dk" gibi anlamsız satırlar olarak görünmemesi
     // için kaydetmeden siliyoruz.
     var isPhantomTrip = currentTripPath.length < 2 || currentTripDistanceKm < 0.05;
-    if (isPhantomTrip) {
-      ref.delete().catch(function () {});
-    } else {
-      ref.set({ endedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true }).catch(function () {});
-    }
+    // Bu yazmanın Promise'ini döndürüyoruz ki stopSharing() anonim hesabı
+    // SİLMEDEN önce bu isteğin sunucuya ulaştığından emin olabilsin —
+    // aksi halde auth token silme sırasında geçersiz kalırsa yazma
+    // reddedilebilirdi.
+    var p = isPhantomTrip
+      ? ref.delete().catch(function () {})
+      : ref.set({ endedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true }).catch(function () {});
     currentTripRef = null;
     currentTripPath = [];
     currentTripDistanceKm = 0;
     currentTripMaxSpeedKmh = 0;
     lastRecordedPoint = null;
     stopSince = null;
+    return p;
   }
 
   function onPositionError(err) {
@@ -438,14 +441,47 @@
       navigator.geolocation.clearWatch(watchId);
       watchId = null;
     }
-    endCurrentTrip();
     releaseWakeLock();
     updateBgWarning();
-    docRef.set({ active: false }, { merge: true }).catch(function () {});
     stopBtn.style.display = "none";
     startBtn.style.display = "block";
     startBtn.disabled = false;
-    setStatus("Paylaşım durduruldu.", "wait");
+    setStatus("Paylaşım durduruluyor…", "wait");
+
+    var tripDone = endCurrentTrip();
+    var activeDone = docRef.set({ active: false }, { merge: true }).catch(function () {});
+
+    // Hem "active:false" hem de açık kalan trip yazması sunucuya
+    // ulaştıktan (ya da hatayla sonuçlansa bile) SONRA anonim Firebase
+    // Auth hesabını siliyoruz. Bu şoförün oturumu (auth.currentUser)
+    // zaten bu anonim hesap olduğu için Admin SDK/backend'e gerek yok —
+    // client-side currentUser.delete() yeterli. Böylece "Paylaşımı
+    // Durdur"a basan her şoför için, Firebase Console'da kalıcı olarak
+    // birikmesi gereken bir anonim kullanıcı kalmıyor; sıradaki paylaşımda
+    // (tekrar "Paylaşımı Başlat"a basılınca) zaten yeni bir anonim hesap
+    // oluşturuluyor.
+    //
+    // NOT: Bu sadece kullanıcı düğmeye BASARAK paylaşımı durdurduğunda
+    // çalışır. Sekmeyi/tarayıcıyı kapatıp hiç durdurmadan terk eden bir
+    // şoförün anonim hesabı (bilerek kaldırılan "beforeunload" dinleyicisi
+    // yüzünden, bkz. yukarıdaki not) burada silinemez — bu durumlar için
+    // Firebase Console'dan periyodik temizlik hâlâ gerekebilir.
+    Promise.all([tripDone, activeDone]).then(function () {
+      return deleteAnonymousUser();
+    }).catch(function () {}).then(function () {
+      setStatus("Paylaşım durduruldu.", "wait");
+    });
+  }
+
+  function deleteAnonymousUser() {
+    var u = auth.currentUser;
+    if (!u || !u.isAnonymous) return Promise.resolve();
+    return u.delete().catch(function (err) {
+      // Silme başarısız olsa bile (ör. anlık ağ sorunu) kritik değil —
+      // hesap Firebase Console'dan elle temizlenebilir, paylaşım akışını
+      // etkilemez.
+      console.warn("anonim hesap silinemedi:", err);
+    });
   }
 
   // NOT: Daha önce burada "beforeunload" (sekme/tarayıcı kapanırken)
