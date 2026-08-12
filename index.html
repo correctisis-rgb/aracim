@@ -1077,8 +1077,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.7.4"; // Dynamic Version Tracking
-  var APP_UPDATED = "11 Ağustos 2026";
+  var APP_VERSION = "v2.7.5"; // Dynamic Version Tracking
+  var APP_UPDATED = "12 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -2188,6 +2188,15 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       d.shareId = uid();
       persistDrivers();
     }
+    // driverName: konum.html açıldığında hem şoföre kişisel bir karşılama
+    // göstermek hem de anonim Firebase Auth hesabının displayName'ini
+    // ayarlayabilmek için (Firebase Console'da hangi anonim oturumun
+    // hangi şoföre ait olduğunu ayırt etmeye yarar) driverLocations
+    // dokümanına yazılıyor. merge:true ile mevcut konum/aktiflik
+    // alanlarına dokunmadan sadece bu alanı ekliyor/güncelliyor.
+    db.collection("driverLocations").doc(d.shareId)
+      .set({ driverName: d.name || "Şoför" }, { merge: true })
+      .catch(function () {});
     return d.shareId;
   }
 
