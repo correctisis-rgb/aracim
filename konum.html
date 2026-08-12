@@ -169,31 +169,25 @@
   }
 
   function init() {
-    introEl.textContent = "Bağlanılıyor…";
-    auth.signInAnonymously().then(function () {
-      return docRef.get();
-    }).then(function (snap) {
-      // NOT: snap.exists === false, bu shareId'nin HİÇ kullanılmamış (yeni
-      // oluşturulmuş) bir link olduğu anlamına gelir — bu normaldir, çünkü
-      // driverLocations/{shareId} dokümanı ancak şoför "Paylaşımı Başlat"a
-      // basıp ilk konumu gönderdiğinde (onPosition() içinde) oluşturulur.
-      // Bu yüzden "geçersiz link" durumu SADECE doküman VAR ve revoked:true
-      // ise geçerlidir; doküman yokluğu tek başına geçersizlik anlamına
-      // gelmez.
-      if (snap.exists && snap.data().revoked === true) {
-        titleEl.textContent = "Paylaşım Linki Geçersiz";
-        introEl.textContent = "Bu paylaşım linki artık aktif değil. Yeni bir link almak için hane sahibinle iletişime geç.";
-        return;
-      }
-      introEl.innerHTML = "Konumunu paylaşmak için aşağıdaki düğmeye bas. Konumun sadece seni davet eden kişi tarafından görülebilir.";
-      startBtn.style.display = "block";
-      startBtn.addEventListener("click", startSharing);
-      stopBtn.addEventListener("click", stopSharing);
-    }).catch(function (err) {
-      console.error(err);
-      titleEl.textContent = "Bağlantı Hatası";
-      introEl.textContent = "Sunucuya bağlanılamadı. İnternet bağlantını kontrol edip sayfayı yenile.";
-    });
+    // ÖNEMLİ: Burada artık signInAnonymously() ÇAĞRILMIYOR. Eskiden bu
+    // fonksiyon sayfa yüklenir yüklenmez (kullanıcı "Paylaşımı Başlat"a
+    // basmadan ÖNCE) anonim bir Firebase Auth hesabı oluşturuyordu — yani
+    // linki sadece açıp hiçbir şey yapmayan herkes (ve linke uğrayan
+    // botlar/tarayıcı önizleyicileri) için bile boş bir anonim kullanıcı
+    // kaydı oluşuyordu. Firebase Console > Authentication'da birikip duran
+    // çok sayıda "(anonymous)" kullanıcının asıl sebebi buydu.
+    //
+    // Firestore kuralları driverLocations için okumayı da (request.auth
+    // != null) auth şartına bağladığından, "revoked" kontrolünü artık
+    // burada PEŞİNEN yapamıyoruz — bunun yerine kullanıcı gerçekten
+    // paylaşımı başlatmak için düğmeye bastığında startSharing() içinde
+    // hem anonim girişi yapıyor hem de revoked kontrolünü orada
+    // gerçekleştiriyoruz. Böylece sadece gerçekten paylaşım başlatan
+    // kullanıcılar için anonim hesap oluşuyor.
+    introEl.innerHTML = "Konumunu paylaşmak için aşağıdaki düğmeye bas. Konumun sadece seni davet eden kişi tarafından görülebilir.";
+    startBtn.style.display = "block";
+    startBtn.addEventListener("click", startSharing);
+    stopBtn.addEventListener("click", stopSharing);
   }
 
   function startSharing() {
@@ -202,11 +196,40 @@
       return;
     }
     startBtn.disabled = true;
+    setStatus("Bağlanılıyor…", "wait");
+
+    // Anonim giriş ve "revoked" kontrolü artık BURADA (kullanıcı gerçekten
+    // paylaşımı başlatmak istediğinde) yapılıyor — bkz. init() içindeki not.
+    auth.signInAnonymously().then(function () {
+      return docRef.get();
+    }).then(function (snap) {
+      // NOT: snap.exists === false, bu shareId'nin HİÇ kullanılmamış (yeni
+      // oluşturulmuş) bir link olduğu anlamına gelir — bu normaldir, çünkü
+      // driverLocations/{shareId} dokümanı ancak ilk konum onPosition()
+      // içinde yazıldığında oluşturulur. Bu yüzden "geçersiz link" durumu
+      // SADECE doküman VAR ve revoked:true ise geçerlidir; doküman
+      // yokluğu tek başına geçersizlik anlamına gelmez.
+      if (snap.exists && snap.data().revoked === true) {
+        startBtn.disabled = false;
+        startBtn.style.display = "none";
+        titleEl.textContent = "Paylaşım Linki Geçersiz";
+        introEl.textContent = "Bu paylaşım linki artık aktif değil. Yeni bir link almak için hane sahibinle iletişime geç.";
+        return;
+      }
+      beginGeolocationSharing();
+    }).catch(function (err) {
+      console.error(err);
+      startBtn.disabled = false;
+      setStatus("Sunucuya bağlanılamadı. İnternet bağlantını kontrol edip tekrar dene.", "err");
+    });
+  }
+
+  function beginGeolocationSharing() {
     setStatus("Konum izni isteniyor…", "wait");
     sharingActive = true;
     wasStopped = false;
-    // Kullanıcı tıklaması (gesture) içinde çağrıldığı için Wake Lock isteği
-    // burada güvenle yapılabilir.
+    // Wake Lock isteği kullanıcı tıklamasından (gesture) doğan zincirin
+    // içinde kaldığı için burada güvenle yapılabilir.
     requestWakeLock();
     updateBgWarning();
 
@@ -439,4 +462,3 @@
 </script>
 </body>
 </html>
-
