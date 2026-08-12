@@ -216,6 +216,19 @@
         introEl.textContent = "Bu paylaşım linki artık aktif değil. Yeni bir link almak için hane sahibinle iletişime geç.";
         return;
       }
+      // driverName varsa (index.html startDriverShare() tarafından
+      // yazılıyor): hem anonim Firebase Auth hesabının displayName'ini
+      // ayarlıyoruz (Firebase Console'da hangi anonim oturumun hangi
+      // şoföre ait olduğunu ayırt etmek için — liste görünümü hâlâ
+      // "(anonymous)" yazar ama kullanıcı detayına girince isim görünür),
+      // hem de ekrandaki karşılamayı kişiselleştiriyoruz.
+      var driverName = snap.exists && snap.data().driverName;
+      if (driverName && auth.currentUser) {
+        auth.currentUser.updateProfile({ displayName: driverName }).catch(function () {});
+      }
+      if (driverName) {
+        titleEl.textContent = driverName + " — Konum Paylaşımı";
+      }
       beginGeolocationSharing();
     }).catch(function (err) {
       console.error(err);
