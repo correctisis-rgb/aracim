@@ -1118,7 +1118,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.8.3"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.8.4"; // Dynamic Version Tracking
   var APP_UPDATED = "13 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1677,7 +1677,23 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if (!inFlightFieldWrites.expenses) { state.expenses = data.expenses || state.expenses || []; setLocalData("expenses", state.expenses); }
       if (!inFlightFieldWrites.familyMembers) { state.familyMembers = data.familyMembers || state.familyMembers || []; setLocalData("family", state.familyMembers); }
       if (!inFlightFieldWrites.budgets) { state.budgets = data.budgets || state.budgets || {}; setLocalData("budgets", state.budgets); }
-      if (!inFlightFieldWrites.drivers) { state.drivers = data.drivers || state.drivers || []; driversChangedBySnapshot = true; }
+      if (!inFlightFieldWrites.drivers) {
+        var newDriversList = data.drivers || state.drivers || [];
+        // DÜZELTME: Önceden burada koşulsuz olarak driversChangedBySnapshot =
+        // true yapılıyordu — yani hane dokümanındaki HERHANGİ bir alan
+        // değiştiğinde (bir masraf eklendiğinde, bütçe güncellendiğinde,
+        // aile üyesi düzenlendiğinde vb. — Firestore'da tek dokümanlık bir
+        // yapı olduğu için her snapshot TÜM alanları taşır) canlı konum
+        // dinleyicileri (subscribeDriverLocations) gereksiz yere sökülüp
+        // yeniden kuruluyordu. Bunun yerine, yalnızca subscribeDriverLocations'ın
+        // gerçekten önemsediği şeyi — hangi şoförlerin hangi shareId'lerle
+        // paylaşımının açık olduğunu — karşılaştırıyoruz; sadece bu küme
+        // değiştiyse yeniden abone oluyoruz.
+        var prevShareSig = (state.drivers || []).map(function (d) { return d.shareId || ""; }).filter(Boolean).sort().join(",");
+        var newShareSig = (newDriversList || []).map(function (d) { return d.shareId || ""; }).filter(Boolean).sort().join(",");
+        if (prevShareSig !== newShareSig) driversChangedBySnapshot = true;
+        state.drivers = newDriversList;
+      }
       if (!inFlightFieldWrites.driverExpenses) { state.driverExpenses = data.driverExpenses || state.driverExpenses || []; }
       if (!inFlightFieldWrites.ubakNotebooks) { state.ubakNotebooks = data.ubakNotebooks || state.ubakNotebooks || []; }
       if (!inFlightFieldWrites.geofences) { state.geofences = data.geofences || state.geofences || []; setLocalData("geofences", state.geofences); }
