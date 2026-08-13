@@ -188,6 +188,45 @@
   .harita-driver-row-following { border-left: 3px solid var(--amber); padding-left: 9px; }
   .harita-today-summary { opacity: 0.85; font-size: 12px; }
 
+  .harita-summary-bar { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 2px; }
+  .harita-summary-chip {
+    flex: 1 1 100px; display: flex; flex-direction: column; align-items: center; gap: 2px;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 8px 6px; text-align: center;
+  }
+  .harita-summary-chip strong { font-size: 19px; font-family: 'Oswald', sans-serif; line-height: 1; }
+  .harita-summary-chip span { font-size: 11px; color: var(--muted); font-weight: 600; }
+  .harita-summary-chip-moving strong { color: var(--green); }
+  .harita-summary-chip-stopped strong { color: var(--amber); }
+  .harita-summary-chip-offline strong { color: var(--muted); }
+
+  .harita-geofence-add-active { background: color-mix(in srgb, var(--amber) 20%, var(--surface)); border-color: var(--amber); color: var(--text); }
+  .harita-geofence-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+  .harita-geofence-item {
+    display: flex; align-items: center; gap: 8px; background: var(--surface-2);
+    border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; font-size: 13px;
+  }
+  .harita-geofence-item-name { flex: 1; font-weight: 600; }
+  .harita-geofence-item-radius { color: var(--muted); font-size: 12px; }
+  .harita-geofence-marker { display: flex; flex-direction: column; align-items: center; pointer-events: none; }
+  .harita-geofence-pin {
+    background: #1B1F24; color: #fff; font-size: 10.5px; font-weight: 700;
+    padding: 2px 7px; border-radius: 6px; white-space: nowrap; box-shadow: 0 1px 4px rgba(0,0,0,0.35);
+  }
+
+  .harita-filter-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
+  .harita-filter-bar .entity-search-wrap { flex: 1 1 180px; }
+  .harita-status-filter { display: flex; flex-wrap: wrap; gap: 6px; }
+  .harita-status-filter-btn {
+    background: var(--surface); border: 1px solid var(--border); color: var(--muted);
+    padding: 7px 11px; border-radius: 999px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s ease;
+  }
+  .harita-status-filter-btn:hover { color: var(--text); border-color: var(--amber); }
+  .harita-status-filter-btn.active { background: color-mix(in srgb, var(--amber) 16%, var(--surface)); border-color: var(--amber); color: var(--text); }
+
+  .harita-geofence-log { margin-top: 18px; }
+  .harita-geofence-log-title { margin: 0 0 8px; font-family: 'Oswald', sans-serif; font-size: 14px; letter-spacing: 0.02em; }
+
   .car-tabs, .view-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
   .view-tabs { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 4px; width: fit-content; gap: 4px; }
   .car-tab {
@@ -1079,7 +1118,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.7.7"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.7.8"; // Dynamic Version Tracking
   var APP_UPDATED = "12 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1497,6 +1536,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     // tutacak şekilde otomatik kayar (bkz. updateHaritaMarkers).
     haritaFollowShareId: null,
     mapSelectedDriverId: null,
+    // ---------- Operasyonel görünürlük (harita ekranı) ----------
+    // Şoför listesinde arama / durum filtresi ("Tümü" | "moving" | "stopped" | "offline").
+    haritaFilter: { search: "", status: "all" },
+    // Bölge (geofence) işaretleri: [{ id, name, lat, lng, radius }]
+    geofences: getLocalData("geofences", []),
+    // Bölge giriş/çıkış logu: [{ id, geofenceId, geofenceName, driverId, driverName, type: "enter"|"exit", at }]
+    geofenceEvents: getLocalData("geofence_events", []),
+    // Haritada "Bölge Ekle" modundayken bir sonraki harita tıklaması yeni
+    // bölgenin merkezini belirler (bkz. handleHaritaMapClick).
+    geofenceAddMode: false,
     calendarVisibleCount: 20,
     summaryVisibleCount: 20,
     logVisibleCount: 20,
@@ -1627,6 +1676,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if (!inFlightFieldWrites.drivers) { state.drivers = data.drivers || state.drivers || []; driversChangedBySnapshot = true; }
       if (!inFlightFieldWrites.driverExpenses) { state.driverExpenses = data.driverExpenses || state.driverExpenses || []; }
       if (!inFlightFieldWrites.ubakNotebooks) { state.ubakNotebooks = data.ubakNotebooks || state.ubakNotebooks || []; }
+      if (!inFlightFieldWrites.geofences) { state.geofences = data.geofences || state.geofences || []; setLocalData("geofences", state.geofences); }
+      if (!inFlightFieldWrites.geofenceEvents) { state.geofenceEvents = data.geofenceEvents || state.geofenceEvents || []; setLocalData("geofence_events", state.geofenceEvents); }
       state.notifHistory = data.notifHistory || state.notifHistory || [];
       state.activityLog = data.activityLog || state.activityLog || [];
       state.license = data.license || null;
@@ -1978,7 +2029,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     drivers: { local: "drivers", get: function () { return state.drivers; } },
     driverExpenses: { local: "driver_expenses", get: function () { return state.driverExpenses; } },
     ubakNotebooks: { local: "ubak_notebooks", get: function () { return state.ubakNotebooks; } },
-    activityLog: { local: "activity_log", get: function () { return state.activityLog; } }
+    activityLog: { local: "activity_log", get: function () { return state.activityLog; } },
+    geofences: { local: "geofences", get: function () { return state.geofences; } },
+    geofenceEvents: { local: "geofence_events", get: function () { return state.geofenceEvents; } }
   };
   // In-flight yazma kilidi: bir alan için persistFields() çağrıldıktan sonra
   // Firestore'a yazma tamamlanana kadar, o alan adı burada "kirli" (dirty)
@@ -2239,6 +2292,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             snap.docChanges().forEach(function (change) {
               if (change.type === "removed") { delete state.driverLocations[change.doc.id]; return; }
               state.driverLocations[change.doc.id] = change.doc.data();
+              checkGeofenceCrossings(change.doc.id, state.driverLocations[change.doc.id]);
             });
             if (state.mainSection === "harita") {
               // Harita zaten ekrandaysa (kullanıcı o an haritayı görüntülüyorsa),
@@ -2264,6 +2318,135 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   function driverForShareId(shareId) {
     return (state.drivers || []).find(function (d) { return d.shareId === shareId; }) || null;
+  }
+
+  // ---------- 📍 Bölge işaretleme (geofence) ----------
+  function persistGeofences() { persistFields(["geofences"]); }
+  function persistGeofenceEvents() { persistFields(["geofenceEvents"]); }
+
+  function addGeofence(name, lat, lng, radius) {
+    var g = { id: uid(), name: name, lat: lat, lng: lng, radius: radius > 0 ? radius : 150 };
+    state.geofences = (state.geofences || []).concat([g]);
+    persistGeofences();
+    return g;
+  }
+  function deleteGeofence(geofenceId) {
+    state.geofences = (state.geofences || []).filter(function (g) { return g.id !== geofenceId; });
+    persistGeofences();
+    Object.keys(driverGeofenceInside).forEach(function (shareId) {
+      if (driverGeofenceInside[shareId]) delete driverGeofenceInside[shareId][geofenceId];
+    });
+  }
+
+  // Haversine formülü ile iki koordinat arası mesafe (metre).
+  function distanceMeters(lat1, lng1, lat2, lng2) {
+    var R = 6371000;
+    var toRad = function (d) { return d * Math.PI / 180; };
+    var dLat = toRad(lat2 - lat1);
+    var dLng = toRad(lng2 - lng1);
+    var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+
+  function logGeofenceEvent(geofence, driver, type) {
+    var ev = {
+      id: uid(), geofenceId: geofence.id, geofenceName: geofence.name,
+      driverId: driver.id, driverName: driver.name, type: type, at: new Date().toISOString()
+    };
+    // Log çok büyümesin diye son 300 kayıtla sınırlıyoruz.
+    state.geofenceEvents = [ev].concat(state.geofenceEvents || []).slice(0, 300);
+    persistGeofenceEvents();
+    toast((type === "enter" ? "📍 " : "🚪 ") + driver.name + " → " + geofence.name +
+      (type === "enter" ? "'a vardı" : "'dan ayrıldı"));
+    if (state.mainSection === "harita") render();
+  }
+
+  // Bir şoförden yeni bir konum pingi geldiğinde tüm bölgelere göre
+  // içeride/dışarıda durumunu kontrol eder; durum değiştiyse (girdi/çıktı)
+  // logGeofenceEvent ile kaydeder. Sayfa yeni açıldığında (driverGeofenceInitialized
+  // henüz set edilmemişken) mevcut konum zaten bir bölgenin içindeyse, sahte
+  // bir "girdi" olayı üretmeden sadece durumu sessizce kaydeder.
+  function checkGeofenceCrossings(shareId, loc) {
+    if (!loc || typeof loc.lat !== "number" || typeof loc.lng !== "number") return;
+    var geofences = state.geofences || [];
+    if (!geofences.length) return;
+    var driver = driverForShareId(shareId);
+    if (!driver) return;
+    var firstCheck = !driverGeofenceInitialized[shareId];
+    driverGeofenceInitialized[shareId] = true;
+    driverGeofenceInside[shareId] = driverGeofenceInside[shareId] || {};
+    var insideMap = driverGeofenceInside[shareId];
+    geofences.forEach(function (g) {
+      var isInside = distanceMeters(loc.lat, loc.lng, g.lat, g.lng) <= (g.radius || 150);
+      var wasInside = !!insideMap[g.id];
+      if (isInside === wasInside) return;
+      insideMap[g.id] = isInside;
+      if (firstCheck) return; // ilk pingde sessizce başlangıç durumunu kaydet
+      logGeofenceEvent(g, driver, isInside ? "enter" : "exit");
+    });
+  }
+
+  function haritaFleetSummary(driversWithShare) {
+    var moving = 0, stopped = 0, offline = 0;
+    driversWithShare.forEach(function (d) {
+      var loc = state.driverLocations ? state.driverLocations[d.shareId] : null;
+      var active = isDriverLocationLive(loc);
+      if (!active) { offline += 1; return; }
+      var speedKmh = typeof loc.speedKmh === "number" ? loc.speedKmh : Math.round((loc.speed || 0) * 3.6);
+      var moving_ = typeof loc.moving === "boolean" ? loc.moving : speedKmh >= 5;
+      if (moving_) moving += 1; else stopped += 1;
+    });
+    return { moving: moving, stopped: stopped, offline: offline, total: driversWithShare.length };
+  }
+
+  function haritaDriverStatusKey(d) {
+    var loc = state.driverLocations ? state.driverLocations[d.shareId] : null;
+    var active = isDriverLocationLive(loc);
+    if (!active) return "offline";
+    var speedKmh = typeof loc.speedKmh === "number" ? loc.speedKmh : Math.round((loc.speed || 0) * 3.6);
+    var moving_ = typeof loc.moving === "boolean" ? loc.moving : speedKmh >= 5;
+    return moving_ ? "moving" : "stopped";
+  }
+
+  function buildGeofenceModal() {
+    var m = state.modal;
+    var modal = document.createElement("div");
+    modal.className = "modal";
+    modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
+    modal.innerHTML =
+      '<div class="modal-head"><h3>📌 Bölge Ekle</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>' +
+      '<p class="field-hint" style="margin-top:-4px">Depo, şube, müşteri adresi gibi sabit bir noktayı işaretle. Bir şoför bu bölgeye girip çıktığında burada otomatik olarak loglanır.</p>' +
+      '<label class="field"><span>Bölge Adı</span><input id="gf-name" placeholder="Örn. Merkez Depo" /></label>' +
+      '<label class="field"><span>Yarıçap (metre)</span><input id="gf-radius" type="number" inputmode="numeric" min="30" step="10" value="150" /></label>' +
+      '<button class="btn-primary full" id="gf-save" style="margin-top:12px">Kaydet</button>';
+
+    modal.querySelector("#gf-save").addEventListener("click", function () {
+      var name = modal.querySelector("#gf-name").value.trim();
+      var radius = parseInt(modal.querySelector("#gf-radius").value, 10);
+      if (!name) { toast("Bölge adı gerekli."); return; }
+      addGeofence(name, m.lat, m.lng, radius > 0 ? radius : 150);
+      closeModal();
+      render();
+      setTimeout(function () { updateHaritaGeofences(); }, 0);
+      toast("Bölge eklendi.");
+    });
+
+    return modal;
+  }
+
+  function filterHaritaDrivers(list) {
+    var f = state.haritaFilter || {};
+    var out = list;
+    if (f.status && f.status !== "all") {
+      out = out.filter(function (d) { return haritaDriverStatusKey(d) === f.status; });
+    }
+    var q = normalizeSearchText((f.search || "").trim());
+    if (q) {
+      out = out.filter(function (d) { return normalizeSearchText(d.name || "").indexOf(q) !== -1; });
+    }
+    return out;
   }
 
   function timeAgoTR(dateLike) {
@@ -2304,6 +2487,15 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   var haritaMap = null;
   var haritaMarkers = {}; // shareId -> L.Marker
+  var haritaGeofenceLayers = {}; // geofence id -> { circle: L.Circle, marker: L.Marker }
+  var haritaMapClickBound = false; // haritaMap.on("click", ...) sadece bir kez bağlanır
+  // Her şoförün her bölgenin İÇİNDE mi DIŞINDA mı olduğunu tutar (runtime,
+  // kalıcı değil): { [shareId]: { [geofenceId]: true|false } }. Sayfa her
+  // yenilendiğinde sıfırlanır; bu yüzden bir şoförden ilk konum geldiğinde
+  // (aşağıdaki driverGeofenceInitialized ile) sahte bir "girdi" logu
+  // oluşturmuyoruz — sadece mevcut durumu sessizce kaydediyoruz.
+  var driverGeofenceInside = {};
+  var driverGeofenceInitialized = {}; // shareId -> true (ilk konum işlendi mi)
 
   function elapsedSinceTR(dateLike) {
     var ms = driverLocationTimestampMs(dateLike);
@@ -2345,9 +2537,56 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       html += '</section>';
       return html;
     }
+
+    // ---- Filo özet paneli: tek bakışta kaç araç hareket halinde / duruyor / çevrimdışı ----
+    var summary = haritaFleetSummary(driversWithShare);
+    html += '<div class="harita-summary-bar">' +
+      '<div class="harita-summary-chip harita-summary-chip-moving"><strong>' + summary.moving + '</strong><span>🚗 Hareket Halinde</span></div>' +
+      '<div class="harita-summary-chip harita-summary-chip-stopped"><strong>' + summary.stopped + '</strong><span>🛑 Duruyor</span></div>' +
+      '<div class="harita-summary-chip harita-summary-chip-offline"><strong>' + summary.offline + '</strong><span>⚪ Çevrimdışı</span></div>' +
+    '</div>';
+
     html += '<div id="harita-map" class="harita-map-box"></div>';
+
+    html += '<div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap">' +
+      '<button type="button" class="btn-secondary' + (state.geofenceAddMode ? " harita-geofence-add-active" : "") + '" style="padding:8px 12px; font-size:12.5px" data-action="toggle-geofence-add-mode">' +
+        (state.geofenceAddMode ? "✕ Bölge Eklemeyi İptal Et" : "📌 Bölge Ekle") +
+      '</button>' +
+    '</div>';
+    if (state.geofenceAddMode) {
+      html += '<p class="field-hint" style="margin-top:6px">Yukarıdaki haritada, işaretlemek istediğin noktaya (depo, şube, müşteri adresi vb.) dokun.</p>';
+    }
+    if ((state.geofences || []).length) {
+      html += '<div class="harita-geofence-list">';
+      (state.geofences || []).forEach(function (g) {
+        html += '<div class="harita-geofence-item">' +
+          '<span class="harita-geofence-item-name">📍 ' + esc(g.name) + '</span>' +
+          '<span class="harita-geofence-item-radius">' + Math.round(g.radius || 150) + ' m</span>' +
+          '<button type="button" class="icon-btn" data-action="delete-geofence" data-id="' + g.id + '" title="Bölgeyi sil" aria-label="Bölgeyi sil">🗑️</button>' +
+        '</div>';
+      });
+      html += '</div>';
+    }
+
+    // ---- Filtre / arama ----
+    html += '<div class="harita-filter-bar">';
+    html += buildEntitySearchBoxHTML("harita-filter-search", "clear-harita-filter-search", state.haritaFilter.search, "🔎 Şoför ara...", "Şoförlerde ara");
+    var statusOptions = [
+      ["all", "Tümü"], ["moving", "🚗 Hareket Halinde"], ["stopped", "🛑 Duruyor"], ["offline", "⚪ Çevrimdışı"]
+    ];
+    html += '<div class="harita-status-filter">';
+    statusOptions.forEach(function (opt) {
+      html += '<button type="button" class="harita-status-filter-btn' + (state.haritaFilter.status === opt[0] ? " active" : "") + '" data-action="set-harita-status-filter" data-status="' + opt[0] + '">' + opt[1] + '</button>';
+    });
+    html += '</div>';
+    html += '</div>';
+
+    var filteredDrivers = filterHaritaDrivers(driversWithShare);
     html += '<ul class="err-list" style="max-height:none; margin-top:12px">';
-    driversWithShare.forEach(function (d) {
+    if (!filteredDrivers.length) {
+      html += '<p class="mon-empty">Aramanla veya filtrenle eşleşen şoför bulunamadı.</p>';
+    }
+    filteredDrivers.forEach(function (d) {
       var loc = state.driverLocations ? state.driverLocations[d.shareId] : null;
       var active = isDriverLocationLive(loc);
       var following = state.haritaFollowShareId === d.shareId;
@@ -2365,6 +2604,22 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       '</li>';
     });
     html += '</ul>';
+
+    // ---- Bölge giriş/çıkış geçmişi ----
+    if ((state.geofenceEvents || []).length) {
+      html += '<div class="harita-geofence-log">';
+      html += '<h3 class="harita-geofence-log-title">🕓 Bölge Giriş/Çıkış Geçmişi</h3>';
+      html += '<ul class="err-list" style="max-height:260px">';
+      (state.geofenceEvents || []).slice(0, 30).forEach(function (ev) {
+        html += '<li class="err-item" style="padding:8px 12px">' +
+          '<div class="err-item-meta">' + (ev.type === "enter" ? "📍" : "🚪") + ' <strong>' + esc(ev.driverName) + '</strong> — ' + esc(ev.geofenceName) +
+            (ev.type === "enter" ? "'a vardı" : "'dan ayrıldı") + ' · ' + esc(timeAgoTR(ev.at)) +
+          '</div>' +
+        '</li>';
+      });
+      html += '</ul></div>';
+    }
+
     html += '</section>';
     return html;
   }
@@ -2382,13 +2637,65 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       haritaMap = null;
       haritaMarkers = {};
     }
-    if (haritaMap) { setTimeout(function () { haritaMap.invalidateSize(); }, 50); updateHaritaMarkers(); return; }
+    if (haritaMap) { setTimeout(function () { haritaMap.invalidateSize(); }, 50); updateHaritaMarkers(); updateHaritaGeofences(); return; }
     haritaMap = L.map(box).setView([39.0, 35.0], 6); // Türkiye geneli varsayılan görünüm
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: '© OpenStreetMap katkıda bulunanlar',
       maxZoom: 19
     }).addTo(haritaMap);
+    haritaGeofenceLayers = {};
+    haritaMapClickBound = false;
     updateHaritaMarkers();
+    updateHaritaGeofences();
+    bindHaritaMapClick();
+  }
+
+  // "📌 Bölge Ekle" moduyken haritaya tıklanan noktayı yeni bölgenin merkezi
+  // olarak alıp isim/yarıçap sormak için bir modal açar.
+  function bindHaritaMapClick() {
+    if (!haritaMap || haritaMapClickBound) return;
+    haritaMapClickBound = true;
+    haritaMap.on("click", function (e) {
+      if (!state.geofenceAddMode) return;
+      state.geofenceAddMode = false;
+      state.modal = { type: "addGeofence", lat: e.latlng.lat, lng: e.latlng.lng };
+      render();
+    });
+  }
+
+  // Bölge çemberlerini (ve etiketlerini) haritaya çizer; artık var olmayan
+  // bölgelerin katmanlarını temizler.
+  function updateHaritaGeofences() {
+    if (!haritaMap || typeof L === "undefined") return;
+    var geofences = state.geofences || [];
+    var seen = {};
+    geofences.forEach(function (g) {
+      seen[g.id] = true;
+      if (haritaGeofenceLayers[g.id]) {
+        haritaGeofenceLayers[g.id].circle.setLatLng([g.lat, g.lng]).setRadius(g.radius || 150);
+        haritaGeofenceLayers[g.id].marker.setLatLng([g.lat, g.lng]);
+        return;
+      }
+      var circle = L.circle([g.lat, g.lng], {
+        radius: g.radius || 150, color: "#F2A93B", weight: 2, fillColor: "#F2A93B", fillOpacity: 0.12
+      }).addTo(haritaMap);
+      var marker = L.marker([g.lat, g.lng], {
+        icon: L.divIcon({
+          className: "harita-geofence-marker",
+          html: '<div class="harita-geofence-pin">📍 ' + esc(g.name) + '</div>',
+          iconSize: [10, 10],
+          iconAnchor: [5, 5]
+        })
+      }).addTo(haritaMap);
+      haritaGeofenceLayers[g.id] = { circle: circle, marker: marker };
+    });
+    Object.keys(haritaGeofenceLayers).forEach(function (gid) {
+      if (!seen[gid]) {
+        haritaMap.removeLayer(haritaGeofenceLayers[gid].circle);
+        haritaMap.removeLayer(haritaGeofenceLayers[gid].marker);
+        delete haritaGeofenceLayers[gid];
+      }
+    });
   }
 
   function updateHaritaMarkers() {
@@ -4851,6 +5158,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       state.drivers = [];
       state.driverExpenses = [];
       state.ubakNotebooks = [];
+      state.geofences = [];
+      state.geofenceEvents = [];
       state.license = null;
       state.householdId = null;
       state.householdInviteToken = null;
@@ -5024,6 +5333,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var driverSearchEl = document.getElementById("driver-filter-search");
     if (driverSearchEl) driverSearchEl.addEventListener("input", debounce(function () {
       state.driverFilterText = driverSearchEl.value;
+      render();
+    }, 200));
+    var haritaSearchEl = document.getElementById("harita-filter-search");
+    if (haritaSearchEl) haritaSearchEl.addEventListener("input", debounce(function () {
+      state.haritaFilter.search = haritaSearchEl.value;
       render();
     }, 200));
   }
@@ -7096,6 +7410,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       backdrop.appendChild(buildDriverShareModal());
     } else if (state.modal.type === "addUbak" || state.modal.type === "editUbak") {
       backdrop.appendChild(buildUbakModal());
+    } else if (state.modal.type === "addGeofence") {
+      backdrop.appendChild(buildGeofenceModal());
     } else if (state.modal.type === "driverRouteReport") {
       backdrop.appendChild(buildDriverRouteReportModal());
     }
@@ -10891,6 +11207,35 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           state.haritaFollowShareId = (state.haritaFollowShareId === followDriver.shareId) ? null : followDriver.shareId;
           render();
           if (state.haritaFollowShareId) focusHaritaDriver(followDriverId);
+        }
+        else if (action === "toggle-geofence-add-mode") {
+          state.geofenceAddMode = !state.geofenceAddMode;
+          render();
+          if (state.geofenceAddMode) toast("Haritada bir noktaya dokun.");
+        }
+        else if (action === "delete-geofence") {
+          var delGeofenceId = el.getAttribute("data-id");
+          var delGeofence = (state.geofences || []).find(function (g) { return g.id === delGeofenceId; });
+          showConfirm({
+            title: "Bölgeyi Sil",
+            message: delGeofence ? ('"' + delGeofence.name + '" bölgesi silinsin mi?') : "Bu bölge silinsin mi?",
+            confirmLabel: "Sil",
+            danger: true,
+            onConfirm: function () {
+              deleteGeofence(delGeofenceId);
+              render();
+              setTimeout(function () { updateHaritaGeofences(); }, 0);
+              toast("Bölge silindi.");
+            }
+          });
+        }
+        else if (action === "set-harita-status-filter") {
+          state.haritaFilter.status = el.getAttribute("data-status");
+          render();
+        }
+        else if (action === "clear-harita-filter-search") {
+          state.haritaFilter.search = "";
+          render();
         }
         else if (action === "open-driver-route-report") {
           var reportDriverId = el.getAttribute("data-id");
