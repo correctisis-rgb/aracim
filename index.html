@@ -1079,8 +1079,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.7.6"; // Dynamic Version Tracking
-  var APP_UPDATED = "13 Ağustos 2026";
+  var APP_VERSION = "v2.7.7"; // Dynamic Version Tracking
+  var APP_UPDATED = "12 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -2538,6 +2538,77 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       });
   }
 
+  var TR_MONTHS_SHORT = ["Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"];
+  // Bir Firestore timestamp'ini (ya da Date/ISO string'i) TARAYICININ yerel
+  // saatine göre "YYYY-MM-DD" gününe çevirir. fetchDriverTripsForDate'in gün
+  // sınırlarını kurma şekliyle (dateStr + "T00:00:00", yani yerel saat)
+  // TUTARLI olması için UTC değil, yerel bileşenler (getFullYear/getMonth/
+  // getDate) kullanılır — aksi halde gece yarısına yakın kaydedilen bir
+  // yolculuk, seçilen günün "içindeymiş" görünüp de aslında bir gün
+  // kaymış (ya da tam tersi) olabilirdi.
+  function localDateStrFromTimestamp(dateLike) {
+    var ms = driverLocationTimestampMs(dateLike);
+    if (!ms) return null;
+    var d = new Date(ms);
+    return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+  }
+  function formatShortDateTR(dateStr) {
+    var parts = (dateStr || "").split("-");
+    if (parts.length !== 3) return dateStr;
+    var day = parseInt(parts[2], 10);
+    var monthIdx = parseInt(parts[1], 10) - 1;
+    var monthName = TR_MONTHS_SHORT[monthIdx] || "";
+    return day + " " + monthName + (dateStr === todayStr() ? " (bugün)" : "");
+  }
+
+  // "Geçmiş Rota" penceresi açıldığında, son DRIVER_TRIP_RETENTION_DAYS
+  // gün içinde HANGİ günlerde gerçekten hareket kaydı olduğunu bulur —
+  // böylece kullanıcı boş günleri teker teker denemek yerine doğrudan veri
+  // olan bir güne tıklayabilir. Sonuç en yeni gün başta olacak şekilde
+  // sıralanır ve her gün için o günün toplam km'si de döner.
+  function fetchDriverAvailableDates(shareId) {
+    var cutoff = new Date(daysAgoStr(DRIVER_TRIP_RETENTION_DAYS - 1) + "T00:00:00");
+    return db.collection("driverLocations").doc(shareId).collection("trips")
+      .where("startedAt", ">=", cutoff)
+      .orderBy("startedAt", "desc")
+      .get()
+      .then(function (snap) {
+        var byDate = {}; // "YYYY-MM-DD" -> { date, tripCount, distanceKm }
+        snap.forEach(function (doc) {
+          var t = doc.data();
+          var path = t.path || [];
+          var isPhantom = path.length < 2 || (typeof t.distanceKm === "number" && t.distanceKm < 0.05);
+          if (isPhantom) return;
+          var ds = localDateStrFromTimestamp(t.startedAt);
+          if (!ds) return;
+          if (!byDate[ds]) byDate[ds] = { date: ds, tripCount: 0, distanceKm: 0 };
+          byDate[ds].tripCount += 1;
+          byDate[ds].distanceKm += (typeof t.distanceKm === "number" ? t.distanceKm : 0);
+        });
+        var list = Object.keys(byDate).map(function (k) { return byDate[k]; });
+        list.sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+        return list;
+      });
+  }
+
+  function loadDriverAvailableDates(shareId) {
+    if (!state.modal || state.modal.type !== "driverRouteReport") return;
+    state.modal.datesLoading = true;
+    fetchDriverAvailableDates(shareId)
+      .then(function (list) {
+        if (!state.modal || state.modal.type !== "driverRouteReport" || state.modal.shareId !== shareId) return;
+        state.modal.availableDates = list;
+        state.modal.datesLoading = false;
+        render();
+      })
+      .catch(function (err) {
+        console.warn("veri olan günler alınamadı", err);
+        if (!state.modal || state.modal.type !== "driverRouteReport") return;
+        state.modal.datesLoading = false;
+        render();
+      });
+  }
+
   function loadDriverRouteReport(shareId, dateStr) {
     if (!state.modal || state.modal.type !== "driverRouteReport") return;
     state.modal.loading = true;
@@ -2731,6 +2802,24 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var html = '<div class="modal-head"><h3>📊 ' + esc(driverName) + ' — Geçmiş Rota</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>';
     html += '<label class="field"><span>Tarih</span><input type="date" id="route-report-date" value="' + esc(m.date) + '" min="' + minDateStr + '" max="' + maxDateStr + '"></label>';
     html += '<p class="field-hint" style="margin-top:-4px">Sadece son ' + DRIVER_TRIP_RETENTION_DAYS + ' günlük veri tutulur, öncesi otomatik silinir.</p>';
+
+    // Tek tek gün denemek yerine, hangi günlerde gerçekten hareket kaydı
+    // olduğunu doğrudan gösteriyoruz (bkz. fetchDriverAvailableDates).
+    if (m.datesLoading) {
+      html += '<p class="field-hint" style="margin-top:-4px">Veri olan günler aranıyor…</p>';
+    } else if (m.availableDates && m.availableDates.length) {
+      html += '<div class="field-hint" style="margin-top:-4px; margin-bottom:6px">Veri olan günler (tıkla, seçilsin):</div>';
+      html += '<div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px">';
+      m.availableDates.forEach(function (dd) {
+        var isSel = dd.date === m.date;
+        html += '<button type="button" class="btn-secondary" style="padding:5px 9px; font-size:12px' + (isSel ? '; background:var(--amber); color:#1a1a1a; border-color:var(--amber)' : '') + '" data-action="select-report-date" data-date="' + dd.date + '">' +
+          esc(formatShortDateTR(dd.date)) + ' · ' + (Math.round(dd.distanceKm * 10) / 10) + ' km' +
+        '</button>';
+      });
+      html += '</div>';
+    } else if (m.availableDates) {
+      html += '<p class="field-hint" style="margin-top:-4px">Son ' + DRIVER_TRIP_RETENTION_DAYS + ' günde bu şoför için kayıtlı hareket verisi bulunamadı.</p>';
+    }
 
     if (m.loading) {
       html += '<p class="field-hint">Yükleniyor…</p>';
@@ -10807,10 +10896,20 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           var reportDriverId = el.getAttribute("data-id");
           var reportDriver = (state.drivers || []).find(function (x) { return x.id === reportDriverId; });
           if (!reportDriver || !reportDriver.shareId) { toast("Bu şoför için konum paylaşımı hiç kurulmamış."); return; }
-          state.modal = { type: "driverRouteReport", driverId: reportDriverId, shareId: reportDriver.shareId, date: todayStr(), trips: null, loading: true, error: null };
+          state.modal = { type: "driverRouteReport", driverId: reportDriverId, shareId: reportDriver.shareId, date: todayStr(), trips: null, loading: true, error: null, availableDates: null, datesLoading: true };
           render();
           purgeOldDriverTrips(reportDriver.shareId);
           loadDriverRouteReport(reportDriver.shareId, state.modal.date);
+          loadDriverAvailableDates(reportDriver.shareId);
+        }
+        else if (action === "select-report-date") {
+          if (!state.modal || state.modal.type !== "driverRouteReport") return;
+          var pickedDate = el.getAttribute("data-date");
+          if (!pickedDate || pickedDate === state.modal.date) return;
+          state.modal.date = pickedDate;
+          state.modal.trips = null;
+          render();
+          loadDriverRouteReport(state.modal.shareId, pickedDate);
         }
         else if (action === "dismiss-onboarding") { state.onboardingDismissed = true; setLocalData("onboarding_dismissed", true); render(); }
         else if (action === "open-add-car") { state.modal = { type: "addCar" }; render(); }
