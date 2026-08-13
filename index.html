@@ -1118,8 +1118,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.8.2"; // Dynamic Version Tracking
-  var APP_UPDATED = "12 Ağustos 2026";
+  var APP_VERSION = "v2.8.3"; // Dynamic Version Tracking
+  var APP_UPDATED = "13 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -2639,9 +2639,35 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // Sonuç henüz gelmediyse (ilk sorgu) eski etiket varsa o gösterilir, yoksa
   // "Konum çözülüyor…" döner; sonuç geldiğinde (Şoförler sekmesi hâlâ
   // ekrandaysa) sayfa yeniden çizilir.
+  //
+  // GLOBAL HIZ SINIRLAMA: Yukarıdaki "kişi başı" (per-driver) sınırlama tek
+  // başına yeterli değil — Şoförler sekmesi ilk açıldığında (ya da tam bir
+  // render tetiklendiğinde), o an cache'i bayat olan HER şoför için ayrı
+  // ayrı ve NEREDEYSE EŞ ZAMANLI bir fetch() isteği atılıyordu. Filoda 10+
+  // şoför varsa bu, Nominatim'in "saniyede en fazla 1 istek" kullanım
+  // politikasını (https://operations.osmfoundation.org/policies/nominatim/)
+  // açıkça ihlal edip IP bazlı geçici engellenmeye yol açabilirdi. Bunun
+  // yerine tüm şoförler için TEK bir global kuyruk kullanıyoruz; kuyruktaki
+  // istekler birbirini en az NOMINATIM_MIN_INTERVAL_MS aralıkla, sırayla
+  // işler.
   var reverseGeoCache = {}; // shareId -> { lat, lng, label, ts, pending }
   var REVERSE_GEO_MIN_MOVE_KM = 1.5;
   var REVERSE_GEO_MIN_INTERVAL_MS = 10 * 60 * 1000;
+  var NOMINATIM_MIN_INTERVAL_MS = 1100; // saniyede 1 istek politikasına küçük bir pay bırakıyoruz
+  var nominatimQueue = [];
+  var nominatimQueueTimer = null;
+  var nominatimLastRequestAt = 0;
+  function processNominatimQueue() {
+    if (nominatimQueueTimer || !nominatimQueue.length) return;
+    var wait = Math.max(0, NOMINATIM_MIN_INTERVAL_MS - (Date.now() - nominatimLastRequestAt));
+    nominatimQueueTimer = setTimeout(function () {
+      nominatimQueueTimer = null;
+      var job = nominatimQueue.shift();
+      nominatimLastRequestAt = Date.now();
+      if (job) job();
+      if (nominatimQueue.length) processNominatimQueue();
+    }, wait);
+  }
   function reverseGeocodeLabelFor(shareId, loc) {
     var cache = reverseGeoCache[shareId];
     var now = Date.now();
@@ -2651,20 +2677,23 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if (fresh || cache.pending) return cache.label;
     }
     reverseGeoCache[shareId] = { lat: loc.lat, lng: loc.lng, label: (cache && cache.label) || null, ts: now, pending: true };
-    fetch("https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=" + loc.lat + "&lon=" + loc.lng + "&zoom=10&accept-language=tr")
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (data) {
-        var addr = (data && data.address) || {};
-        var ilce = addr.county || addr.town || addr.district || addr.city_district || addr.municipality || "";
-        var il = addr.province || addr.state || addr.city || "";
-        var label = [ilce, il].filter(Boolean).join(" / ");
-        if (!label && data && data.display_name) label = data.display_name.split(",").slice(0, 2).join(",").trim();
-        reverseGeoCache[shareId] = { lat: loc.lat, lng: loc.lng, label: label || null, ts: Date.now(), pending: false };
-        if (state.mainSection === "drivers") render();
-      })
-      .catch(function () {
-        reverseGeoCache[shareId] = { lat: loc.lat, lng: loc.lng, label: (cache && cache.label) || null, ts: Date.now(), pending: false };
-      });
+    nominatimQueue.push(function () {
+      fetch("https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=" + loc.lat + "&lon=" + loc.lng + "&zoom=10&accept-language=tr")
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (data) {
+          var addr = (data && data.address) || {};
+          var ilce = addr.county || addr.town || addr.district || addr.city_district || addr.municipality || "";
+          var il = addr.province || addr.state || addr.city || "";
+          var label = [ilce, il].filter(Boolean).join(" / ");
+          if (!label && data && data.display_name) label = data.display_name.split(",").slice(0, 2).join(",").trim();
+          reverseGeoCache[shareId] = { lat: loc.lat, lng: loc.lng, label: label || null, ts: Date.now(), pending: false };
+          if (state.mainSection === "drivers") render();
+        })
+        .catch(function () {
+          reverseGeoCache[shareId] = { lat: loc.lat, lng: loc.lng, label: (cache && cache.label) || null, ts: Date.now(), pending: false };
+        });
+    });
+    processNominatimQueue();
     return (cache && cache.label) || "Konum çözülüyor…";
   }
 
