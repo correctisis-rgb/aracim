@@ -210,7 +210,7 @@
   .harita-geofence-item-radius { color: var(--muted); font-size: 12px; }
   .harita-geofence-marker { display: flex; flex-direction: column; align-items: center; pointer-events: none; }
   .harita-geofence-pin {
-    background: #ff1300; color: #000000; font-size: 10.5px; font-weight: 700;
+    background: #1B1F24; color: #fff; font-size: 10.5px; font-weight: 700;
     padding: 2px 7px; border-radius: 6px; white-space: nowrap; box-shadow: 0 1px 4px rgba(0,0,0,0.35);
   }
 
@@ -1118,7 +1118,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.7.9"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.8.0"; // Dynamic Version Tracking
   var APP_UPDATED = "12 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -2377,9 +2377,63 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     // Log çok büyümesin diye son 300 kayıtla sınırlıyoruz.
     state.geofenceEvents = [ev].concat(state.geofenceEvents || []).slice(0, 300);
     persistGeofenceEvents();
-    toast((type === "enter" ? "📍 " : "🚪 ") + driver.name + " → " + geofence.name +
-      (type === "enter" ? "'a vardı" : "'dan ayrıldı"));
+    // Olay geçmişi (yukarıdaki satır) ayardan BAĞIMSIZ her zaman kaydedilir;
+    // "beni rahatsız et mi etme mi" sorusunu sadece toast + OS bildirimi
+    // için soruyoruz.
+    if (isGeofenceNotifsEnabled()) {
+      toast((type === "enter" ? "📍 " : "🚪 ") + driver.name + " → " + geofence.name +
+        (type === "enter" ? "'a vardı" : "'dan ayrıldı"));
+      showGeofenceOsNotification(driver, geofence, type);
+    }
     if (state.mainSection === "harita") render();
+  }
+
+  // ---------- Bölge (geofence) giriş/çıkış bildirim ayarı ----------
+  // Bu ayar, bir şoför bir bölgeye girip çıktığında uygulama içi toast VE
+  // tarayıcı/işletim sistemi düzeyinde bir bildirim (OS Notification)
+  // gösterilip gösterilmeyeceğini kontrol eder. Olay geçmişi (yukarıdaki
+  // logGeofenceEvent > state.geofenceEvents, Şoförler sekmesindeki "🕓 .."
+  // satırının kaynağı) bu ayardan bağımsız olarak HER ZAMAN kaydedilir.
+  //
+  // ÖNEMLİ SINIRLAMA: Bu bildirim, hanenin tarayıcı sekmesi açık (ön planda
+  // ya da arka planda) olduğu sürece çalışır — çünkü bunu tetikleyen şey bu
+  // sayfadaki canlı Firestore dinleyicisidir, sunucu tarafında (Cloud
+  // Function gibi) ayrı bir tetikleyici yoktur. Sekme tamamen kapatılırsa
+  // veya cihaz uzun süre derin uykuya geçerse bildirim gelmeyebilir; tam
+  // "uygulama kapalıyken de bildirim gelsin" için sunucu tarafında ek bir
+  // altyapı (ör. Firestore tetiklemeli bir Cloud Function) gerekir.
+  function isGeofenceNotifsEnabled() {
+    return getLocalData("geofenceNotifsEnabled", true) !== false;
+  }
+  function toggleGeofenceNotifs() {
+    var turningOn = !isGeofenceNotifsEnabled();
+    if (turningOn && state.notifStatus !== "granted") {
+      // İzin henüz verilmemiş: genel bildirim akışını (izin isteme + FCM
+      // token kaydı) tetikleyelim ki kullanıcı tek dokunuşla hem tarayıcı
+      // iznini versin hem de bölge bildirimlerini açmış olsun.
+      enableNotifications();
+    }
+    setLocalData("geofenceNotifsEnabled", turningOn);
+    render();
+    toast(turningOn ? "Bölge bildirimleri açıldı." : "Bölge bildirimleri kapatıldı.");
+  }
+  function showGeofenceOsNotification(driver, geofence, type) {
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    var title = type === "enter" ? ("📍 " + driver.name + " vardı") : ("🚪 " + driver.name + " ayrıldı");
+    var body = type === "enter"
+      ? (driver.name + ", " + geofence.name + " bölgesine girdi.")
+      : (driver.name + ", " + geofence.name + " bölgesinden çıktı.");
+    var opts = { body: body, icon: "/aracim/icon-192.png", tag: "geofence-" + geofence.id + "-" + driver.id };
+    try {
+      if (swRegPromise && typeof swRegPromise.then === "function") {
+        swRegPromise.then(function (reg) {
+          if (reg && reg.showNotification) reg.showNotification(title, opts);
+          else new Notification(title, opts);
+        }).catch(function () { try { new Notification(title, opts); } catch (e2) {} });
+      } else {
+        new Notification(title, opts);
+      }
+    } catch (e) { /* bildirim gösterilemezse sessizce yut */ }
   }
 
   // Bir şoförden yeni bir konum pingi geldiğinde tüm bölgelere göre
@@ -2665,6 +2719,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     html += '<div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap">' +
       '<button type="button" class="btn-secondary' + (state.geofenceAddMode ? " harita-geofence-add-active" : "") + '" style="padding:8px 12px; font-size:12.5px" data-action="toggle-geofence-add-mode">' +
         (state.geofenceAddMode ? "✕ Bölge Eklemeyi İptal Et" : "📌 Bölge Ekle") +
+      '</button>' +
+      '<button type="button" class="btn-secondary" style="padding:8px 12px; font-size:12.5px" data-action="toggle-geofence-notifs" title="Bir şoför bir bölgeye girip çıktığında bildirim al">' +
+        (isGeofenceNotifsEnabled() ? "🔔 Bölge Bildirimleri Açık" : "🔕 Bölge Bildirimleri Kapalı") +
       '</button>' +
     '</div>';
     if (state.geofenceAddMode) {
@@ -11347,6 +11404,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           state.geofenceRepositionId = null;
           render();
           if (state.geofenceAddMode) toast("Haritada bir noktaya dokun.");
+        }
+        else if (action === "toggle-geofence-notifs") {
+          toggleGeofenceNotifs();
         }
         else if (action === "edit-geofence") {
           state.modal = { type: "editGeofence", geofenceId: el.getAttribute("data-id") };
