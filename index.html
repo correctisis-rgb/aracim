@@ -185,6 +185,8 @@
     font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 6px;
     white-space: nowrap; box-shadow: 0 1px 4px rgba(0,0,0,0.35);
   }
+  .harita-driver-row-following { border-left: 3px solid var(--amber); padding-left: 9px; }
+  .harita-today-summary { opacity: 0.85; font-size: 12px; }
 
   .car-tabs, .view-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
   .view-tabs { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 4px; width: fit-content; gap: 4px; }
@@ -1077,8 +1079,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.7.5"; // Dynamic Version Tracking
-  var APP_UPDATED = "12 Ağustos 2026";
+  var APP_VERSION = "v2.7.6"; // Dynamic Version Tracking
+  var APP_UPDATED = "13 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -1486,6 +1488,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     driverExpenseFilters: { search: "", driverId: "all", dateFrom: "", dateTo: "" },
     driverExpenseVisibleCount: 20,
     driverLocations: {}, // { [shareId]: { lat, lng, updatedAt, active, driverId, ... } }
+    // Harita ekranındaki şoför listesinde "Bugün: 87 km, 3 sa 20 dk" özetini
+    // göstermek için: { [shareId]: { loading, distanceKm, movingMin, error, fetchedAt } }
+    // bkz. fetchHaritaTodaySummaries().
+    haritaTodaySummaries: {},
+    // Harita ekranında "🎯 Takip Et" ile seçilen şoförün shareId'si — seçiliyken
+    // harita, tüm şoförleri kapsayacak şekilde değil, SADECE bu şoförü merkezde
+    // tutacak şekilde otomatik kayar (bkz. updateHaritaMarkers).
+    haritaFollowShareId: null,
     mapSelectedDriverId: null,
     calendarVisibleCount: 20,
     summaryVisibleCount: 20,
@@ -2340,12 +2350,18 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     driversWithShare.forEach(function (d) {
       var loc = state.driverLocations ? state.driverLocations[d.shareId] : null;
       var active = isDriverLocationLive(loc);
-      html += '<li class="err-item harita-driver-row" data-id="' + d.id + '">' +
+      var following = state.haritaFollowShareId === d.shareId;
+      var todayTxt = haritaTodaySummaryText(d.shareId);
+      html += '<li class="err-item harita-driver-row' + (following ? ' harita-driver-row-following' : '') + '" data-id="' + d.id + '">' +
         '<div class="err-item-head" data-action="focus-harita-driver" data-id="' + d.id + '" style="cursor:pointer">' +
           '<span class="driver-item-name">' + (active ? '🟢 ' : '⚪ ') + esc(d.name) + '</span>' +
         '</div>' +
         '<div class="err-item-meta" data-action="focus-harita-driver" data-id="' + d.id + '" style="cursor:pointer">' + haritaDriverMetaText(loc, active) + '</div>' +
-        '<button type="button" class="btn-secondary" style="margin-top:8px; padding:6px 10px; font-size:12.5px" data-action="open-driver-route-report" data-id="' + d.id + '">📊 Geçmiş Rota</button>' +
+        (todayTxt ? '<div class="err-item-meta harita-today-summary">' + esc(todayTxt) + '</div>' : '') +
+        '<div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap">' +
+          '<button type="button" class="btn-secondary" style="padding:6px 10px; font-size:12.5px' + (following ? '; background:var(--amber); color:#1a1a1a; border-color:var(--amber)' : '') + '" data-action="toggle-follow-driver" data-id="' + d.id + '">' + (following ? '🎯 Takip Ediliyor' : '🎯 Takip Et') + '</button>' +
+          '<button type="button" class="btn-secondary" style="padding:6px 10px; font-size:12.5px" data-action="open-driver-route-report" data-id="' + d.id + '">📊 Geçmiş Rota</button>' +
+        '</div>' +
       '</li>';
     });
     html += '</ul>';
@@ -2407,7 +2423,23 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     Object.keys(haritaMarkers).forEach(function (shareId) {
       if (!seen[shareId]) { haritaMap.removeLayer(haritaMarkers[shareId]); delete haritaMarkers[shareId]; }
     });
-    if (bounds.length === 1) {
+
+    // Takip edilen şoför artık haritada yoksa (paylaşımı durdurdu, hane
+    // görünürlüğünden çıktı vb.) takip modunu sessizce kapat — aksi halde
+    // harita, artık gelmeyen bir konumu beklerken kilitli kalırdı.
+    if (state.haritaFollowShareId && !seen[state.haritaFollowShareId]) {
+      state.haritaFollowShareId = null;
+    }
+
+    if (state.haritaFollowShareId && seen[state.haritaFollowShareId]) {
+      // Takip modu: haritayı SADECE bu şoförün üzerinde tut. Kullanıcı harita
+      // üzerinde yakınlaştırma/uzaklaştırma yapmış olabilir; bu tercihi
+      // bozmamak için mevcut zoom seviyesini koruyoruz (çok uzaksa makul bir
+      // seviyeye getiriyoruz), sadece merkezi güncelliyoruz.
+      var followLoc = state.driverLocations[state.haritaFollowShareId];
+      var curZoom = haritaMap.getZoom();
+      haritaMap.setView([followLoc.lat, followLoc.lng], curZoom < 12 ? 15 : curZoom, { animate: true });
+    } else if (bounds.length === 1) {
       haritaMap.setView(bounds[0], 14);
     } else if (bounds.length > 1) {
       haritaMap.fitBounds(bounds, { padding: [30, 30], maxZoom: 15 });
@@ -2477,21 +2509,19 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       .catch(function (err) { console.warn("eski rota kayıtları temizlenemedi", err); });
   }
 
-  function loadDriverRouteReport(shareId, dateStr) {
-    if (!state.modal || state.modal.type !== "driverRouteReport") return;
-    state.modal.loading = true;
-    state.modal.error = null;
+  // Belirli bir shareId + gün (dateStr, "YYYY-MM-DD") için trip kayıtlarını
+  // çekip hayalet (gerçek hareket içermeyen) kayıtları filtreleyen ortak
+  // yardımcı. Hem "Geçmiş Rota" raporu (loadDriverRouteReport) hem de harita
+  // listesindeki "Bugün: X km" özeti (fetchHaritaTodaySummaries) bunu kullanır.
+  function fetchDriverTripsForDate(shareId, dateStr) {
     var dayStart = new Date(dateStr + "T00:00:00");
     var dayEnd = new Date(dateStr + "T23:59:59.999");
-    db.collection("driverLocations").doc(shareId).collection("trips")
+    return db.collection("driverLocations").doc(shareId).collection("trips")
       .where("startedAt", ">=", dayStart)
       .where("startedAt", "<=", dayEnd)
       .orderBy("startedAt", "asc")
       .get()
       .then(function (snap) {
-        // Kullanıcı bu arada pencereyi kapatmış ya da başka bir tarih/şoför
-        // seçmiş olabilir — eskimiş bir yanıtla ekranı güncellemeyelim.
-        if (!state.modal || state.modal.type !== "driverRouteReport" || state.modal.shareId !== shareId || state.modal.date !== dateStr) return;
         var trips = [];
         snap.forEach(function (doc) {
           var t = doc.data();
@@ -2504,6 +2534,19 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           if (isPhantom) return;
           trips.push(t);
         });
+        return trips;
+      });
+  }
+
+  function loadDriverRouteReport(shareId, dateStr) {
+    if (!state.modal || state.modal.type !== "driverRouteReport") return;
+    state.modal.loading = true;
+    state.modal.error = null;
+    fetchDriverTripsForDate(shareId, dateStr)
+      .then(function (trips) {
+        // Kullanıcı bu arada pencereyi kapatmış ya da başka bir tarih/şoför
+        // seçmiş olabilir — eskimiş bir yanıtla ekranı güncellemeyelim.
+        if (!state.modal || state.modal.type !== "driverRouteReport" || state.modal.shareId !== shareId || state.modal.date !== dateStr) return;
         state.modal.trips = trips;
         state.modal.loading = false;
         render();
@@ -2515,6 +2558,52 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         state.modal.error = "Veriler yüklenemedi. İnternet bağlantını kontrol edip tekrar dene.";
         render();
       });
+  }
+
+  // ---------- Harita listesindeki "Bugün: X km, Y sa Z dk" özeti ----------
+  // Rota raporundaki günlük toplamla AYNI hesaplamayı (computeRouteReportSummary)
+  // kullanır, ama modal açmadan, harita ekranına girildiğinde tüm paylaşımı
+  // aktif şoförler için otomatik çalışır. Sonuçlar state.haritaTodaySummaries
+  // içinde shareId'ye göre önbelleklenir; bkz. init()'teki periyodik tazeleme.
+  function fetchHaritaTodaySummaries() {
+    var driversWithShare = (visibleDriversForMe() || []).filter(function (d) { return d.shareId && d.employmentStatus !== "terminated"; });
+    if (!driversWithShare.length) return;
+    var todayDate = todayStr();
+    driversWithShare.forEach(function (d) {
+      var shareId = d.shareId;
+      var existing = state.haritaTodaySummaries[shareId];
+      if (existing && existing.loading) return; // zaten yükleniyor, tekrar isteme
+      state.haritaTodaySummaries[shareId] = Object.assign({}, existing, { loading: true });
+      fetchDriverTripsForDate(shareId, todayDate)
+        .then(function (trips) {
+          var summary = computeRouteReportSummary(trips);
+          state.haritaTodaySummaries[shareId] = {
+            loading: false,
+            distanceKm: summary.totalDistanceKm,
+            movingMin: summary.totalMovingMin,
+            fetchedAt: Date.now()
+          };
+          // Burada bilerek tam render() kullanıyoruz (refreshHaritaLiveUI
+          // DEĞİL): özet metni ilk kez geldiğinde satıra yeni bir DOM
+          // elemanı ekleniyor, hafif güncelleyici sadece VAR OLAN elemanların
+          // metnini değiştirebiliyor. Bu, canlı konum pingleri gibi saniyede
+          // birkaç kez değil, nadiren (bölüme girişte + birkaç dakikada bir)
+          // tetiklendiği için tam render'ın maliyeti burada sorun değil.
+          if (state.mainSection === "harita") render();
+        })
+        .catch(function (err) {
+          console.warn("günlük özet alınamadı", shareId, err);
+          state.haritaTodaySummaries[shareId] = { loading: false, error: true };
+        });
+    });
+  }
+
+  function haritaTodaySummaryText(shareId) {
+    var s = state.haritaTodaySummaries ? state.haritaTodaySummaries[shareId] : null;
+    if (!s || s.loading) return "";
+    if (s.error) return "";
+    if (!s.distanceKm && !s.movingMin) return "Bugün henüz hareket yok";
+    return "📅 Bugün: " + (Math.round(s.distanceKm * 10) / 10) + " km, " + formatMinutesTR(s.movingMin);
   }
 
   function computeRouteReportSummary(trips) {
@@ -4719,6 +4808,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         refreshHaritaLiveUI();
       }
     }, 20 * 1000);
+    // "Bugün: X km" özetini harita ekranındayken belli aralıklarla tazele
+    // (her yolculuk noktası yazıldığında değil — bu Firestore okuma
+    // maliyetini gereksiz artırırdı). fetchHaritaTodaySummaries kendi
+    // içinde zaten "loading" olan bir isteği tekrar başlatmıyor.
+    setInterval(function () {
+      if (state.currentUser && state.mainSection === "harita") fetchHaritaTodaySummaries();
+    }, 2 * 60 * 1000);
     window.addEventListener("online", function () { 
       state.online = true; 
       syncOfflineData();
@@ -10671,7 +10767,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           state.mainSection = el.getAttribute("data-section");
           state.accountMenuOpen = false;
           render();
-          if (state.mainSection === "harita") { setTimeout(initHaritaMapIfNeeded, 0); }
+          if (state.mainSection === "harita") {
+            setTimeout(initHaritaMapIfNeeded, 0);
+            fetchHaritaTodaySummaries();
+          }
         }
         else if (action === "open-driver-share") {
           state.modal = { type: "driverShare", driverId: el.getAttribute("data-id") };
@@ -10693,6 +10792,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         }
         else if (action === "focus-harita-driver") {
           focusHaritaDriver(el.getAttribute("data-id"));
+        }
+        else if (action === "toggle-follow-driver") {
+          var followDriverId = el.getAttribute("data-id");
+          var followDriver = (state.drivers || []).find(function (x) { return x.id === followDriverId; });
+          if (!followDriver || !followDriver.shareId) return;
+          // Aynı şoföre tekrar basılırsa takibi kapat, farklı bir şoföre
+          // basılırsa ona geç.
+          state.haritaFollowShareId = (state.haritaFollowShareId === followDriver.shareId) ? null : followDriver.shareId;
+          render();
+          if (state.haritaFollowShareId) focusHaritaDriver(followDriverId);
         }
         else if (action === "open-driver-route-report") {
           var reportDriverId = el.getAttribute("data-id");
