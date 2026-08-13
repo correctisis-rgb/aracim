@@ -1118,7 +1118,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.8.0"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.8.1"; // Dynamic Version Tracking
   var APP_UPDATED = "12 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -2370,6 +2370,19 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   function logGeofenceEvent(geofence, driver, type) {
+    // Aynı şoför + aynı bölge + aynı tip (enter/exit) için, çok kısa süre
+    // önce (ör. Firestore'un aynı konum pingini pending-write + sunucu
+    // onaylı olarak iki kez bildirmesi ya da bölge sınırında GPS titremesi
+    // yüzünden) zaten bir kayıt oluşturulduysa mükerrer kayıt EKLEMİYORUZ.
+    var DEDUPE_WINDOW_MS = 60 * 1000; // 60 saniye
+    var now = Date.now();
+    var lastSame = (state.geofenceEvents || []).find(function (e) {
+      return e.geofenceId === geofence.id && e.driverId === driver.id && e.type === type;
+    });
+    if (lastSame) {
+      var lastMs = new Date(lastSame.at).getTime();
+      if (!isNaN(lastMs) && (now - lastMs) < DEDUPE_WINDOW_MS) return;
+    }
     var ev = {
       id: uid(), geofenceId: geofence.id, geofenceName: geofence.name,
       driverId: driver.id, driverName: driver.name, type: type, at: new Date().toISOString()
@@ -2452,8 +2465,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     driverGeofenceInside[shareId] = driverGeofenceInside[shareId] || {};
     var insideMap = driverGeofenceInside[shareId];
     geofences.forEach(function (g) {
-      var isInside = distanceMeters(loc.lat, loc.lng, g.lat, g.lng) <= (g.radius || 150);
+      var radius = g.radius || 150;
+      var dist = distanceMeters(loc.lat, loc.lng, g.lat, g.lng);
       var wasInside = !!insideMap[g.id];
+      // Histerezis: sınırda GPS titremesi yüzünden "girdi/çıktı" olaylarının
+      // saniyeler içinde birbirini takip etmesini önlemek için, mevcut
+      // duruma göre farklı eşikler kullanıyoruz — dışarıdaysa yarıçapın
+      // %10 içine girmeden "girdi" saymıyoruz, içerideyse yarıçapın %10
+      // dışına çıkmadan "çıktı" saymıyoruz.
+      var margin = radius * 0.1;
+      var isInside = wasInside ? (dist <= radius + margin) : (dist <= radius - margin);
       if (isInside === wasInside) return;
       insideMap[g.id] = isInside;
       if (firstCheck) return; // ilk pingde sessizce başlangıç durumunu kaydet
@@ -2790,7 +2811,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       (state.geofenceEvents || []).slice(0, 30).forEach(function (ev) {
         html += '<li class="err-item" style="padding:8px 12px">' +
           '<div class="err-item-meta">' + (ev.type === "enter" ? "📍" : "🚪") + ' <strong>' + esc(ev.driverName) + '</strong> — ' + esc(ev.geofenceName) +
-            (ev.type === "enter" ? "'a vardı" : "'dan ayrıldı") + ' · ' + esc(timeAgoTR(ev.at)) +
+            (ev.type === "enter" ? "'a vardı" : "'dan ayrıldı") + ' · ' + esc(fmtTimeTR(ev.at)) + ' · ' + esc(timeAgoTR(ev.at)) +
           '</div>' +
         '</li>';
       });
