@@ -1118,7 +1118,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.8.1"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.8.2"; // Dynamic Version Tracking
   var APP_UPDATED = "12 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -2285,6 +2285,15 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     // elle temizlenmeyi gerektirebilir.
     db.collection("driverLocations").doc(oldShareId).set({ active: false, revoked: true }, { merge: true }).catch(function () {});
     if (state.driverLocations && state.driverLocations[oldShareId]) delete state.driverLocations[oldShareId];
+    // Bu shareId'ye ait, sadece bu sekmenin belleğinde tutulan (kalıcı
+    // olmayan) yardımcı kayıtları da temizliyoruz. Paylaşım yeniden
+    // başlatılırsa startDriverShare() zaten YENİ bir shareId üretiyor, bu
+    // yüzden bu satırlar olmasa da bir hataya yol açmazdı — ama eski
+    // shareId'lerin map'lerde sonsuza dek birikmesini (küçük bir bellek
+    // sızıntısı) önlemek için burada elden temizliyoruz.
+    delete driverGeofenceInside[oldShareId];
+    delete driverGeofenceInitialized[oldShareId];
+    delete reverseGeoCache[oldShareId];
   }
 
   var unsubscribeDriverLocations = null;
