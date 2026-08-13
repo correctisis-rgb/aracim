@@ -251,6 +251,30 @@
       maximumAge: 5000,
       timeout: 20000
     });
+
+    watchForRevoke();
+  }
+
+  // ---------- Hane tarafından uzaktan durdurma (revoked) ----------
+  // Hane, "Paylaşımı Durdur" butonuna bastığında (index.html > stopDriverShare)
+  // bu dokümana revoked:true yazar. Paylaşım devam ederken bu değişikliği
+  // canlı dinleyip yakaladığımızda, tıpkı şoförün kendi "Paylaşımı Durdur"
+  // düğmesine basmış gibi stopSharing() çağırıyoruz — bu da yolculuğu kapatıp
+  // active:false yazdıktan sonra anonim Firebase Auth hesabını siler. Böylece
+  // hane tarafından durdurulan bir paylaşımda da Firebase Console'da
+  // "(anonymous)" kullanıcı birikmez.
+  var revokeUnsub = null;
+  function watchForRevoke() {
+    if (revokeUnsub || !docRef) return;
+    revokeUnsub = docRef.onSnapshot(function (snap) {
+      if (!sharingActive) return;
+      if (snap.exists && snap.data().revoked === true) {
+        stopSharing(true);
+      }
+    }, function (err) { console.warn("revoke izleme hatası:", err); });
+  }
+  function unwatchForRevoke() {
+    if (revokeUnsub) { revokeUnsub(); revokeUnsub = null; }
   }
 
   function onPosition(pos) {
@@ -448,8 +472,10 @@
     }
   }
 
-  function stopSharing() {
+  function stopSharing(remote) {
+    if (!sharingActive) return; // zaten durdurulmuş (çift tetiklenmeyi önler)
     sharingActive = false;
+    unwatchForRevoke();
     if (watchId !== null) {
       navigator.geolocation.clearWatch(watchId);
       watchId = null;
@@ -459,7 +485,7 @@
     stopBtn.style.display = "none";
     startBtn.style.display = "block";
     startBtn.disabled = false;
-    setStatus("Paylaşım durduruluyor…", "wait");
+    setStatus(remote ? "Paylaşım hane tarafından durduruldu…" : "Paylaşım durduruluyor…", "wait");
 
     var tripDone = endCurrentTrip();
     var activeDone = docRef.set({ active: false }, { merge: true }).catch(function () {});
@@ -482,7 +508,7 @@
     Promise.all([tripDone, activeDone]).then(function () {
       return deleteAnonymousUser();
     }).catch(function () {}).then(function () {
-      setStatus("Paylaşım durduruldu.", "wait");
+      setStatus(remote ? "Paylaşım hane tarafından durduruldu." : "Paylaşım durduruldu.", remote ? "err" : "wait");
     });
   }
 
