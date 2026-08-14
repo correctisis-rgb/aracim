@@ -45,6 +45,11 @@
   }
   .bg-warning.show { display: block; }
   .bg-warning strong { color: #ffd166; }
+  .stats-box { display: none; margin-top: 10px; }
+  .stats-box.show { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .stats-item { background: #22262f; border-radius: 10px; padding: 10px 6px; }
+  .stats-value { font-size: 18px; font-weight: 700; color: #f2f2f2; }
+  .stats-label { font-size: 10.5px; color: #8b909c; margin-top: 2px; }
 </style>
 </head>
 <body>
@@ -53,6 +58,11 @@
   <h1 id="title">Konum Paylaşımı</h1>
   <p id="intro">Yükleniyor…</p>
   <div id="statusBox" class="status wait" style="display:none"></div>
+  <div id="statsBox" class="stats-box">
+    <div class="stats-item"><div class="stats-value" id="statSpeed">0</div><div class="stats-label">km/s</div></div>
+    <div class="stats-item"><div class="stats-value" id="statDistance">0</div><div class="stats-label">km (bugün)</div></div>
+    <div class="stats-item"><div class="stats-value" id="statDuration">0 dk</div><div class="stats-label">paylaşım süresi</div></div>
+  </div>
   <button id="startBtn" class="btn-start" style="display:none">Paylaşımı Başlat</button>
   <button id="stopBtn" class="btn-stop" style="display:none">Paylaşımı Durdur</button>
   <div id="bgWarning" class="bg-warning"></div>
@@ -84,6 +94,36 @@
   var startBtn = document.getElementById("startBtn");
   var stopBtn = document.getElementById("stopBtn");
   var bgWarningEl = document.getElementById("bgWarning");
+  var statsBox = document.getElementById("statsBox");
+  var statSpeedEl = document.getElementById("statSpeed");
+  var statDistanceEl = document.getElementById("statDistance");
+  var statDurationEl = document.getElementById("statDuration");
+
+  // "Bugün kaç km" — currentTripDistanceKm'den FARKLI olarak, araç her
+  // durup 90 sn sonra yeni bir trip başladığında SIFIRLANMIYOR; bu
+  // paylaşımın açık olduğu süre boyunca (durma molaları dahil) toplam
+  // kat edilen mesafeyi gösterir. Sayfa yeniden açılırsa (örn. tarayıcı
+  // sekmesi kapanıp tekrar açıldıysa) 0'dan başlar — bu bilerek böyle,
+  // "bugünün toplamı" için harita tarafındaki "📅 Bugün: X km" zaten
+  // Firestore'daki trip kayıtlarından hesaplanıyor, bu sayaç sadece şu
+  // anki paylaşım oturumu için hızlı bir görsel geri bildirim.
+  var sessionDistanceKm = 0;
+  var sessionStartMs = null;
+  var durationTimerId = null;
+
+  function formatDurationTR(ms) {
+    var totalMin = Math.floor(ms / 60000);
+    if (totalMin < 60) return totalMin + " dk";
+    var h = Math.floor(totalMin / 60), m = totalMin % 60;
+    return h + " sa " + m + " dk";
+  }
+
+  function updateStatsUI(speedKmh) {
+    statsBox.classList.add("show");
+    statSpeedEl.textContent = (typeof speedKmh === "number" ? speedKmh : 0);
+    statDistanceEl.textContent = Math.round(sessionDistanceKm * 10) / 10;
+    if (sessionStartMs) statDurationEl.textContent = formatDurationTR(Date.now() - sessionStartMs);
+  }
 
   function setStatus(text, cls) {
     statusBox.style.display = "block";
@@ -253,6 +293,11 @@
     });
 
     watchForRevoke();
+
+    sessionDistanceKm = 0;
+    sessionStartMs = Date.now();
+    if (durationTimerId) clearInterval(durationTimerId);
+    durationTimerId = setInterval(function () { if (sessionStartMs) statDurationEl.textContent = formatDurationTR(Date.now() - sessionStartMs); }, 30000);
   }
 
   // ---------- Hane tarafından uzaktan durdurma (revoked) ----------
@@ -296,6 +341,7 @@
     // açıyordu. Düzeltme: GPS hız değeri yoksa/null ise, ardışık iki konum
     // arasındaki mesafe/süreden bir "yedek hız" hesaplıyoruz.
     var nowMs = Date.now();
+    var prevSpeedFix = lastSpeedFix; // mesafe biriktirmek için ESKİ konumu sakla (aşağıda lastSpeedFix güncellenmeden önce)
     var gpsSpeedKmh = (typeof pos.coords.speed === "number" && !isNaN(pos.coords.speed))
       ? Math.round(Math.max(0, pos.coords.speed) * 3.6)
       : null;
@@ -317,6 +363,15 @@
     // bazlı) hıza, o da hesaplanamadıysa (ör. ilk ping) 0'a düşüyoruz.
     var speedKmh = gpsSpeedKmh !== null ? gpsSpeedKmh : (fallbackSpeedKmh !== null ? fallbackSpeedKmh : 0);
     var isStopped = speedKmh < 5;
+
+    // ---------- Şoför ekranındaki anlık hız / bugünkü mesafe / süre ----------
+    // GPS gürültüsünden (duruyorken bile küçük sapmalar) mesafenin şişmemesi
+    // için sadece "duruyor değil" (isStopped=false) ve makul doğrulukta
+    // (accuracy<=60m) pinglerde, önceki konumla arasındaki mesafe eklenir.
+    if (!isStopped && prevSpeedFix && (!pos.coords.accuracy || pos.coords.accuracy <= 60) && (!prevSpeedFix.accuracy || prevSpeedFix.accuracy <= 60)) {
+      sessionDistanceKm += haversineKm(prevSpeedFix.lat, prevSpeedFix.lng, pos.coords.latitude, pos.coords.longitude);
+    }
+    updateStatsUI(speedKmh);
 
     var patch = {
       lat: pos.coords.latitude,
@@ -486,6 +541,9 @@
     startBtn.style.display = "block";
     startBtn.disabled = false;
     setStatus(remote ? "Paylaşım hane tarafından durduruldu…" : "Paylaşım durduruluyor…", "wait");
+    statsBox.classList.remove("show");
+    if (durationTimerId) { clearInterval(durationTimerId); durationTimerId = null; }
+    sessionStartMs = null;
 
     var tripDone = endCurrentTrip();
     var activeDone = docRef.set({ active: false }, { merge: true }).catch(function () {});
