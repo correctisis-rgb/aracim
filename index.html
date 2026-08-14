@@ -1126,7 +1126,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.8.5"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.8.6"; // Dynamic Version Tracking
   var APP_UPDATED = "14 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -1190,6 +1190,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   function todayStr() { return new Date().toISOString().slice(0, 10); }
   function tomorrowStr() { var d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); }
   function fmtDateTR(s) { return s ? new Date(s).toLocaleDateString("tr-TR") : ""; }
+  // Randevu tarihi + (varsa) saatini birlikte biçimlendirir. Saat yoksa
+  // sadece tarih döner (geriye dönük uyumluluk).
+  function fmtApptDateTime(dateStr, timeStr) {
+    if (!dateStr) return "";
+    return fmtDateTR(dateStr) + (timeStr ? " " + timeStr : "");
+  }
   function esc(s) { var d = document.createElement("div"); d.textContent = s == null ? "" : String(s); return d.innerHTML; }
 
   // ---------- Takvime ekleme (.ics) ----------
@@ -5895,12 +5901,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var relevant = state.selectedCarId === "all" ? carsToProcess : carsToProcess.filter(function (c) { return c.id === state.selectedCarId; });
     var items = [];
     relevant.forEach(function (c) {
-      items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Muayene", emoji: "🗓️", date: c.inspectionDate || null, apptKey: "inspectionDate", apptDate: (c.appointments && c.appointments.inspectionDate) || null });
-      items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Bakım / Servis (tarih)", emoji: "🔧", date: c.maintenanceDate || null, apptKey: "maintenanceDate", apptDate: (c.appointments && c.appointments.maintenanceDate) || null });
-      items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Trafik Sigortası", emoji: "🛡️", date: c.insuranceDate || null, apptKey: "insuranceDate", apptDate: (c.appointments && c.appointments.insuranceDate) || null });
-      items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Kasko", emoji: "🚙", date: c.kaskoDate || null, apptKey: "kaskoDate", apptDate: (c.appointments && c.appointments.kaskoDate) || null });
-      items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Vergi (MTV)", emoji: "💰", date: c.taxDate || null, apptKey: "taxDate", apptDate: (c.appointments && c.appointments.taxDate) || null });
-      items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Lastik Değişimi", emoji: "🛞", date: c.tireDate || null, apptKey: "tireDate", apptDate: (c.appointments && c.appointments.tireDate) || null });
+      items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Muayene", emoji: "🗓️", date: c.inspectionDate || null, apptKey: "inspectionDate", apptDate: (c.appointments && c.appointments.inspectionDate) || null, apptTime: (c.appointments && c.appointments.inspectionTime) || null });
+      items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Bakım / Servis (tarih)", emoji: "🔧", date: c.maintenanceDate || null, apptKey: "maintenanceDate", apptDate: (c.appointments && c.appointments.maintenanceDate) || null, apptTime: (c.appointments && c.appointments.maintenanceTime) || null });
+      items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Trafik Sigortası", emoji: "🛡️", date: c.insuranceDate || null, apptKey: "insuranceDate", apptDate: (c.appointments && c.appointments.insuranceDate) || null, apptTime: (c.appointments && c.appointments.insuranceTime) || null });
+      items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Kasko", emoji: "🚙", date: c.kaskoDate || null, apptKey: "kaskoDate", apptDate: (c.appointments && c.appointments.kaskoDate) || null, apptTime: (c.appointments && c.appointments.kaskoTime) || null });
+      items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Vergi (MTV)", emoji: "💰", date: c.taxDate || null, apptKey: "taxDate", apptDate: (c.appointments && c.appointments.taxDate) || null, apptTime: (c.appointments && c.appointments.taxTime) || null });
+      items.push({ carId: c.id, carName: c.name, carPhoto: c.photo, type: "Lastik Değişimi", emoji: "🛞", date: c.tireDate || null, apptKey: "tireDate", apptDate: (c.appointments && c.appointments.tireDate) || null, apptTime: (c.appointments && c.appointments.tireTime) || null });
     });
     items.forEach(function (it) {
       // Randevu tarihi girilmişse artık hatırlatma o tarihe göre çalışır:
@@ -5909,7 +5915,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       it.days = daysUntil(it.apptDate || it.date);
       it.status = urgency(it.days);
       it.dateLabel = it.date ? fmtDateTR(it.date) : "Tarih girilmedi";
-      if (it.apptDate) it.dateLabel += " · 📅 Randevu: " + fmtDateTR(it.apptDate);
+      if (it.apptDate) it.dateLabel += " · 📅 Randevu: " + fmtApptDateTime(it.apptDate, it.apptTime);
       it.tier = tierOf(it.status);
       it.metric = it.days === null ? 99999 : it.days;
     });
@@ -5936,23 +5942,23 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     driversList.forEach(function (d) {
       var da = d.appointments || {};
       if (d.licenseExpiry) {
-        items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: d.licenseClass ? ("Ehliyet · " + d.licenseClass) : "Ehliyet", emoji: "🪪", date: d.licenseExpiry, apptKey: "licenseExpiry", apptDate: da.licenseExpiry || null });
+        items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: d.licenseClass ? ("Ehliyet · " + d.licenseClass) : "Ehliyet", emoji: "🪪", date: d.licenseExpiry, apptKey: "licenseExpiry", apptDate: da.licenseExpiry || null, apptTime: da.licenseExpiryTime || null });
       }
       if (d.srcExpiry) {
-        items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: d.srcType ? ("SRC · " + d.srcType) : "SRC Belgesi", emoji: "📄", date: d.srcExpiry, apptKey: "srcExpiry", apptDate: da.srcExpiry || null });
+        items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: d.srcType ? ("SRC · " + d.srcType) : "SRC Belgesi", emoji: "📄", date: d.srcExpiry, apptKey: "srcExpiry", apptDate: da.srcExpiry || null, apptTime: da.srcExpiryTime || null });
       }
       if (d.psikoteknikExpiry) {
-        items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: "Psikoteknik Belgesi", emoji: "🧠", date: d.psikoteknikExpiry, apptKey: "psikoteknikExpiry", apptDate: da.psikoteknikExpiry || null });
+        items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: "Psikoteknik Belgesi", emoji: "🧠", date: d.psikoteknikExpiry, apptKey: "psikoteknikExpiry", apptDate: da.psikoteknikExpiry || null, apptTime: da.psikoteknikExpiryTime || null });
       }
       if (d.healthReportExpiry) {
-        items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: "Sağlık Raporu", emoji: "🩺", date: d.healthReportExpiry, apptKey: "healthReportExpiry", apptDate: da.healthReportExpiry || null });
+        items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: "Sağlık Raporu", emoji: "🩺", date: d.healthReportExpiry, apptKey: "healthReportExpiry", apptDate: da.healthReportExpiry || null, apptTime: da.healthReportExpiryTime || null });
       }
       if (!d.worksAbroad) return;
       if (d.passportExpiry) {
-        items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: "Pasaport", emoji: "🛂", date: d.passportExpiry, apptKey: "passportExpiry", apptDate: da.passportExpiry || null });
+        items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: "Pasaport", emoji: "🛂", date: d.passportExpiry, apptKey: "passportExpiry", apptDate: da.passportExpiry || null, apptTime: da.passportExpiryTime || null });
       }
       if (d.visaExpiry) {
-        items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: d.visaCountry ? ("Vize · " + d.visaCountry) : "Vize", emoji: "🌍", date: d.visaExpiry, apptKey: "visaExpiry", apptDate: da.visaExpiry || null });
+        items.push({ kind: "driver", driverId: d.id, driverName: d.name, type: d.visaCountry ? ("Vize · " + d.visaCountry) : "Vize", emoji: "🌍", date: d.visaExpiry, apptKey: "visaExpiry", apptDate: da.visaExpiry || null, apptTime: da.visaExpiryTime || null });
       }
     });
     items.forEach(function (it) {
@@ -5961,7 +5967,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       it.days = daysUntil(it.apptDate || it.date);
       it.status = urgency(it.days);
       it.dateLabel = it.date ? fmtDateTR(it.date) : "Tarih girilmedi";
-      if (it.apptDate) it.dateLabel += " · 📅 Randevu: " + fmtDateTR(it.apptDate);
+      if (it.apptDate) it.dateLabel += " · 📅 Randevu: " + fmtApptDateTime(it.apptDate, it.apptTime);
       it.tier = tierOf(it.status);
       it.metric = it.days === null ? 99999 : it.days;
     });
@@ -5973,12 +5979,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var carsToProcess = state.cars || [];
     var items = [];
     carsToProcess.forEach(function (c) {
-      items.push({ kind: "car", carId: c.id, carName: c.name, carPhoto: c.photo, type: "Muayene", emoji: "🗓️", date: c.inspectionDate || null, apptKey: "inspectionDate", apptDate: (c.appointments && c.appointments.inspectionDate) || null });
-      items.push({ kind: "car", carId: c.id, carName: c.name, carPhoto: c.photo, type: "Bakım / Servis (tarih)", emoji: "🔧", date: c.maintenanceDate || null, apptKey: "maintenanceDate", apptDate: (c.appointments && c.appointments.maintenanceDate) || null });
-      items.push({ kind: "car", carId: c.id, carName: c.name, carPhoto: c.photo, type: "Trafik Sigortası", emoji: "🛡️", date: c.insuranceDate || null, apptKey: "insuranceDate", apptDate: (c.appointments && c.appointments.insuranceDate) || null });
-      items.push({ kind: "car", carId: c.id, carName: c.name, carPhoto: c.photo, type: "Kasko", emoji: "🚙", date: c.kaskoDate || null, apptKey: "kaskoDate", apptDate: (c.appointments && c.appointments.kaskoDate) || null });
-      items.push({ kind: "car", carId: c.id, carName: c.name, carPhoto: c.photo, type: "Vergi (MTV)", emoji: "💰", date: c.taxDate || null, apptKey: "taxDate", apptDate: (c.appointments && c.appointments.taxDate) || null });
-      items.push({ kind: "car", carId: c.id, carName: c.name, carPhoto: c.photo, type: "Lastik Değişimi", emoji: "🛞", date: c.tireDate || null, apptKey: "tireDate", apptDate: (c.appointments && c.appointments.tireDate) || null });
+      items.push({ kind: "car", carId: c.id, carName: c.name, carPhoto: c.photo, type: "Muayene", emoji: "🗓️", date: c.inspectionDate || null, apptKey: "inspectionDate", apptDate: (c.appointments && c.appointments.inspectionDate) || null, apptTime: (c.appointments && c.appointments.inspectionTime) || null });
+      items.push({ kind: "car", carId: c.id, carName: c.name, carPhoto: c.photo, type: "Bakım / Servis (tarih)", emoji: "🔧", date: c.maintenanceDate || null, apptKey: "maintenanceDate", apptDate: (c.appointments && c.appointments.maintenanceDate) || null, apptTime: (c.appointments && c.appointments.maintenanceTime) || null });
+      items.push({ kind: "car", carId: c.id, carName: c.name, carPhoto: c.photo, type: "Trafik Sigortası", emoji: "🛡️", date: c.insuranceDate || null, apptKey: "insuranceDate", apptDate: (c.appointments && c.appointments.insuranceDate) || null, apptTime: (c.appointments && c.appointments.insuranceTime) || null });
+      items.push({ kind: "car", carId: c.id, carName: c.name, carPhoto: c.photo, type: "Kasko", emoji: "🚙", date: c.kaskoDate || null, apptKey: "kaskoDate", apptDate: (c.appointments && c.appointments.kaskoDate) || null, apptTime: (c.appointments && c.appointments.kaskoTime) || null });
+      items.push({ kind: "car", carId: c.id, carName: c.name, carPhoto: c.photo, type: "Vergi (MTV)", emoji: "💰", date: c.taxDate || null, apptKey: "taxDate", apptDate: (c.appointments && c.appointments.taxDate) || null, apptTime: (c.appointments && c.appointments.taxTime) || null });
+      items.push({ kind: "car", carId: c.id, carName: c.name, carPhoto: c.photo, type: "Lastik Değişimi", emoji: "🛞", date: c.tireDate || null, apptKey: "tireDate", apptDate: (c.appointments && c.appointments.tireDate) || null, apptTime: (c.appointments && c.appointments.tireTime) || null });
     });
     items.forEach(function (it) {
       // Randevu tarihi girilmişse artık hatırlatma o tarihe göre çalışır:
@@ -5987,7 +5993,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       it.days = daysUntil(it.apptDate || it.date);
       it.status = urgency(it.days);
       it.dateLabel = it.date ? fmtDateTR(it.date) : "Tarih girilmedi";
-      if (it.apptDate) it.dateLabel += " · 📅 Randevu: " + fmtDateTR(it.apptDate);
+      if (it.apptDate) it.dateLabel += " · 📅 Randevu: " + fmtApptDateTime(it.apptDate, it.apptTime);
       it.tier = tierOf(it.status);
       it.metric = it.days === null ? 99999 : it.days;
     });
@@ -6841,7 +6847,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   var APPT_EXTERNAL_LINKS = {
     inspectionDate: { url: "https://www.tuvturk.com.tr", label: "TÜVTÜRK'ten randevu al" }
   };
-  function saveCarAppointmentField(carId, fieldKey, apptVal) {
+  function saveCarAppointmentField(carId, fieldKey, apptVal, apptTime) {
     // "Yaklaşan İşlemler" listesindeki 📅 düğmesi ve randevu modalındaki
     // Kaydet/Kaldır düğmeleri data-action üzerinden değil doğrudan
     // addEventListener ile bağlı; bindGlobalActions()'daki MANAGE_ONLY_ACTIONS
@@ -6855,9 +6861,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (!car) return;
     var prevAppt = car.appointments || {};
     var prevVal = prevAppt[fieldKey] || null;
+    var timeKey = fieldKey + "Time";
+    var prevTime = prevAppt[timeKey] || null;
     var snapKey = fieldKey + "DueSnapshot";
     var appointments = Object.assign({}, prevAppt);
     appointments[fieldKey] = apptVal || null;
+    appointments[timeKey] = apptVal ? (apptTime || null) : null;
     if (!apptVal) {
       appointments[snapKey] = null;
     } else if (!prevAppt[fieldKey] || prevAppt[fieldKey] !== apptVal) {
@@ -6869,16 +6878,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     persistCars();
     // Randevu eklemek/değiştirmek/kaldırmak da bir "işlem"dir; aktivite
     // geçmişinde görünmesi için ayrı bir kayıt atıyoruz. Değer değişmediyse
-    // (aynı tarih tekrar kaydedildiyse) gereksiz log oluşturmuyoruz.
-    if (prevVal !== (apptVal || null)) {
+    // (aynı tarih ve saat tekrar kaydedildiyse) gereksiz log oluşturmuyoruz.
+    if (prevVal !== (apptVal || null) || prevTime !== (appointments[timeKey] || null)) {
       var apptLabel = APPT_FIELD_LABELS[fieldKey] || fieldKey;
       var summary;
       if (!apptVal) summary = apptLabel + " randevusu kaldırıldı.";
-      else if (!prevVal) summary = apptLabel + " için randevu alındı: " + fmtDateTR(apptVal);
-      else summary = apptLabel + " randevusu güncellendi: " + fmtDateTR(apptVal);
+      else if (!prevVal) summary = apptLabel + " için randevu alındı: " + fmtApptDateTime(apptVal, appointments[timeKey]);
+      else summary = apptLabel + " randevusu güncellendi: " + fmtApptDateTime(apptVal, appointments[timeKey]);
       logActivity("car", apptVal ? "edit" : "delete", {
         carId: carId, carName: car.name, icon: "📅", summary: summary,
-        changes: [{ label: apptLabel + " randevusu", from: prevVal ? fmtDateTR(prevVal) : "—", to: apptVal ? fmtDateTR(apptVal) : "—" }]
+        changes: [{ label: apptLabel + " randevusu", from: prevVal ? fmtApptDateTime(prevVal, prevTime) : "—", to: apptVal ? fmtApptDateTime(apptVal, appointments[timeKey]) : "—" }]
       });
     }
     closeModal();
@@ -6900,7 +6909,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     psikoteknikExpiry: "🧠", healthReportExpiry: "🩺",
     passportExpiry: "🛂", visaExpiry: "🌍"
   };
-  function saveDriverAppointmentField(driverId, fieldKey, apptVal) {
+  function saveDriverAppointmentField(driverId, fieldKey, apptVal, apptTime) {
     if (!hasHouseholdPerm("manage")) {
       toast("Bu hanede randevu/tarih düzenleme yetkin yok.");
       return;
@@ -6909,9 +6918,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (!driver) return;
     var prevAppt = driver.appointments || {};
     var prevVal = prevAppt[fieldKey] || null;
+    var timeKey = fieldKey + "Time";
+    var prevTime = prevAppt[timeKey] || null;
     var snapKey = fieldKey + "DueSnapshot";
     var appointments = Object.assign({}, prevAppt);
     appointments[fieldKey] = apptVal || null;
+    appointments[timeKey] = apptVal ? (apptTime || null) : null;
     if (!apptVal) {
       appointments[snapKey] = null;
     } else if (!prevAppt[fieldKey] || prevAppt[fieldKey] !== apptVal) {
@@ -6921,15 +6933,15 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     }
     state.drivers = (state.drivers || []).map(function (d) { return d.id === driverId ? Object.assign({}, d, { appointments: appointments }) : d; });
     persistDrivers();
-    if (prevVal !== (apptVal || null)) {
+    if (prevVal !== (apptVal || null) || prevTime !== (appointments[timeKey] || null)) {
       var apptLabel = DRIVER_APPT_FIELD_LABELS[fieldKey] || fieldKey;
       var summary;
       if (!apptVal) summary = driver.name + " — " + apptLabel + " randevusu kaldırıldı.";
-      else if (!prevVal) summary = driver.name + " — " + apptLabel + " için randevu alındı: " + fmtDateTR(apptVal);
-      else summary = driver.name + " — " + apptLabel + " randevusu güncellendi: " + fmtDateTR(apptVal);
+      else if (!prevVal) summary = driver.name + " — " + apptLabel + " için randevu alındı: " + fmtApptDateTime(apptVal, appointments[timeKey]);
+      else summary = driver.name + " — " + apptLabel + " randevusu güncellendi: " + fmtApptDateTime(apptVal, appointments[timeKey]);
       logActivity("driver", apptVal ? "edit" : "delete", {
         icon: "📅", summary: summary,
-        changes: [{ label: apptLabel + " randevusu", from: prevVal ? fmtDateTR(prevVal) : "—", to: apptVal ? fmtDateTR(apptVal) : "—" }]
+        changes: [{ label: apptLabel + " randevusu", from: prevVal ? fmtApptDateTime(prevVal, prevTime) : "—", to: apptVal ? fmtApptDateTime(apptVal, appointments[timeKey]) : "—" }]
       });
     }
     closeModal();
@@ -7134,6 +7146,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     modal.className = "modal";
     modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
     var current = (owner && owner.appointments && owner.appointments[m.key]) || "";
+    var currentTime = (owner && owner.appointments && owner.appointments[m.key + "Time"]) || "";
     var labelMap = isDriver ? DRIVER_APPT_FIELD_LABELS : APPT_FIELD_LABELS;
     var label = labelMap[m.key] || m.label || "İşlem";
     var ownerLabel = owner ? (isDriver ? owner.name : owner.name) : "";
@@ -7141,7 +7154,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     modal.innerHTML =
       '<div class="modal-head"><h3>📅 Randevu — ' + esc(label) + (ownerLabel ? " · " + esc(ownerLabel) : "") + '</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>' +
       '<p class="field-hint" style="margin-top:-4px">Randevu tarihi girersen bu işlem için vade hatırlatmaları durur; sadece randevudan 1 gün önce ve randevu günü bildirim alırsın.</p>' +
+      '<div class="field-row">' +
       '<label class="field"><span>Randevu tarihi</span><input type="date" id="qa-date" value="' + esc(current) + '" /></label>' +
+      '<label class="field"><span>Randevu saati (opsiyonel)</span><input type="time" id="qa-time" value="' + esc(currentTime) + '" /></label>' +
+      '</div>' +
       '<div class="budget-row">' +
       (current ? '<button type="button" class="btn-secondary full" id="qa-clear">Randevuyu Kaldır</button>' : '') +
       '<button type="button" class="btn-primary full" id="qa-save">Kaydet</button>' +
@@ -7151,10 +7167,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var ownerId = isDriver ? m.driverId : m.carId;
     modal.querySelector("#qa-save").addEventListener("click", function () {
       var val = modal.querySelector("#qa-date").value || null;
-      saveFn(ownerId, m.key, val);
+      var timeVal = modal.querySelector("#qa-time").value || null;
+      saveFn(ownerId, m.key, val, timeVal);
     });
     var clearBtn = modal.querySelector("#qa-clear");
-    if (clearBtn) clearBtn.addEventListener("click", function () { saveFn(ownerId, m.key, null); });
+    if (clearBtn) clearBtn.addEventListener("click", function () { saveFn(ownerId, m.key, null, null); });
     return modal;
   }
 
@@ -7198,7 +7215,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (!hasAppt && (it.days == null || it.days > 30)) return "";
     var isDriver = it.kind === "driver";
     var cls = hasAppt ? "appt-pill appt-pill-set" : "appt-pill appt-pill-empty";
-    var text = hasAppt ? ("📅 " + fmtDateTR(it.apptDate)) : "📅 Randevu Ekle";
+    var text = hasAppt ? ("📅 " + fmtApptDateTime(it.apptDate, it.apptTime)) : "📅 Randevu Ekle";
     var ownerAttr = isDriver ? ('data-kind="driver" data-driver="' + it.driverId + '"') : ('data-kind="car" data-car="' + it.carId + '"');
     return '<button type="button" class="' + cls + '" data-action="open-quick-appt" ' + ownerAttr + ' data-key="' + it.apptKey + '" title="' + (hasAppt ? "Randevuyu düzenle" : "Randevu tarihi ekle") + '">' + text + '</button>';
   }
@@ -9591,15 +9608,27 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         '<p class="field-hint" style="margin-top:0">Bir işlem için randevu tarihi girersen, o işlem için vade hatırlatmaları durur; sadece randevudan 1 gün önce ve randevu günü hatırlatma alırsın. Randevu günü geçip vade tarihini güncellemezsen bir kez "tarihi güncellemeyi unuttun mu?" hatırlatması alırsın. İpucu: Bu tarihleri araç kartını açmadan, "Yaklaşan İşlemler" listesindeki 📅 Randevu butonundan da hızlıca girebilirsin.</p>' +
         '<div class="field-row">' +
           '<label class="field"><span>Muayene randevusu</span><input id="f-appt-inspection" type="date" value="' + (car && car.appointments && car.appointments.inspectionDate ? car.appointments.inspectionDate : "") + '" /></label>' +
+          '<label class="field"><span>Saat</span><input id="f-appt-inspection-time" type="time" value="' + (car && car.appointments && car.appointments.inspectionTime ? car.appointments.inspectionTime : "") + '" /></label>' +
+        '</div>' +
+        '<div class="field-row">' +
           '<label class="field"><span>Bakım randevusu</span><input id="f-appt-maintenance" type="date" value="' + (car && car.appointments && car.appointments.maintenanceDate ? car.appointments.maintenanceDate : "") + '" /></label>' +
+          '<label class="field"><span>Saat</span><input id="f-appt-maintenance-time" type="time" value="' + (car && car.appointments && car.appointments.maintenanceTime ? car.appointments.maintenanceTime : "") + '" /></label>' +
         '</div>' +
         '<div class="field-row">' +
           '<label class="field"><span>Sigorta randevusu</span><input id="f-appt-insurance" type="date" value="' + (car && car.appointments && car.appointments.insuranceDate ? car.appointments.insuranceDate : "") + '" /></label>' +
+          '<label class="field"><span>Saat</span><input id="f-appt-insurance-time" type="time" value="' + (car && car.appointments && car.appointments.insuranceTime ? car.appointments.insuranceTime : "") + '" /></label>' +
+        '</div>' +
+        '<div class="field-row">' +
           '<label class="field"><span>Kasko randevusu</span><input id="f-appt-kasko" type="date" value="' + (car && car.appointments && car.appointments.kaskoDate ? car.appointments.kaskoDate : "") + '" /></label>' +
+          '<label class="field"><span>Saat</span><input id="f-appt-kasko-time" type="time" value="' + (car && car.appointments && car.appointments.kaskoTime ? car.appointments.kaskoTime : "") + '" /></label>' +
         '</div>' +
         '<div class="field-row">' +
           '<label class="field"><span>Vergi randevusu</span><input id="f-appt-tax" type="date" value="' + (car && car.appointments && car.appointments.taxDate ? car.appointments.taxDate : "") + '" /></label>' +
+          '<label class="field"><span>Saat</span><input id="f-appt-tax-time" type="time" value="' + (car && car.appointments && car.appointments.taxTime ? car.appointments.taxTime : "") + '" /></label>' +
+        '</div>' +
+        '<div class="field-row">' +
           '<label class="field"><span>Lastik randevusu</span><input id="f-appt-tire" type="date" value="' + (car && car.appointments && car.appointments.tireDate ? car.appointments.tireDate : "") + '" /></label>' +
+          '<label class="field"><span>Saat</span><input id="f-appt-tire-time" type="time" value="' + (car && car.appointments && car.appointments.tireTime ? car.appointments.tireTime : "") + '" /></label>' +
         '</div>' +
       '</div>' +
       '<div class="field-row">' +
@@ -9695,7 +9724,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       var appointments = {};
       Object.keys(apptInputMap).forEach(function (key) {
         var apptVal = modal.querySelector("#" + apptInputMap[key]).value || null;
+        var timeKey = key + "Time";
+        var timeInput = modal.querySelector("#" + apptInputMap[key] + "-time");
+        var apptTimeVal = timeInput ? (timeInput.value || null) : null;
         appointments[key] = apptVal;
+        appointments[timeKey] = apptVal ? apptTimeVal : null; // tarih yoksa saat de anlamsız
         var snapKey = key + "DueSnapshot";
         if (!apptVal) {
           appointments[snapKey] = null; // randevu silindiyse anlık görüntü de temizlenir
