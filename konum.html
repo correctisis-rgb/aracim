@@ -163,13 +163,26 @@
   var ROAD_QUERY_MIN_INTERVAL_MS = 25000; // aynı yerde en fazla ~25 sn'de bir sorgula
   var ROAD_QUERY_MIN_MOVE_KM = 0.12;      // ya da 120 m'den fazla hareket ettiyse
   var ROAD_QUERY_RADIUS_M = 35;
+  var ROAD_QUERY_TIMEOUT_MS = 8000; // her sunucu için tek tek zaman aşımı
   var lastRoadQueryPoint = null; // {lat,lng,tMs}
   var roadQueryInFlight = false;
-  var lastRoadInfo = null; // {name, maxspeedKmh} | null
+  var lastRoadInfo = null; // {name, maxspeedKmh, approx} | null
+
+  // Tek sunucuya (overpass-api.de) bağımlı kalmamak için birkaç bağımsız
+  // Overpass aynasını sırayla deniyoruz — biri yavaş/çökmüşse otomatik
+  // olarak bir sonrakine geçilir. Hepsi aynı OSM verisini sunar, sadece
+  // barındıran sunucu/organizasyon farklıdır.
+  var OVERPASS_ENDPOINTS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.openstreetmap.ru/api/interpreter"
+  ];
 
   // TR:urban / TR:rural / TR:motorway gibi OSM "örtük" (implicit) hız
   // limiti etiketleri Türkiye trafik yönetmeliğindeki genel varsayılan
   // limitlerdir; sayısal bir "maxspeed" etiketi varsa o zaten önceliklidir.
+  // "approx" bayrağıyla, bunun yoldaki gerçek tabeladan değil genel
+  // varsayılandan geldiğini arayüzde ayırt ediyoruz.
   var TR_IMPLICIT_MAXSPEED = { "TR:urban": 50, "TR:rural": 90, "TR:motorway": 120, "TR:living_street": 20 };
   var HIGHWAY_LABEL_TR = {
     motorway: "Otoyol", trunk: "Devlet Yolu", primary: "Ana Yol", secondary: "İkincil Yol",
@@ -181,10 +194,10 @@
   function parseMaxSpeedTag(val) {
     if (!val) return null;
     val = String(val).trim();
-    if (/^\d+$/.test(val)) return parseInt(val, 10);
+    if (/^\d+$/.test(val)) return { kmh: parseInt(val, 10), approx: false };
     var mphMatch = val.match(/^(\d+)\s*mph$/i);
-    if (mphMatch) return Math.round(parseInt(mphMatch[1], 10) * 1.60934);
-    if (TR_IMPLICIT_MAXSPEED[val] != null) return TR_IMPLICIT_MAXSPEED[val];
+    if (mphMatch) return { kmh: Math.round(parseInt(mphMatch[1], 10) * 1.60934), approx: false };
+    if (TR_IMPLICIT_MAXSPEED[val] != null) return { kmh: TR_IMPLICIT_MAXSPEED[val], approx: true };
     return null;
   }
 
@@ -197,36 +210,90 @@
     }
     roadNameEl.textContent = info.name;
     if (info.maxspeedKmh) {
-      roadLimitEl.textContent = "Limit: " + info.maxspeedKmh + " km/s";
+      // "approx" olan (tabeladan değil genel TR varsayılanından gelen)
+      // değerleri "~" işaretiyle işaretliyoruz ki gerçek tabelayla
+      // karıştırılmasın.
+      roadLimitEl.textContent = (info.approx ? "~" : "") + info.maxspeedKmh + " km/s";
     } else {
       roadLimitEl.textContent = "Limit bilinmiyor";
     }
     roadLimitEl.className = "road-info-limit";
   }
 
+  // Noktanın (lat,lng) bir yol segmentine (lat1,lng1)-(lat2,lng2) olan en
+  // kısa mesafesini yaklaşık olarak hesaplar. Kısa mesafeler (onlarca-
+  // yüzlerce metre) için düzlemsel izdüşüm yeterince doğrudur; sadece en
+  // yakın UÇ NOKTAYA değil, segmentin TAMAMINA olan mesafeye bakmak,
+  // özellikle uzun düz yollarda "en yakın yol"un doğru seçilmesini önemli
+  // ölçüde iyileştirir (düğüm noktaları seyrek olabilir).
+  function pointToSegmentDistanceKm(lat, lng, lat1, lng1, lat2, lng2) {
+    var R = 6371;
+    var toRad = function (d) { return d * Math.PI / 180; };
+    var latRef = toRad((lat1 + lat2) / 2);
+    var x = toRad(lng - lng1) * Math.cos(latRef);
+    var y = toRad(lat - lat1);
+    var dx = toRad(lng2 - lng1) * Math.cos(latRef);
+    var dy = toRad(lat2 - lat1);
+    var lenSq = dx * dx + dy * dy;
+    var t = lenSq > 0 ? Math.max(0, Math.min(1, (x * dx + y * dy) / lenSq)) : 0;
+    var ddx = x - t * dx, ddy = y - t * dy;
+    return Math.sqrt(ddx * ddx + ddy * ddy) * R;
+  }
+
+  function fetchFromOverpass(url, query) {
+    var controller = (typeof AbortController !== "undefined") ? new AbortController() : null;
+    var timeoutId = controller ? setTimeout(function () { controller.abort(); }, ROAD_QUERY_TIMEOUT_MS) : null;
+    return fetch(url + "?data=" + encodeURIComponent(query), controller ? { signal: controller.signal } : {})
+      .then(function (r) {
+        if (timeoutId) clearTimeout(timeoutId);
+        if (!r.ok) throw new Error("overpass yanıt hatası: " + r.status);
+        return r.json();
+      }).catch(function (err) {
+        if (timeoutId) clearTimeout(timeoutId);
+        throw err;
+      });
+  }
+
+  // Sunucu listesini sırayla dener; biri başarısız olursa (zaman aşımı,
+  // 5xx, ağ hatası) sessizce bir sonrakine geçer. Hepsi başarısız olursa
+  // son hatayı fırlatır.
+  function fetchFromOverpassWithFallback(query, idx) {
+    idx = idx || 0;
+    if (idx >= OVERPASS_ENDPOINTS.length) return Promise.reject(new Error("tüm Overpass sunucuları başarısız oldu"));
+    return fetchFromOverpass(OVERPASS_ENDPOINTS[idx], query).catch(function (err) {
+      console.warn("Overpass sunucusu başarısız (" + OVERPASS_ENDPOINTS[idx] + "):", err);
+      return fetchFromOverpassWithFallback(query, idx + 1);
+    });
+  }
+
   function fetchNearestRoadInfo(lat, lng) {
     var query = "[out:json][timeout:10];way(around:" + ROAD_QUERY_RADIUS_M + "," + lat + "," + lng + ")[highway];out tags geom;";
-    var url = "https://overpass-api.de/api/interpreter?data=" + encodeURIComponent(query);
-    return fetch(url).then(function (r) {
-      if (!r.ok) throw new Error("overpass yanıt hatası");
-      return r.json();
-    }).then(function (data) {
+    return fetchFromOverpassWithFallback(query).then(function (data) {
       var elements = (data && data.elements) || [];
       if (!elements.length) return null;
       var best = null, bestDistKm = Infinity;
       elements.forEach(function (el) {
-        if (!el.geometry) return;
-        el.geometry.forEach(function (pt) {
-          if (typeof pt.lat !== "number" || typeof pt.lon !== "number") return;
-          var d = haversineKm(lat, lng, pt.lat, pt.lon);
+        var geom = el.geometry;
+        if (!geom || geom.length < 1) return;
+        if (geom.length === 1) {
+          if (typeof geom[0].lat === "number" && typeof geom[0].lon === "number") {
+            var d0 = haversineKm(lat, lng, geom[0].lat, geom[0].lon);
+            if (d0 < bestDistKm) { bestDistKm = d0; best = el; }
+          }
+          return;
+        }
+        for (var i = 0; i < geom.length - 1; i++) {
+          var p1 = geom[i], p2 = geom[i + 1];
+          if (typeof p1.lat !== "number" || typeof p2.lat !== "number") continue;
+          var d = pointToSegmentDistanceKm(lat, lng, p1.lat, p1.lon, p2.lat, p2.lon);
           if (d < bestDistKm) { bestDistKm = d; best = el; }
-        });
+        }
       });
       if (!best) return null;
       var tags = best.tags || {};
       var name = tags.name || tags.ref || (HIGHWAY_LABEL_TR[tags.highway] || "Yol");
-      var maxspeedKmh = parseMaxSpeedTag(tags.maxspeed);
-      return { name: name, maxspeedKmh: maxspeedKmh };
+      var parsed = parseMaxSpeedTag(tags.maxspeed);
+      return { name: name, maxspeedKmh: parsed ? parsed.kmh : null, approx: parsed ? parsed.approx : false };
     });
   }
 
@@ -244,9 +311,8 @@
       lastRoadInfo = info;
       updateRoadUI(info);
     }).catch(function (err) {
-      // Sessizce yut — ağ hatası ya da Overpass'a erişilemedi; eski bilgi
-      // (varsa) ekranda kalmaya devam eder, kullanıcıyı hata ile rahatsız
-      // etmiyoruz.
+      // Sessizce yut — tüm sunucular başarısız oldu; eski bilgi (varsa)
+      // ekranda kalmaya devam eder, kullanıcıyı hata ile rahatsız etmiyoruz.
       console.warn("yol/hız limiti sorgusu başarısız:", err);
     }).then(function () { roadQueryInFlight = false; });
   }
