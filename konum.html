@@ -371,7 +371,7 @@
     introEl.innerHTML = "Konumunu paylaşmak için aşağıdaki düğmeye bas. Konumun sadece seni davet eden kişi tarafından görülebilir.";
     startBtn.style.display = "block";
     startBtn.addEventListener("click", startSharing);
-    stopBtn.addEventListener("click", stopSharing);
+    stopBtn.addEventListener("click", function () { stopSharing(false); });
   }
 
   function startSharing() {
