@@ -45,11 +45,34 @@
   }
   .bg-warning.show { display: block; }
   .bg-warning strong { color: #ffd166; }
-  .stats-box { display: none; margin-top: 10px; }
-  .stats-box.show { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-  .stats-item { background: #22262f; border-radius: 10px; padding: 10px 6px; }
-  .stats-value { font-size: 18px; font-weight: 700; color: #f2f2f2; }
-  .stats-label { font-size: 10.5px; color: #8b909c; margin-top: 2px; }
+  .stats-box { display: none; margin-top: 14px; }
+  .stats-box.show { display: block; }
+  .speed-hero {
+    background: #22262f; border-radius: 14px; padding: 18px 10px; margin-bottom: 10px;
+    transition: background 0.25s ease, box-shadow 0.25s ease;
+  }
+  .speed-hero-value {
+    font-size: 46px; font-weight: 800; line-height: 1; color: #f2f2f2;
+    font-variant-numeric: tabular-nums; transition: color 0.25s ease;
+  }
+  .speed-hero-unit { font-size: 12px; color: #8b909c; margin-top: 5px; letter-spacing: 0.05em; text-transform: uppercase; }
+  .speed-hero.stopped .speed-hero-value { color: #8b909c; }
+  .speed-hero.over-limit { background: #331414; box-shadow: 0 0 0 2px #f87171 inset; }
+  .speed-hero.over-limit .speed-hero-value { color: #f87171; }
+  .road-info {
+    background: #1b2530; border-radius: 10px; padding: 10px 13px; margin-bottom: 10px;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px; text-align: left;
+  }
+  .road-info-name {
+    font-size: 12.5px; color: #c7cbd4; font-weight: 600; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; flex: 1;
+  }
+  .road-info-limit { font-size: 13px; font-weight: 800; color: #ffb020; white-space: nowrap; flex-shrink: 0; }
+  .road-info-limit.over { color: #f87171; }
+  .stats-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .stats-item { background: #22262f; border-radius: 10px; padding: 13px 6px; }
+  .stats-value { font-size: 21px; font-weight: 700; color: #f2f2f2; }
+  .stats-label { font-size: 11px; color: #8b909c; margin-top: 3px; }
 </style>
 </head>
 <body>
@@ -59,9 +82,18 @@
   <p id="intro">Yükleniyor…</p>
   <div id="statusBox" class="status wait" style="display:none"></div>
   <div id="statsBox" class="stats-box">
-    <div class="stats-item"><div class="stats-value" id="statSpeed">0</div><div class="stats-label">km/s</div></div>
-    <div class="stats-item"><div class="stats-value" id="statDistance">0</div><div class="stats-label">km (bugün)</div></div>
-    <div class="stats-item"><div class="stats-value" id="statDuration">0 dk</div><div class="stats-label">paylaşım süresi</div></div>
+    <div class="speed-hero" id="speedHero">
+      <div class="speed-hero-value" id="statSpeed">0</div>
+      <div class="speed-hero-unit">km/s</div>
+    </div>
+    <div class="road-info" id="roadInfo">
+      <div class="road-info-name" id="statRoadName">Yol bilgisi aranıyor…</div>
+      <div class="road-info-limit" id="statRoadLimit"></div>
+    </div>
+    <div class="stats-grid">
+      <div class="stats-item"><div class="stats-value" id="statDistance">0</div><div class="stats-label">km (bugün)</div></div>
+      <div class="stats-item"><div class="stats-value" id="statDuration">0 dk</div><div class="stats-label">paylaşım süresi</div></div>
+    </div>
   </div>
   <button id="startBtn" class="btn-start" style="display:none">Paylaşımı Başlat</button>
   <button id="stopBtn" class="btn-stop" style="display:none">Paylaşımı Durdur</button>
@@ -95,9 +127,12 @@
   var stopBtn = document.getElementById("stopBtn");
   var bgWarningEl = document.getElementById("bgWarning");
   var statsBox = document.getElementById("statsBox");
+  var speedHeroEl = document.getElementById("speedHero");
   var statSpeedEl = document.getElementById("statSpeed");
   var statDistanceEl = document.getElementById("statDistance");
   var statDurationEl = document.getElementById("statDuration");
+  var roadNameEl = document.getElementById("statRoadName");
+  var roadLimitEl = document.getElementById("statRoadLimit");
 
   // "Bugün kaç km" — currentTripDistanceKm'den FARKLI olarak, araç her
   // durup 90 sn sonra yeni bir trip başladığında SIFIRLANMIYOR; bu
@@ -118,11 +153,120 @@
     return h + " sa " + m + " dk";
   }
 
+  // ---------- Yol adı / hız limiti (OpenStreetMap Overpass API) ----------
+  // Şoförün o an üzerinde olduğu yola en yakın OSM yolunu bulup varsa
+  // "maxspeed" etiketini gösteriyoruz. Bu tamamen "iyi çaba" (best-effort)
+  // bir özellik: OSM'de her yolun hız limiti etiketlenmiş olmayabilir, ve
+  // Overpass sunucusuna erişilemezse (yavaş internet, ücretsiz servis
+  // limiti vb.) sessizce eski bilgiyi göstermeye devam ederiz — hata
+  // kullanıcıyı rahatsız etmez.
+  var ROAD_QUERY_MIN_INTERVAL_MS = 25000; // aynı yerde en fazla ~25 sn'de bir sorgula
+  var ROAD_QUERY_MIN_MOVE_KM = 0.12;      // ya da 120 m'den fazla hareket ettiyse
+  var ROAD_QUERY_RADIUS_M = 35;
+  var lastRoadQueryPoint = null; // {lat,lng,tMs}
+  var roadQueryInFlight = false;
+  var lastRoadInfo = null; // {name, maxspeedKmh} | null
+
+  // TR:urban / TR:rural / TR:motorway gibi OSM "örtük" (implicit) hız
+  // limiti etiketleri Türkiye trafik yönetmeliğindeki genel varsayılan
+  // limitlerdir; sayısal bir "maxspeed" etiketi varsa o zaten önceliklidir.
+  var TR_IMPLICIT_MAXSPEED = { "TR:urban": 50, "TR:rural": 90, "TR:motorway": 120, "TR:living_street": 20 };
+  var HIGHWAY_LABEL_TR = {
+    motorway: "Otoyol", trunk: "Devlet Yolu", primary: "Ana Yol", secondary: "İkincil Yol",
+    tertiary: "Yerel Yol", residential: "Mahalle Yolu", living_street: "Yaya Öncelikli Yol",
+    unclassified: "Yol", service: "Servis Yolu", trunk_link: "Devlet Yolu Bağlantısı",
+    primary_link: "Ana Yol Bağlantısı", motorway_link: "Otoyol Bağlantısı"
+  };
+
+  function parseMaxSpeedTag(val) {
+    if (!val) return null;
+    val = String(val).trim();
+    if (/^\d+$/.test(val)) return parseInt(val, 10);
+    var mphMatch = val.match(/^(\d+)\s*mph$/i);
+    if (mphMatch) return Math.round(parseInt(mphMatch[1], 10) * 1.60934);
+    if (TR_IMPLICIT_MAXSPEED[val] != null) return TR_IMPLICIT_MAXSPEED[val];
+    return null;
+  }
+
+  function updateRoadUI(info) {
+    if (!info) {
+      roadNameEl.textContent = "Yol bilgisi bulunamadı";
+      roadLimitEl.textContent = "";
+      roadLimitEl.className = "road-info-limit";
+      return;
+    }
+    roadNameEl.textContent = info.name;
+    if (info.maxspeedKmh) {
+      roadLimitEl.textContent = "Limit: " + info.maxspeedKmh + " km/s";
+    } else {
+      roadLimitEl.textContent = "Limit bilinmiyor";
+    }
+    roadLimitEl.className = "road-info-limit";
+  }
+
+  function fetchNearestRoadInfo(lat, lng) {
+    var query = "[out:json][timeout:10];way(around:" + ROAD_QUERY_RADIUS_M + "," + lat + "," + lng + ")[highway];out tags geom;";
+    var url = "https://overpass-api.de/api/interpreter?data=" + encodeURIComponent(query);
+    return fetch(url).then(function (r) {
+      if (!r.ok) throw new Error("overpass yanıt hatası");
+      return r.json();
+    }).then(function (data) {
+      var elements = (data && data.elements) || [];
+      if (!elements.length) return null;
+      var best = null, bestDistKm = Infinity;
+      elements.forEach(function (el) {
+        if (!el.geometry) return;
+        el.geometry.forEach(function (pt) {
+          if (typeof pt.lat !== "number" || typeof pt.lon !== "number") return;
+          var d = haversineKm(lat, lng, pt.lat, pt.lon);
+          if (d < bestDistKm) { bestDistKm = d; best = el; }
+        });
+      });
+      if (!best) return null;
+      var tags = best.tags || {};
+      var name = tags.name || tags.ref || (HIGHWAY_LABEL_TR[tags.highway] || "Yol");
+      var maxspeedKmh = parseMaxSpeedTag(tags.maxspeed);
+      return { name: name, maxspeedKmh: maxspeedKmh };
+    });
+  }
+
+  function maybeQueryRoadInfo(lat, lng) {
+    var nowMs = Date.now();
+    if (roadQueryInFlight) return;
+    if (lastRoadQueryPoint) {
+      var movedKm = haversineKm(lastRoadQueryPoint.lat, lastRoadQueryPoint.lng, lat, lng);
+      var elapsedMs = nowMs - lastRoadQueryPoint.tMs;
+      if (elapsedMs < ROAD_QUERY_MIN_INTERVAL_MS && movedKm < ROAD_QUERY_MIN_MOVE_KM) return;
+    }
+    lastRoadQueryPoint = { lat: lat, lng: lng, tMs: nowMs };
+    roadQueryInFlight = true;
+    fetchNearestRoadInfo(lat, lng).then(function (info) {
+      lastRoadInfo = info;
+      updateRoadUI(info);
+    }).catch(function (err) {
+      // Sessizce yut — ağ hatası ya da Overpass'a erişilemedi; eski bilgi
+      // (varsa) ekranda kalmaya devam eder, kullanıcıyı hata ile rahatsız
+      // etmiyoruz.
+      console.warn("yol/hız limiti sorgusu başarısız:", err);
+    }).then(function () { roadQueryInFlight = false; });
+  }
+
   function updateStatsUI(speedKmh) {
     statsBox.classList.add("show");
-    statSpeedEl.textContent = (typeof speedKmh === "number" ? speedKmh : 0);
+    var spd = (typeof speedKmh === "number" ? speedKmh : 0);
+    statSpeedEl.textContent = spd;
     statDistanceEl.textContent = Math.round(sessionDistanceKm * 10) / 10;
     if (sessionStartMs) statDurationEl.textContent = formatDurationTR(Date.now() - sessionStartMs);
+
+    // Hız kutusunu duruma göre renklendiriyoruz: duruyorken soluk gri,
+    // bilinen bir hız limiti aşılmışsa (5 km/s tolerans ile) kırmızı uyarı.
+    var limit = lastRoadInfo && lastRoadInfo.maxspeedKmh;
+    var overLimit = typeof limit === "number" && spd > limit + 5;
+    speedHeroEl.classList.toggle("stopped", spd < 5);
+    speedHeroEl.classList.toggle("over-limit", overLimit);
+    if (roadLimitEl.textContent) {
+      roadLimitEl.classList.toggle("over", overLimit);
+    }
   }
 
   function setStatus(text, cls) {
@@ -296,6 +440,11 @@
 
     sessionDistanceKm = 0;
     sessionStartMs = Date.now();
+    lastRoadInfo = null;
+    lastRoadQueryPoint = null;
+    roadNameEl.textContent = "Yol bilgisi aranıyor…";
+    roadLimitEl.textContent = "";
+    roadLimitEl.className = "road-info-limit";
     if (durationTimerId) clearInterval(durationTimerId);
     durationTimerId = setInterval(function () { if (sessionStartMs) statDurationEl.textContent = formatDurationTR(Date.now() - sessionStartMs); }, 30000);
   }
@@ -372,6 +521,7 @@
       sessionDistanceKm += haversineKm(prevSpeedFix.lat, prevSpeedFix.lng, pos.coords.latitude, pos.coords.longitude);
     }
     updateStatsUI(speedKmh);
+    maybeQueryRoadInfo(pos.coords.latitude, pos.coords.longitude);
 
     var patch = {
       lat: pos.coords.latitude,
