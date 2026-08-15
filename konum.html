@@ -709,6 +709,15 @@
   }
 
   function onPosition(pos) {
+    // navigator.geolocation.watchPosition() ASENKRON çalışır: "Paylaşımı
+    // Durdur"a basılıp clearWatch() çağrıldığı anda tarayıcının/GPS'in
+    // tetiklemiş ama henüz bu callback'e ulaştırmadığı bir konum pingi
+    // olabilir. O gecikmiş ping buraya ulaşırsa, stopSharing()'in az önce
+    // "durduruldu" olarak ayarladığı buton görünürlüğünü (startBtn/stopBtn/
+    // helpBtn) sessizce eski "paylaşım aktif" haline geri çevirirdi — ekranda
+    // "Paylaşım durduruldu" yazısıyla birlikte hâlâ aktif görünen butonların
+    // asıl sebebi buydu. sharingActive false ise pingi tamamen yok sayıyoruz.
+    if (!sharingActive) return;
     startBtn.style.display = "none";
     stopBtn.style.display = "block";
     helpBtn.style.display = helpRequestActive ? "none" : "block";
@@ -908,6 +917,7 @@
 
   function onPositionError(err) {
     console.error(err);
+    if (!sharingActive) return; // bkz. onPosition() üstündeki not — geç gelen ping/hata yok sayılır
     startBtn.disabled = false;
     if (err.code === err.PERMISSION_DENIED) {
       setStatus("Konum izni reddedildi. Paylaşabilmek için tarayıcı ayarlarından konum iznini açman gerekiyor.", "err");
