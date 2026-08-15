@@ -733,6 +733,7 @@
   .route-report-summary strong { font-size: 16px; font-family: 'Oswald', sans-serif; letter-spacing: 0.01em; }
   .route-report-summary span { font-size: 11.5px; color: var(--muted); }
   .err-item { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .err-item-selected { border-color: var(--amber); box-shadow: 0 0 0 1px var(--amber); }
   .err-item-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
   .err-item-time { font-size: 10.5px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
   .err-item-user { font-size: 10.5px; color: var(--amber); font-family: 'JetBrains Mono', monospace; }
@@ -1126,8 +1127,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.8.6"; // Dynamic Version Tracking
-  var APP_UPDATED = "14 Ağustos 2026";
+  var APP_VERSION = "v2.8.7"; // Dynamic Version Tracking
+  var APP_UPDATED = "15 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -3412,10 +3413,17 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (!routeReportMap) return;
     routeReportLayers.forEach(function (l) { routeReportMap.removeLayer(l); });
     routeReportLayers = [];
-    var trips = (state.modal && state.modal.trips) || [];
+    var allTrips = (state.modal && state.modal.trips) || [];
+    var selIdx = (state.modal && typeof state.modal.selectedTripIdx === "number") ? state.modal.selectedTripIdx : null;
+    // Bir yolculuk seçiliyse sadece onu çiziyoruz; renk/indeks numaraları
+    // yine orijinal listedeki sırasına göre (idx) kalsın diye filtrelemek
+    // yerine tüm listeyi dolaşıp seçili olmayanları atlıyoruz.
+    var trips = allTrips.map(function (t, idx) { return { trip: t, idx: idx }; })
+      .filter(function (e) { return selIdx == null || e.idx === selIdx; });
     var bounds = [];
     var colors = ["#ffb020", "#4ade80", "#60a5fa", "#f87171", "#c084fc", "#fb923c", "#2dd4bf"];
-    trips.forEach(function (t, idx) {
+    trips.forEach(function (entry) {
+      var t = entry.trip, idx = entry.idx;
       var path = (t.path || []).map(function (p) { return [p.lat, p.lng]; }).filter(function (p) { return typeof p[0] === "number" && typeof p[1] === "number"; });
       if (path.length === 0) return;
       var color = colors[idx % colors.length];
@@ -3444,6 +3452,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         if (!newDate) return;
         state.modal.date = newDate;
         state.modal.trips = null;
+        state.modal.selectedTripIdx = null;
         render();
         loadDriverRouteReport(state.modal.shareIds || [state.modal.shareId], newDate);
       });
@@ -3501,9 +3510,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       '</div>';
       html += '<p class="field-hint" style="margin-top:2px">*Sadece kaydedilen yolculuklar arasındaki duruşları kapsar; paylaşımın hiç açık olmadığı saatler dahil değildir.</p>';
       html += '<div id="route-report-map" class="harita-map-box" style="height:280px; margin-top:10px;"></div>';
+      var selIdx = (typeof m.selectedTripIdx === "number") ? m.selectedTripIdx : null;
+      if (selIdx != null) {
+        html += '<button type="button" class="btn-secondary full" style="margin-top:10px" data-action="select-report-trip" data-idx="-1">↺ Tüm Yolculukları Göster</button>';
+      }
       html += '<ul class="err-list" style="margin-top:12px">';
       m.trips.forEach(function (t, idx) {
-        html += '<li class="err-item">' +
+        var isSelTrip = selIdx === idx;
+        html += '<li class="err-item' + (isSelTrip ? ' err-item-selected' : '') + '" style="cursor:pointer" data-action="select-report-trip" data-idx="' + idx + '">' +
           '<div class="err-item-head"><span>🚗 ' + (idx + 1) + '. Yolculuk</span></div>' +
           '<div class="err-item-meta">' + formatClockTR(t.startedAt) + ' – ' + formatClockTR(t.endedAt) +
           ' · ' + (typeof t.distanceKm === "number" ? t.distanceKm : 0) + ' km' +
@@ -11659,7 +11673,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           var reportDriver = (state.drivers || []).find(function (x) { return x.id === reportDriverId; });
           if (!reportDriver || (!reportDriver.shareId && !(reportDriver.shareIdHistory || []).length)) { toast("Bu şoför için konum paylaşımı hiç kurulmamış."); return; }
           var reportShareIds = driverAllShareIds(reportDriver);
-          state.modal = { type: "driverRouteReport", driverId: reportDriverId, shareId: reportDriver.shareId, shareIds: reportShareIds, date: todayStr(), trips: null, loading: true, error: null, availableDates: null, datesLoading: true };
+          state.modal = { type: "driverRouteReport", driverId: reportDriverId, shareId: reportDriver.shareId, shareIds: reportShareIds, date: todayStr(), trips: null, loading: true, error: null, availableDates: null, datesLoading: true, selectedTripIdx: null };
           render();
           purgeOldDriverTrips(reportShareIds);
           loadDriverRouteReport(reportShareIds, state.modal.date);
@@ -11671,8 +11685,21 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           if (!pickedDate || pickedDate === state.modal.date) return;
           state.modal.date = pickedDate;
           state.modal.trips = null;
+          state.modal.selectedTripIdx = null;
           render();
           loadDriverRouteReport(state.modal.shareIds || [state.modal.shareId], pickedDate);
+        }
+        else if (action === "select-report-trip") {
+          if (!state.modal || state.modal.type !== "driverRouteReport") return;
+          var tripIdx = parseInt(el.getAttribute("data-idx"), 10);
+          // -1 = "Tüm Yolculukları Göster" düğmesi; aynı yolculuğa tekrar
+          // tıklamak da seçimi kaldırır (tümünü göster'e döner).
+          if (isNaN(tripIdx) || tripIdx < 0 || state.modal.selectedTripIdx === tripIdx) {
+            state.modal.selectedTripIdx = null;
+          } else {
+            state.modal.selectedTripIdx = tripIdx;
+          }
+          render();
         }
         else if (action === "dismiss-onboarding") { state.onboardingDismissed = true; setLocalData("onboarding_dismissed", true); render(); }
         else if (action === "open-add-car") { state.modal = { type: "addCar" }; render(); }
