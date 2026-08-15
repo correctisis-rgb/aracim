@@ -1127,7 +1127,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.8.8"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.8.9"; // Dynamic Version Tracking
   var APP_UPDATED = "15 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -2359,6 +2359,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
               if (change.type === "removed") { delete state.driverLocations[change.doc.id]; return; }
               state.driverLocations[change.doc.id] = change.doc.data();
               checkGeofenceCrossings(change.doc.id, state.driverLocations[change.doc.id]);
+              checkHelpRequest(change.doc.id, state.driverLocations[change.doc.id]);
             });
             if (state.mainSection === "harita") {
               // Harita zaten ekrandaysa (kullanıcı o an haritayı görüntülüyorsa),
@@ -2565,6 +2566,50 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       var evAtMs = driverLocationTimestampMs(loc.updatedAt);
       logGeofenceEvent(g, driver, isInside ? "enter" : "exit", evAtMs);
     });
+  }
+
+  // ---------- 🆘 Şoför "Yardım Çağır" (SOS) bildirimi ----------
+  // konum.html içindeki yardım butonu, driverLocations/{shareId} belgesine
+  // helpRequestActive:true yazıyor (bkz. firestore.rules whitelist'i).
+  // Burada bu bayrağın false/undefined -> true geçişini yakalayıp hane
+  // tarafında bir toast + tarayıcı/OS bildirimi tetikliyoruz; true -> false
+  // (şoför kendi sayfasında "İptal Et"e bastığında) geçişinde de bilgilendirici
+  // bir toast gösteriyoruz. Aynı "true" durumu için tekrar tekrar bildirim
+  // göndermemek üzere shareId başına son bilinen durumu saklıyoruz.
+  var driverHelpRequestLastState = {}; // shareId -> true|false (son bilinen helpRequestActive)
+  function checkHelpRequest(shareId, loc) {
+    var isActive = !!(loc && loc.helpRequestActive);
+    var wasActive = !!driverHelpRequestLastState[shareId];
+    if (isActive === wasActive) { driverHelpRequestLastState[shareId] = isActive; return; }
+    var firstCheck = !(shareId in driverHelpRequestLastState);
+    driverHelpRequestLastState[shareId] = isActive;
+    if (firstCheck && !isActive) return; // sayfa ilk yüklendiğinde sessiz başlangıç
+    var driver = driverForShareId(shareId);
+    var driverName = driver ? driver.name : "Bir şoför";
+    if (isActive) {
+      toast("🆘 " + driverName + " yardım istiyor!");
+      showHelpRequestOsNotification(driverName, shareId);
+      if (state.mainSection === "harita") render();
+    } else if (!firstCheck) {
+      toast("✅ " + driverName + " için yardım talebi kapatıldı.");
+      if (state.mainSection === "harita") render();
+    }
+  }
+  function showHelpRequestOsNotification(driverName, shareId) {
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    var title = "🆘 " + driverName + " yardım istiyor";
+    var body = driverName + " canlı konum sayfasından yardım çağırdı. Haritayı açıp durumu kontrol et.";
+    var opts = { body: body, icon: "/aracim/icon-192.png", tag: "help-request-" + shareId, requireInteraction: true };
+    try {
+      if (swRegPromise && typeof swRegPromise.then === "function") {
+        swRegPromise.then(function (reg) {
+          if (reg && reg.showNotification) reg.showNotification(title, opts);
+          else new Notification(title, opts);
+        }).catch(function () { try { new Notification(title, opts); } catch (e2) {} });
+      } else {
+        new Notification(title, opts);
+      }
+    } catch (e) { /* bildirim gösterilemezse sessizce yut */ }
   }
 
   function haritaFleetSummary(driversWithShare) {
@@ -2914,6 +2959,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         '</div>' +
         '<div class="err-item-meta" data-action="focus-harita-driver" data-id="' + d.id + '" style="cursor:pointer">' + haritaDriverMetaText(loc, active) + '</div>' +
         (todayTxt ? '<div class="err-item-meta harita-today-summary">' + esc(todayTxt) + '</div>' : '') +
+        (loc && loc.helpRequestActive ? '<div class="err-item-meta" style="margin-top:6px; padding:8px 10px; border-radius:8px; background:rgba(220,38,38,.18); border:1px solid var(--danger,#dc2626); color:var(--danger,#dc2626); font-weight:600">🆘 Yardım istiyor' + (loc.helpRequestedAt ? ' · ' + timeAgoTR(loc.helpRequestedAt) : '') + '</div>' : '') +
         '<div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap">' +
           '<button type="button" class="btn-secondary" style="padding:6px 10px; font-size:12.5px' + (following ? '; background:var(--amber); color:#1a1a1a; border-color:var(--amber)' : '') + '" data-action="toggle-follow-driver" data-id="' + d.id + '">' + (following ? '🎯 Takip Ediliyor' : '🎯 Takip Et') + '</button>' +
           '<button type="button" class="btn-secondary" style="padding:6px 10px; font-size:12.5px" data-action="open-driver-route-report" data-id="' + d.id + '">📊 Geçmiş Rota</button>' +
