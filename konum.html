@@ -45,6 +45,35 @@
   }
   .bg-warning.show { display: block; }
   .bg-warning strong { color: #ffd166; }
+  .rest-reminder {
+    margin-top: 14px; padding: 12px; border-radius: 10px; font-size: 13px; line-height: 1.5;
+    background: #33290f; color: #f2c14e; text-align: left; display: none;
+  }
+  .rest-reminder.show { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .rest-reminder-dismiss {
+    background: transparent; border: 1px solid #f2c14e; color: #f2c14e; padding: 6px 10px;
+    font-size: 12px; font-weight: 700; border-radius: 8px; width: auto; margin: 0; flex-shrink: 0;
+  }
+  .help-btn {
+    background: #331414; color: #f87171; border: 1px solid #f87171; margin-top: 10px;
+  }
+  .help-panel {
+    margin-top: 10px; padding: 14px; border-radius: 10px; background: #22262f; display: none; text-align: left;
+  }
+  .help-panel.show { display: block; }
+  .help-panel p { margin: 0 0 10px; color: #f2f2f2; font-size: 13.5px; }
+  .help-panel-row { display: flex; gap: 8px; }
+  .help-panel-row button { margin-top: 0; }
+  .help-confirm-btn { background: #f87171; color: #1a1a1a; }
+  .help-cancel-btn { background: #2a2e37; color: #f2f2f2; }
+  .help-active-banner {
+    margin-top: 10px; padding: 12px; border-radius: 10px; background: #331414; border: 1px solid #f87171;
+    display: none; text-align: left; animation: pulse-border 1.6s infinite;
+  }
+  .help-active-banner.show { display: block; }
+  @keyframes pulse-border { 0% { box-shadow: 0 0 0 0 rgba(248,113,113,0.4); } 70% { box-shadow: 0 0 0 6px rgba(248,113,113,0); } 100% { box-shadow: 0 0 0 0 rgba(248,113,113,0); } }
+  .help-active-banner p { margin: 0 0 8px; color: #fecaca; font-size: 13.5px; font-weight: 600; }
+  .help-cancel-active-btn { background: #2a2e37; color: #f2f2f2; margin: 0; }
   .stats-box { display: none; margin-top: 14px; }
   .stats-box.show { display: block; }
   .speed-hero {
@@ -97,6 +126,22 @@
   </div>
   <button id="startBtn" class="btn-start" style="display:none">Paylaşımı Başlat</button>
   <button id="stopBtn" class="btn-stop" style="display:none">Paylaşımı Durdur</button>
+  <div id="restReminder" class="rest-reminder">
+    <span id="restReminderText">☕ Uzun süredir kesintisiz yoldasın. Kısa bir mola vermeyi düşün.</span>
+    <button type="button" id="restReminderDismiss" class="rest-reminder-dismiss">Tamam</button>
+  </div>
+  <div id="helpActiveBanner" class="help-active-banner">
+    <p>🆘 Yardım talebin gönderildi. Hane bilgilendirildi.</p>
+    <button type="button" id="helpCancelActiveBtn" class="help-cancel-active-btn">Yardım Geldi — İptal Et</button>
+  </div>
+  <button type="button" id="helpBtn" class="help-btn" style="display:none">🆘 Yardım Gerekiyor</button>
+  <div id="helpPanel" class="help-panel">
+    <p>Haneye "yardım gerekiyor" bildirimi gönderilsin mi?</p>
+    <div class="help-panel-row">
+      <button type="button" id="helpConfirmBtn" class="help-confirm-btn">Evet, Gönder</button>
+      <button type="button" id="helpCancelBtn" class="help-cancel-btn">Vazgeç</button>
+    </div>
+  </div>
   <div id="bgWarning" class="bg-warning"></div>
   <p class="footer-hint">Bu sayfa "Garaj Defteri" uygulamasına aittir. Konumun sadece seni bu linkle davet eden hane tarafından görülür.</p>
 </div>
@@ -133,6 +178,15 @@
   var statDurationEl = document.getElementById("statDuration");
   var roadNameEl = document.getElementById("statRoadName");
   var roadLimitEl = document.getElementById("statRoadLimit");
+  var restReminderEl = document.getElementById("restReminder");
+  var restReminderTextEl = document.getElementById("restReminderText");
+  var restReminderDismissBtn = document.getElementById("restReminderDismiss");
+  var helpBtn = document.getElementById("helpBtn");
+  var helpPanel = document.getElementById("helpPanel");
+  var helpConfirmBtn = document.getElementById("helpConfirmBtn");
+  var helpCancelBtn = document.getElementById("helpCancelBtn");
+  var helpActiveBanner = document.getElementById("helpActiveBanner");
+  var helpCancelActiveBtn = document.getElementById("helpCancelActiveBtn");
 
   // "Bugün kaç km" — currentTripDistanceKm'den FARKLI olarak, araç her
   // durup 90 sn sonra yeni bir trip başladığında SIFIRLANMIYOR; bu
@@ -335,6 +389,95 @@
     }
   }
 
+  // ---------- Mola hatırlatıcısı ----------
+  // Amaç: şoförün ekranı zaten sürekli açık kalmak zorunda olduğu için, bu
+  // alanı yorgunluk kaynaklı kaza riskini azaltacak nazik bir hatırlatma
+  // için kullanmak. Şoförün suçlanması/denetlenmesi amacı TAŞIMAZ — hane
+  // tarafına HİÇBİR ŞEKİLDE bildirilmez, sadece şoförün kendi ekranında
+  // görünür.
+  var REST_REMINDER_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 saat kesintisiz sürüş sonrası ilk hatırlatma
+  var REST_REMINDER_SNOOZE_MS = 30 * 60 * 1000;        // "Tamam" denince 30 dk ertelenir
+  var REST_BREAK_MIN_MS = 5 * 60 * 1000;                // en az 5 dk durursa gerçek bir mola sayılır
+  var continuousDriveStartMs = null; // kesintisiz sürüşün başladığı an (mola verilince sıfırlanır)
+  var stoppedForBreakSinceMs = null; // şu anki duruşun başladığı an (mola tespiti için)
+  var restReminderSnoozedUntilMs = 0;
+
+  function hideRestReminder() { restReminderEl.classList.remove("show"); }
+
+  function showRestReminder(drivingMs) {
+    var hours = Math.floor(drivingMs / 3600000);
+    var mins = Math.round((drivingMs % 3600000) / 60000);
+    var durTxt = hours > 0 ? (hours + " sa " + mins + " dk") : (mins + " dk");
+    restReminderTextEl.textContent = "☕ " + durTxt + "'dır kesintisiz yoldasın. Kısa bir mola vermeyi düşün.";
+    restReminderEl.classList.add("show");
+  }
+
+  function updateRestTracking(isStopped, nowMs) {
+    if (isStopped) {
+      if (stoppedForBreakSinceMs === null) stoppedForBreakSinceMs = nowMs;
+      if ((nowMs - stoppedForBreakSinceMs) >= REST_BREAK_MIN_MS) {
+        // Yeterince uzun süredir duruyor: gerçek bir mola sayılır, sayaç
+        // ve hatırlatma durumu sıfırlanır.
+        continuousDriveStartMs = null;
+        restReminderSnoozedUntilMs = 0;
+        hideRestReminder();
+      }
+      return;
+    }
+    stoppedForBreakSinceMs = null;
+    if (continuousDriveStartMs === null) continuousDriveStartMs = nowMs;
+    var drivingMs = nowMs - continuousDriveStartMs;
+    if (drivingMs >= REST_REMINDER_THRESHOLD_MS && nowMs >= restReminderSnoozedUntilMs) {
+      showRestReminder(drivingMs);
+    }
+  }
+
+  restReminderDismissBtn.addEventListener("click", function () {
+    restReminderSnoozedUntilMs = Date.now() + REST_REMINDER_SNOOZE_MS;
+    hideRestReminder();
+  });
+
+  // ---------- "🆘 Yardım Gerekiyor" ----------
+  // Şoförün bilerek/isteyerek bastığı, driverLocations/{shareId} dokümanına
+  // helpRequestActive + helpRequestedAt yazan acil durum bildirimi. Yanlışlıkla
+  // tetiklenmeyi azaltmak için tek dokunuşla göndermek yerine bir onay
+  // paneli gösteriyoruz. Talebi SADECE şoförün kendisi (bu ekrandan)
+  // kapatabilir — hane tarafı sadece görüntüler, uzaktan kapatamaz.
+  var helpRequestActive = false;
+
+  function setHelpUI(active) {
+    helpRequestActive = active;
+    helpActiveBanner.classList.toggle("show", active);
+    helpBtn.style.display = active ? "none" : "block";
+    helpPanel.classList.remove("show");
+  }
+
+  helpBtn.addEventListener("click", function () { helpPanel.classList.add("show"); });
+  helpCancelBtn.addEventListener("click", function () { helpPanel.classList.remove("show"); });
+
+  helpConfirmBtn.addEventListener("click", function () {
+    if (!docRef) return;
+    docRef.set({
+      helpRequestActive: true,
+      helpRequestedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true }).then(function () {
+      setHelpUI(true);
+    }).catch(function (err) {
+      console.error("yardım talebi gönderilemedi", err);
+      alert("Yardım talebi gönderilemedi, internet bağlantını kontrol edip tekrar dene.");
+    });
+  });
+
+  helpCancelActiveBtn.addEventListener("click", function () {
+    if (!docRef) return;
+    docRef.set({ helpRequestActive: false }, { merge: true }).then(function () {
+      setHelpUI(false);
+    }).catch(function (err) {
+      console.error("yardım talebi kapatılamadı", err);
+      alert("İptal edilemedi, internet bağlantını kontrol edip tekrar dene.");
+    });
+  });
+
   function setStatus(text, cls) {
     statusBox.style.display = "block";
     statusBox.className = "status " + (cls || "wait");
@@ -491,6 +634,7 @@
     setStatus("Konum izni isteniyor…", "wait");
     sharingActive = true;
     wasStopped = false;
+    helpBtn.style.display = helpRequestActive ? "none" : "block";
     // Wake Lock isteği kullanıcı tıklamasından (gesture) doğan zincirin
     // içinde kaldığı için burada güvenle yapılabilir.
     requestWakeLock();
@@ -511,6 +655,10 @@
     roadNameEl.textContent = "Yol bilgisi aranıyor…";
     roadLimitEl.textContent = "";
     roadLimitEl.className = "road-info-limit";
+    continuousDriveStartMs = null;
+    stoppedForBreakSinceMs = null;
+    restReminderSnoozedUntilMs = 0;
+    hideRestReminder();
     if (durationTimerId) clearInterval(durationTimerId);
     durationTimerId = setInterval(function () { if (sessionStartMs) statDurationEl.textContent = formatDurationTR(Date.now() - sessionStartMs); }, 30000);
   }
@@ -530,7 +678,13 @@
       if (!sharingActive) return;
       if (snap.exists && snap.data().revoked === true) {
         stopSharing(true);
+        return;
       }
+      // Sayfa yeniden açıldıysa (örn. tarayıcı sekmesi kapanıp tekrar
+      // açıldı) yerel helpRequestActive değişkeni sıfırlanmış olabilir;
+      // Firestore'daki gerçek durumu burada senkronize ediyoruz ki
+      // "🆘 Yardım Gerekiyor" düğmesi/banner'ı doğru görünsün.
+      if (snap.exists) setHelpUI(snap.data().helpRequestActive === true);
     }, function (err) { console.warn("revoke izleme hatası:", err); });
   }
   function unwatchForRevoke() {
@@ -540,6 +694,7 @@
   function onPosition(pos) {
     startBtn.style.display = "none";
     stopBtn.style.display = "block";
+    helpBtn.style.display = helpRequestActive ? "none" : "block";
     if (document.visibilityState === "visible") {
       setStatus('<span class="pulse"></span>Konum paylaşılıyor…', "ok");
     }
@@ -578,6 +733,7 @@
     // bazlı) hıza, o da hesaplanamadıysa (ör. ilk ping) 0'a düşüyoruz.
     var speedKmh = gpsSpeedKmh !== null ? gpsSpeedKmh : (fallbackSpeedKmh !== null ? fallbackSpeedKmh : 0);
     var isStopped = speedKmh < 5;
+    updateRestTracking(isStopped, nowMs);
 
     // ---------- Şoför ekranındaki anlık hız / bugünkü mesafe / süre ----------
     // GPS gürültüsünden (duruyorken bile küçük sapmalar) mesafenin şişmemesi
@@ -758,6 +914,9 @@
     startBtn.disabled = false;
     setStatus(remote ? "Paylaşım hane tarafından durduruldu…" : "Paylaşım durduruluyor…", "wait");
     statsBox.classList.remove("show");
+    helpBtn.style.display = "none";
+    helpPanel.classList.remove("show");
+    hideRestReminder();
     if (durationTimerId) { clearInterval(durationTimerId); durationTimerId = null; }
     sessionStartMs = null;
 
