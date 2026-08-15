@@ -1127,7 +1127,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.8.7"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.8.8"; // Dynamic Version Tracking
   var APP_UPDATED = "15 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -2434,7 +2434,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return R * c;
   }
 
-  function logGeofenceEvent(geofence, driver, type) {
+  function logGeofenceEvent(geofence, driver, type, atMs) {
     // Aynı şoför + aynı bölge + aynı tip (enter/exit) için, çok kısa süre
     // önce (ör. Firestore'un aynı konum pingini pending-write + sunucu
     // onaylı olarak iki kez bildirmesi ya da bölge sınırında GPS titremesi
@@ -2448,9 +2448,15 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       var lastMs = new Date(lastSame.at).getTime();
       if (!isNaN(lastMs) && (now - lastMs) < DEDUPE_WINDOW_MS) return;
     }
+    // "at" olarak, bu tarayıcının konum pingini işlediği an (new Date())
+    // yerine, mümkünse şoförün konumunun GEREKÇE olarak taşıdığı gerçek GPS
+    // zaman damgasını (atMs — bkz. checkGeofenceCrossings) kullanıyoruz.
+    // Aksi halde, sekme arka planda ya da ağ gecikmesi olduğunda gerçek
+    // varış/ayrılış saati yerine "bu cihazın haberi olduğu an" gösterilirdi.
+    var eventAt = (typeof atMs === "number" && atMs > 0) ? new Date(atMs) : new Date();
     var ev = {
       id: uid(), geofenceId: geofence.id, geofenceName: geofence.name,
-      driverId: driver.id, driverName: driver.name, type: type, at: new Date().toISOString()
+      driverId: driver.id, driverName: driver.name, type: type, at: eventAt.toISOString()
     };
     // Log çok büyümesin diye son 300 kayıtla sınırlıyoruz.
     state.geofenceEvents = [ev].concat(state.geofenceEvents || []).slice(0, 300);
@@ -2552,7 +2558,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if (isInside === wasInside) return;
       insideMap[g.id] = isInside;
       if (firstCheck) return; // ilk pingde sessizce başlangıç durumunu kaydet
-      logGeofenceEvent(g, driver, isInside ? "enter" : "exit");
+      // loc.updatedAt, konum.html tarafından yazılan gerçek GPS pingi
+      // zaman damgasıdır — bu tarayıcının pingi ne zaman aldığından
+      // (Firestore dinleyici gecikmesi, arka plan sekmesi vb.) bağımsız
+      // olarak gerçek varış/ayrılış saatini yansıtır.
+      var evAtMs = driverLocationTimestampMs(loc.updatedAt);
+      logGeofenceEvent(g, driver, isInside ? "enter" : "exit", evAtMs);
     });
   }
 
