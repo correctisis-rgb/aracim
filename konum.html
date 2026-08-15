@@ -73,6 +73,9 @@
   .help-active-banner.show { display: block; }
   @keyframes pulse-border { 0% { box-shadow: 0 0 0 0 rgba(248,113,113,0.4); } 70% { box-shadow: 0 0 0 6px rgba(248,113,113,0); } 100% { box-shadow: 0 0 0 0 rgba(248,113,113,0); } }
   .help-active-banner p { margin: 0 0 8px; color: #fecaca; font-size: 13.5px; font-weight: 600; }
+  .help-active-banner.acknowledged { background: #142518; border-color: #4ade80; animation: none; }
+  .help-ack-text { display: none; margin: -2px 0 10px !important; color: #86efac !important; font-size: 12.5px !important; font-weight: 600 !important; }
+  .help-ack-text.show { display: block; }
   .help-cancel-active-btn { background: #2a2e37; color: #f2f2f2; margin: 0; }
   .stats-box { display: none; margin-top: 14px; }
   .stats-box.show { display: block; }
@@ -132,6 +135,7 @@
   </div>
   <div id="helpActiveBanner" class="help-active-banner">
     <p>🆘 Yardım talebin gönderildi. Hane bilgilendirildi.</p>
+    <p id="helpAckText" class="help-ack-text">✅ Hane senin yardım talebini gördü, yardıma geliyorlar.</p>
     <button type="button" id="helpCancelActiveBtn" class="help-cancel-active-btn">Yardım Geldi — İptal Et</button>
   </div>
   <button type="button" id="helpBtn" class="help-btn" style="display:none">🆘 Yardım Gerekiyor</button>
@@ -186,6 +190,7 @@
   var helpConfirmBtn = document.getElementById("helpConfirmBtn");
   var helpCancelBtn = document.getElementById("helpCancelBtn");
   var helpActiveBanner = document.getElementById("helpActiveBanner");
+  var helpAckText = document.getElementById("helpAckText");
   var helpCancelActiveBtn = document.getElementById("helpCancelActiveBtn");
 
   // "Bugün kaç km" — currentTripDistanceKm'den FARKLI olarak, araç her
@@ -443,13 +448,22 @@
   // tetiklenmeyi azaltmak için tek dokunuşla göndermek yerine bir onay
   // paneli gösteriyoruz. Talebi SADECE şoförün kendisi (bu ekrandan)
   // kapatabilir — hane tarafı sadece görüntüler, uzaktan kapatamaz.
+  //
+  // "helpAcknowledgedAt": hane tarafı (index.html), haritadaki 🆘 popup'ından
+  // ya da şoför listesindeki "✅ Yardıma geliyorum" düğmesinden bu alanı
+  // yazıyor. Burada bu alanı watchForRevoke() içindeki AYNI onSnapshot
+  // dinleyicisinden okuyup banner'a yeşil bir "hane gördü, geliyorlar"
+  // satırı ekliyoruz — ayrı bir dinleyici açmaya gerek yok.
   var helpRequestActive = false;
 
-  function setHelpUI(active) {
+  function setHelpUI(active, acknowledgedAt) {
     helpRequestActive = active;
     helpActiveBanner.classList.toggle("show", active);
     helpBtn.style.display = active ? "none" : "block";
     helpPanel.classList.remove("show");
+    var acknowledged = active && !!acknowledgedAt;
+    helpActiveBanner.classList.toggle("acknowledged", acknowledged);
+    helpAckText.classList.toggle("show", acknowledged);
   }
 
   helpBtn.addEventListener("click", function () { helpPanel.classList.add("show"); });
@@ -459,9 +473,12 @@
     if (!docRef) return;
     docRef.set({
       helpRequestActive: true,
-      helpRequestedAt: firebase.firestore.FieldValue.serverTimestamp()
+      helpRequestedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      // Yeni bir talep her zaman "henüz görülmedi" durumunda başlamalı;
+      // önceki bir talepten kalma eski bir onay burada temizleniyor.
+      helpAcknowledgedAt: null
     }, { merge: true }).then(function () {
-      setHelpUI(true);
+      setHelpUI(true, null);
     }).catch(function (err) {
       console.error("yardım talebi gönderilemedi", err);
       alert("Yardım talebi gönderilemedi, internet bağlantını kontrol edip tekrar dene.");
@@ -470,8 +487,8 @@
 
   helpCancelActiveBtn.addEventListener("click", function () {
     if (!docRef) return;
-    docRef.set({ helpRequestActive: false }, { merge: true }).then(function () {
-      setHelpUI(false);
+    docRef.set({ helpRequestActive: false, helpAcknowledgedAt: null }, { merge: true }).then(function () {
+      setHelpUI(false, null);
     }).catch(function (err) {
       console.error("yardım talebi kapatılamadı", err);
       alert("İptal edilemedi, internet bağlantını kontrol edip tekrar dene.");
@@ -684,7 +701,7 @@
       // açıldı) yerel helpRequestActive değişkeni sıfırlanmış olabilir;
       // Firestore'daki gerçek durumu burada senkronize ediyoruz ki
       // "🆘 Yardım Gerekiyor" düğmesi/banner'ı doğru görünsün.
-      if (snap.exists) setHelpUI(snap.data().helpRequestActive === true);
+      if (snap.exists) setHelpUI(snap.data().helpRequestActive === true, snap.data().helpAcknowledgedAt);
     }, function (err) { console.warn("revoke izleme hatası:", err); });
   }
   function unwatchForRevoke() {
