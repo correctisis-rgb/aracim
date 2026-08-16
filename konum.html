@@ -964,6 +964,14 @@
       accuracy: pos.coords.accuracy || null,
       active: true,
       revoked: false,
+      // Şoförün EN SON ULAŞABİLDİĞİ ping'te gördüğü bağlantı durumu.
+      // ÖNEMLİ SINIR: cihaz tamamen offline olduğu ANDA bunu sunucuya
+      // yazamayız (bağlantı zaten yok) — bu yüzden bu alan "az önce koptu"
+      // anını değil, kopmadan HEMEN ÖNCEKİ son bilinen durumu yakalar
+      // (ör. sinyal zayıflıyorsa "weak" olarak senkronize olan son ping).
+      // Hane tarafı, 3 dakikalık "pasif" eşiğiyle birlikte bu alana bakıp
+      // "neden pasif" sorusuna bir ipucu verebiliyor.
+      connectionStatus: (deviceOnline && firestoreOnline) ? "online" : (!deviceOnline ? "offline" : "weak"),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     };
     if (isStopped && !wasStopped) {
