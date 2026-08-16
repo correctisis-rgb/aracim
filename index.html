@@ -1145,8 +1145,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.9.0"; // Dynamic Version Tracking
-  var APP_UPDATED = "15 Ağustos 2026";
+  var APP_VERSION = "v2.9.1"; // Dynamic Version Tracking
+  var APP_UPDATED = "16 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -2474,7 +2474,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     // varış/ayrılış saati yerine "bu cihazın haberi olduğu an" gösterilirdi.
     var eventAt = (typeof atMs === "number" && atMs > 0) ? new Date(atMs) : new Date();
     var ev = {
-      id: uid(), geofenceId: geofence.id, geofenceName: geofence.name,
+      id: uid(), kind: "geofence", geofenceId: geofence.id, geofenceName: geofence.name,
       driverId: driver.id, driverName: driver.name, type: type, at: eventAt.toISOString()
     };
     // Log çok büyümesin diye son 300 kayıtla sınırlıyoruz.
@@ -2489,6 +2489,29 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       showGeofenceOsNotification(driver, geofence, type);
     }
     if (state.mainSection === "harita") render();
+  }
+
+  // "🆘 Yardım İstiyor" olayları da (bölge giriş/çıkışıyla AYNI dizide,
+  // state.geofenceEvents içinde, sadece kind:"help" ile ayırt edilerek)
+  // kaydedilir — böylece "Bildirimler" ekranında ikisi TEK bir kronolojik
+  // listede görünür. Harita sekmesindeki "Bölge Giriş/Çıkış Geçmişi"
+  // paneli SADECE kind==="geofence" olan kayıtları gösterdiği için (bkz.
+  // aşağıdaki filtre) buradaki help kayıtları o listeyi kirletmez.
+  function logHelpRequestEvent(driver, type, atMs) {
+    // type: "help-start" | "help-end"
+    var DEDUPE_WINDOW_MS = 60 * 1000;
+    var now = Date.now();
+    var lastSame = (state.geofenceEvents || []).find(function (e) {
+      return e.kind === "help" && e.driverId === driver.id && e.type === type;
+    });
+    if (lastSame) {
+      var lastMs = new Date(lastSame.at).getTime();
+      if (!isNaN(lastMs) && (now - lastMs) < DEDUPE_WINDOW_MS) return;
+    }
+    var eventAt = (typeof atMs === "number" && atMs > 0) ? new Date(atMs) : new Date();
+    var ev = { id: uid(), kind: "help", driverId: driver.id, driverName: driver.name, type: type, at: eventAt.toISOString() };
+    state.geofenceEvents = [ev].concat(state.geofenceEvents || []).slice(0, 300);
+    persistGeofenceEvents();
   }
 
   // ---------- Bölge (geofence) giriş/çıkış bildirim ayarı ----------
@@ -2607,9 +2630,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (isActive) {
       toast("🆘 " + driverName + " yardım istiyor!");
       showHelpRequestOsNotification(driverName, shareId);
+      logHelpRequestEvent(driver || { id: shareId, name: driverName }, "help-start", driverLocationTimestampMs(loc && loc.helpRequestedAt));
       if (state.mainSection === "harita") render();
     } else if (!firstCheck) {
       toast("✅ " + driverName + " için yardım talebi kapatıldı.");
+      logHelpRequestEvent(driver || { id: shareId, name: driverName }, "help-end", null);
       if (state.mainSection === "harita") render();
     }
   }
@@ -3012,11 +3037,19 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     html += '</ul>';
 
     // ---- Bölge giriş/çıkış geçmişi ----
-    if ((state.geofenceEvents || []).length) {
+    // NOT: state.geofenceEvents artık hem bölge hem 🆘 yardım olaylarını
+    // (kind alanıyla ayırt edilerek) TEK dizide tutuyor (bkz.
+    // logHelpRequestEvent). Bu panel SADECE bölge girişini/çıkışını
+    // gösterdiği için burada kind==="geofence" (ya da eski, kind alanı
+    // hiç olmayan kayıtlar) ile filtreliyoruz; help kayıtları hem burada
+    // karışıklık yaratmasın hem de kendi "🔔 Bildirimler" ekranında
+    // (buildDriverEventLogModal) ayrı görünsün diye.
+    var geofenceOnlyEvents = (state.geofenceEvents || []).filter(function (e) { return !e.kind || e.kind === "geofence"; });
+    if (geofenceOnlyEvents.length) {
       html += '<div class="harita-geofence-log">';
       html += '<h3 class="harita-geofence-log-title">🕓 Bölge Giriş/Çıkış Geçmişi</h3>';
       html += '<ul class="err-list" style="max-height:260px">';
-      (state.geofenceEvents || []).slice(0, 30).forEach(function (ev) {
+      geofenceOnlyEvents.slice(0, 30).forEach(function (ev) {
         html += '<li class="err-item" style="padding:8px 12px">' +
           '<div class="err-item-meta">' + (ev.type === "enter" ? "📍" : "🚪") + ' <strong>' + esc(ev.driverName) + '</strong> — ' + esc(ev.geofenceName) +
             (ev.type === "enter" ? "'a vardı" : "'dan ayrıldı") + ' · ' + esc(fmtTimeTR(ev.at)) + ' · ' + esc(timeAgoTR(ev.at)) +
@@ -3266,6 +3299,19 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           return batch.commit();
         })
         .catch(function (err) { console.warn("eski rota kayıtları temizlenemedi", err); });
+      // Hız aşımı günlüğü de aynı saklama süresine (DRIVER_TRIP_RETENTION_DAYS)
+      // tabidir; trips ile aynı anda, ayrı bir sorguyla temizlenir.
+      db.collection("driverLocations").doc(shareId).collection("speedViolations")
+        .where("startedAt", "<", cutoff)
+        .limit(200)
+        .get()
+        .then(function (snap) {
+          if (snap.empty) return;
+          var batch = db.batch();
+          snap.forEach(function (doc) { batch.delete(doc.ref); });
+          return batch.commit();
+        })
+        .catch(function (err) { console.warn("eski hız aşımı kayıtları temizlenemedi", err); });
     });
   }
 
@@ -3304,6 +3350,40 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         });
     })).then(function (perShareIdTrips) {
       var all = [].concat.apply([], perShareIdTrips);
+      all.sort(function (a, b) {
+        return driverLocationTimestampMs(a.startedAt) - driverLocationTimestampMs(b.startedAt);
+      });
+      return all;
+    });
+  }
+
+  // "Geçmiş Rota" raporundaki "Hız Aşımları" bölümü için: seçilen günde
+  // driverLocations/{shareId}/speedViolations altında kayıtlı aşımları
+  // çeker. fetchDriverTripsForDate ile AYNI desen (paralel shareId sorgusu,
+  // tek listede birleştirip zamana göre sıralama). Konum.html tarafında
+  // VIOLATION_MIN_DURATION_MS eşiği zaten anlık GPS sıçramalarını elediği
+  // için burada ekstra bir filtre uygulamıyoruz.
+  function fetchDriverSpeedViolationsForDate(shareIds, dateStr) {
+    var ids = (Array.isArray(shareIds) ? shareIds : [shareIds]).filter(Boolean);
+    var dayStart = new Date(dateStr + "T00:00:00");
+    var dayEnd = new Date(dateStr + "T23:59:59.999");
+    return Promise.all(ids.map(function (shareId) {
+      return db.collection("driverLocations").doc(shareId).collection("speedViolations")
+        .where("startedAt", ">=", dayStart)
+        .where("startedAt", "<=", dayEnd)
+        .orderBy("startedAt", "asc")
+        .get()
+        .then(function (snap) {
+          var list = [];
+          snap.forEach(function (doc) {
+            var v = doc.data();
+            v.id = doc.id;
+            list.push(v);
+          });
+          return list;
+        });
+    })).then(function (perShareIdViolations) {
+      var all = [].concat.apply([], perShareIdViolations);
       all.sort(function (a, b) {
         return driverLocationTimestampMs(a.startedAt) - driverLocationTimestampMs(b.startedAt);
       });
@@ -3392,12 +3472,17 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     var key = (Array.isArray(shareIds) ? shareIds : [shareIds]).join(",");
     state.modal.loading = true;
     state.modal.error = null;
-    fetchDriverTripsForDate(shareIds, dateStr)
-      .then(function (trips) {
+    Promise.all([
+      fetchDriverTripsForDate(shareIds, dateStr),
+      fetchDriverSpeedViolationsForDate(shareIds, dateStr)
+    ])
+      .then(function (results) {
+        var trips = results[0], violations = results[1];
         // Kullanıcı bu arada pencereyi kapatmış ya da başka bir tarih/şoför
         // seçmiş olabilir — eskimiş bir yanıtla ekranı güncellemeyelim.
         if (!state.modal || state.modal.type !== "driverRouteReport" || (state.modal.shareIds || []).join(",") !== key || state.modal.date !== dateStr) return;
         state.modal.trips = trips;
+        state.modal.speedViolations = violations;
         state.modal.loading = false;
         render();
       })
@@ -3640,6 +3725,32 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           '</div></li>';
       });
       html += '</ul>';
+
+      // ---------- Hız Aşımları ----------
+      // Bilinen bir yol hız limitinin (5 km/s tolerans ile) aşıldığı
+      // aralıkları listeler (bkz. konum.html trackSpeedViolation()).
+      // trips ile bağımsız bir veri kaynağı olduğu için bu tarihte
+      // yolculuk kaydı olsa bile (hiç aşım yapılmadıysa) burası boş
+      // görünebilir — bu normaldir, hata değildir.
+      if (m.speedViolations && m.speedViolations.length) {
+        html += '<h4 style="margin:16px 0 6px">⚠️ Hız Aşımları (' + m.speedViolations.length + ')</h4>';
+        html += '<ul class="err-list">';
+        m.speedViolations.forEach(function (v) {
+          var overBy = (typeof v.maxKmh === "number" && typeof v.limitKmh === "number") ? (v.maxKmh - v.limitKmh) : null;
+          var durationMin = Math.max(1, Math.round((driverLocationTimestampMs(v.endedAt) - driverLocationTimestampMs(v.startedAt)) / 60000));
+          html += '<li class="err-item">' +
+            '<div class="err-item-head"><span>🚨 ' + esc(v.roadName || "Bilinmeyen yol") + '</span></div>' +
+            '<div class="err-item-meta" style="color:var(--danger,#dc2626); font-weight:600">' +
+              'Maks ' + (v.maxKmh || 0) + ' km/s' + (overBy != null ? ' (limit ' + v.limitKmh + ' km/s, +' + overBy + ')' : '') +
+            '</div>' +
+            '<div class="err-item-meta">' + formatClockTR(v.startedAt) + ' – ' + formatClockTR(v.endedAt) + ' · ~' + durationMin + ' dk</div>' +
+          '</li>';
+        });
+        html += '</ul>';
+      } else {
+        html += '<h4 style="margin:16px 0 6px">✅ Hız Aşımı Yok</h4>';
+        html += '<p class="field-hint" style="margin-top:-4px">Bu tarihte bilinen bir hız limitinin aşıldığı bir kayıt yok.</p>';
+      }
     }
 
     modal.innerHTML = html;
@@ -3700,6 +3811,36 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (!list.length) return;
     var latestMs = new Date(list[0].at).getTime();
     setLocalData("activity_log_seen", isNaN(latestMs) ? Date.now() : latestMs);
+  }
+
+  // ---------- 🔔 Bildirimler (bölge + yardım olayları, birleşik) ----------
+  // state.geofenceEvents içindeki TÜM kayıtları (kind: "geofence" | "help")
+  // kapsayan, hesap menüsünden açılan kalıcı ve aranabilir bir ekran.
+  // "Geçmiş Hatırlatmalar" (notifHistory) ile KARIŞTIRILMAMALI — o, bakım/
+  // muayene/sigorta randevu hatırlatmalarının (send-reminders.js ile
+  // sunucudan push edilen) geçmişidir; bu ise şoförlerin canlı konum
+  // paylaşımından doğan bölge giriş/çıkış ve 🆘 yardım olaylarının
+  // geçmişidir — ayrı bir veri kaynağı, ayrı bir ekran.
+  function hasUnseenDriverEvents() {
+    var list = state.geofenceEvents || [];
+    if (!list.length) return false;
+    var lastSeen = getLocalData("driver_events_seen", 0);
+    var latestMs = new Date(list[0].at).getTime();
+    return !isNaN(latestMs) && latestMs > lastSeen;
+  }
+  function markDriverEventsSeen() {
+    var list = state.geofenceEvents || [];
+    if (!list.length) return;
+    var latestMs = new Date(list[0].at).getTime();
+    setLocalData("driver_events_seen", isNaN(latestMs) ? Date.now() : latestMs);
+  }
+  function driverEventLogText(ev) {
+    if (ev.kind === "help") {
+      return ev.type === "help-start"
+        ? "🆘 " + ev.driverName + " yardım istedi"
+        : "✅ " + ev.driverName + " için yardım talebi kapandı";
+    }
+    return (ev.type === "enter" ? "📍 " : "🚪 ") + ev.driverName + " → " + ev.geofenceName + (ev.type === "enter" ? "'a vardı" : "'dan ayrıldı");
   }
 
   // ---------- Aktivite detayı: alan bazlı karşılaştırma ----------
@@ -4406,8 +4547,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // sıfırlanır.
   var ACTIVITY_LOG_PAGE_SIZE = 20;
   var NOTIF_HISTORY_PAGE_SIZE = 20;
+  var DRIVER_EVENT_LOG_PAGE_SIZE = 20;
   var activityLogVisibleCount = ACTIVITY_LOG_PAGE_SIZE;
   var notifHistoryVisibleCount = NOTIF_HISTORY_PAGE_SIZE;
+  var driverEventLogVisibleCount = DRIVER_EVENT_LOG_PAGE_SIZE;
   var expandedFaqIds = {};
 
   // --- Yardım & SSS içeriği ---
@@ -6644,12 +6787,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         '<div style="display:flex; align-items:center; margin-left:auto;">' +
         (user && state.accountMenuOpen ? '<div class="account-menu-backdrop" data-action="toggle-account-menu"></div>' : '') +
         (user ? '<div class="account-chip" data-action="toggle-account-menu" role="button" tabindex="0" aria-haspopup="true" aria-expanded="' + (state.accountMenuOpen ? "true" : "false") + '" aria-label="Hesap menüsü">' + userAvatarHTML(user, 28) +
-          (hasUnseenNotifHistory() || hasUnseenSupportUpdate() || (isAdminUser(user) && monitoring.openSupportCount > 0) ? '<span class="account-chip-dot" aria-hidden="true"></span>' : '') +
+          (hasUnseenNotifHistory() || hasUnseenSupportUpdate() || hasUnseenDriverEvents() || (isAdminUser(user) && monitoring.openSupportCount > 0) ? '<span class="account-chip-dot" aria-hidden="true"></span>' : '') +
           '<span class="account-name">' + esc(user.name) + '</span><span class="account-chevron">▾</span>' +
           (state.accountMenuOpen ? '<div class="account-menu">' +
             '<button type="button" class="account-menu-item" data-action="open-profile">👤 Hesabım</button>' +
             '<button type="button" class="account-menu-item" data-action="open-notif-history">🔔 Geçmiş Hatırlatmalar' + (hasUnseenNotifHistory() ? ' <span class="account-chip-dot" aria-hidden="true"></span>' : '') + '</button>' +
             '<button type="button" class="account-menu-item" data-action="open-activity-log">🕒 Aktivite Geçmişi' + (hasUnseenActivityLog() ? ' <span class="account-chip-dot" aria-hidden="true"></span>' : '') + '</button>' +
+            '<button type="button" class="account-menu-item" data-action="open-driver-event-log">🔔 Bildirimler' + (hasUnseenDriverEvents() ? ' <span class="account-chip-dot" aria-hidden="true"></span>' : '') + '</button>' +
             (myPerms.seeDrivers ? '<button type="button" class="account-menu-item" data-action="set-main-section" data-section="drivers">🧑‍✈️ Şoförler</button>' : '') +
             '<button type="button" class="account-menu-item" data-action="set-main-section" data-section="calendar">📅 Takvim' + (calendarHasUrgent ? ' <span class="account-chip-dot" aria-hidden="true"></span>' : '') + '</button>' +
             '<button type="button" class="account-menu-item" data-action="open-vehicle-tracking">📡 Araç Takip</button>' +
@@ -7878,6 +8022,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       backdrop.appendChild(buildNotifHistoryModal());
     } else if (state.modal.type === "activityLog") {
       backdrop.appendChild(buildActivityLogModal());
+    } else if (state.modal.type === "driverEventLog") {
+      backdrop.appendChild(buildDriverEventLogModal());
     } else if (state.modal.type === "help") {
       backdrop.appendChild(buildHelpModal());
     } else if (state.modal.type === "adminPanel") {
@@ -8937,6 +9083,55 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   var ACTIVITY_TYPE_LABELS = { car: "🚗 Araç", driver: "🧑‍✈️ Şoför", expense: "🧾 Masraf" };
   var ACTIVITY_ACTION_LABELS = { add: "➕ Eklendi", edit: "✏️ Düzenlendi", delete: "🗑️ Silindi", restore: "↩️ Geri Alındı", deactivate: "🚫 Pasife Alındı", activate: "✅ Aktife Alındı", terminate: "👋 İşten Çıkarıldı", reactivate: "🔄 Yeniden İşe Alındı" };
+
+  var driverEventLogFilterKind = "all"; // "all" | "geofence" | "help"
+  function buildDriverEventLogModal() {
+    var modal = document.createElement("div");
+    modal.className = "modal wide";
+    modal.addEventListener("click", function (ev) { ev.stopPropagation(); });
+
+    var rawList = state.geofenceEvents || [];
+    var fullList = driverEventLogFilterKind === "all"
+      ? rawList
+      : rawList.filter(function (e) { return (e.kind || "geofence") === driverEventLogFilterKind; });
+    var list = fullList.slice(0, driverEventLogVisibleCount);
+
+    var html = '<div class="modal-head"><h3>🔔 Bildirimler</h3><button class="icon-btn" data-action="close-modal" aria-label="Kapat">✕</button></div>';
+    html += '<p class="field-hint" style="margin-top:-4px">Şoförlerin bölge giriş/çıkışları ve 🆘 yardım talepleri — hepsi tek kronolojik listede.</p>';
+
+    if (rawList.length) {
+      html += '<div style="display:flex; gap:6px; margin-bottom:10px">' +
+        ['all', 'geofence', 'help'].map(function (k) {
+          var label = k === "all" ? "Tümü" : (k === "geofence" ? "📍 Bölge" : "🆘 Yardım");
+          var isSel = driverEventLogFilterKind === k;
+          return '<button type="button" class="btn-secondary" style="padding:5px 10px; font-size:12.5px' + (isSel ? '; background:var(--amber); color:#1a1a1a; border-color:var(--amber)' : '') + '" data-action="filter-driver-event-log" data-kind="' + k + '">' + label + '</button>';
+        }).join("") +
+      '</div>';
+    }
+
+    if (!rawList.length) {
+      html += '<p class="mon-empty">Henüz bir bölge/yardım bildirimi yok.</p>';
+    } else if (!fullList.length) {
+      html += '<p class="mon-empty">Bu filtreye uyan kayıt yok.</p>';
+    } else {
+      html += '<ul class="err-list" data-infinite-scroll="driver-event-log">';
+      list.forEach(function (ev) {
+        var isHelp = ev.kind === "help";
+        html += '<li class="err-item">' +
+          '<div class="err-item-head"><span class="err-item-time">' + esc(fmtTimeTR(ev.at)) + ' · ' + esc(timeAgoTR(ev.at)) + '</span></div>' +
+          '<div class="err-item-msg"' + (isHelp && ev.type === "help-start" ? ' style="color:var(--danger,#dc2626); font-weight:600"' : '') + '>' + esc(driverEventLogText(ev)) + '</div>' +
+        '</li>';
+      });
+      html += '</ul>';
+      if (fullList.length > list.length) {
+        html += '<div class="mon-refresh-row"><button type="button" data-action="load-more-driver-event-log">↓ Daha fazla göster (' + (fullList.length - list.length) + ' kayıt daha)</button></div>';
+      }
+    }
+
+    modal.innerHTML = html;
+    attachInfiniteScroll(modal, "load-more-driver-event-log");
+    return modal;
+  }
 
   function buildActivityLogModal() {
     var modal = document.createElement("div");
@@ -11790,7 +11985,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           var reportDriver = (state.drivers || []).find(function (x) { return x.id === reportDriverId; });
           if (!reportDriver || (!reportDriver.shareId && !(reportDriver.shareIdHistory || []).length)) { toast("Bu şoför için konum paylaşımı hiç kurulmamış."); return; }
           var reportShareIds = driverAllShareIds(reportDriver);
-          state.modal = { type: "driverRouteReport", driverId: reportDriverId, shareId: reportDriver.shareId, shareIds: reportShareIds, date: todayStr(), trips: null, loading: true, error: null, availableDates: null, datesLoading: true, selectedTripIdx: null };
+          state.modal = { type: "driverRouteReport", driverId: reportDriverId, shareId: reportDriver.shareId, shareIds: reportShareIds, date: todayStr(), trips: null, speedViolations: null, loading: true, error: null, availableDates: null, datesLoading: true, selectedTripIdx: null };
           render();
           purgeOldDriverTrips(reportShareIds);
           loadDriverRouteReport(reportShareIds, state.modal.date);
@@ -11802,6 +11997,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           if (!pickedDate || pickedDate === state.modal.date) return;
           state.modal.date = pickedDate;
           state.modal.trips = null;
+          state.modal.speedViolations = null;
           state.modal.selectedTripIdx = null;
           render();
           loadDriverRouteReport(state.modal.shareIds || [state.modal.shareId], pickedDate);
@@ -12025,6 +12221,24 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           state.accountMenuOpen = false;
           activityLogVisibleCount = ACTIVITY_LOG_PAGE_SIZE;
           markActivityLogSeen();
+          render();
+        }
+        else if (action === "open-driver-event-log") {
+          ev.stopPropagation();
+          state.modal = { type: "driverEventLog" };
+          state.accountMenuOpen = false;
+          driverEventLogVisibleCount = DRIVER_EVENT_LOG_PAGE_SIZE;
+          driverEventLogFilterKind = "all";
+          markDriverEventsSeen();
+          render();
+        }
+        else if (action === "load-more-driver-event-log") {
+          driverEventLogVisibleCount += DRIVER_EVENT_LOG_PAGE_SIZE;
+          render();
+        }
+        else if (action === "filter-driver-event-log") {
+          driverEventLogFilterKind = el.getAttribute("data-kind") || "all";
+          driverEventLogVisibleCount = DRIVER_EVENT_LOG_PAGE_SIZE;
           render();
         }
         else if (action === "load-more-activity-log") {
