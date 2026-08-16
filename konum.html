@@ -53,7 +53,18 @@
   .rest-reminder-dismiss {
     background: transparent; border: 1px solid #f2c14e; color: #f2c14e; padding: 6px 10px;
     font-size: 12px; font-weight: 700; border-radius: 8px; width: auto; margin: 0; flex-shrink: 0;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
   }
+  .rest-reminder-dismiss.confirmed {
+    background: #4ade80; border-color: #4ade80; color: #123321;
+  }
+  .rest-thanks-toast {
+    margin-top: 14px; padding: 12px; border-radius: 10px; font-size: 13px; font-weight: 600;
+    background: #123321; color: #4ade80; text-align: center; display: none;
+    animation: fadeIn 0.2s ease-out;
+  }
+  .rest-thanks-toast.show { display: block; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
   .help-btn {
     background: #331414; color: #f87171; border: 1px solid #f87171; margin-top: 10px;
   }
@@ -131,8 +142,9 @@
   <button id="stopBtn" class="btn-stop" style="display:none">Paylaşımı Durdur</button>
   <div id="restReminder" class="rest-reminder">
     <span id="restReminderText">☕ Uzun süredir kesintisiz yoldasın. Kısa bir mola vermeyi düşün.</span>
-    <button type="button" id="restReminderDismiss" class="rest-reminder-dismiss">Tamam</button>
+    <button type="button" id="restReminderDismiss" class="rest-reminder-dismiss">Mola Verdim</button>
   </div>
+  <div id="restThanksToast" class="rest-thanks-toast">👍 İyi mola! Güvenli yolculuklar.</div>
   <div id="helpActiveBanner" class="help-active-banner">
     <p>🆘 Yardım talebin gönderildi. Hane bilgilendirildi.</p>
     <p id="helpAckText" class="help-ack-text">✅ Hane senin yardım talebini gördü, yardıma geliyorlar.</p>
@@ -147,6 +159,7 @@
     </div>
   </div>
   <div id="bgWarning" class="bg-warning"></div>
+  <div id="batteryWarning" class="bg-warning"></div>
   <p class="footer-hint">Bu sayfa "Garaj Defteri" uygulamasına aittir. Konumun sadece seni bu linkle davet eden hane tarafından görülür.</p>
 </div>
 
@@ -175,6 +188,7 @@
   var startBtn = document.getElementById("startBtn");
   var stopBtn = document.getElementById("stopBtn");
   var bgWarningEl = document.getElementById("bgWarning");
+  var batteryWarningEl = document.getElementById("batteryWarning");
   var statsBox = document.getElementById("statsBox");
   var speedHeroEl = document.getElementById("speedHero");
   var statSpeedEl = document.getElementById("statSpeed");
@@ -185,6 +199,7 @@
   var restReminderEl = document.getElementById("restReminder");
   var restReminderTextEl = document.getElementById("restReminderText");
   var restReminderDismissBtn = document.getElementById("restReminderDismiss");
+  var restThanksToastEl = document.getElementById("restThanksToast");
   var helpBtn = document.getElementById("helpBtn");
   var helpPanel = document.getElementById("helpPanel");
   var helpConfirmBtn = document.getElementById("helpConfirmBtn");
@@ -401,6 +416,25 @@
     }).then(function () { roadQueryInFlight = false; });
   }
 
+  // ---------- Hız aşımı titreşim uyarısı ----------
+  // Amaç: ekrandaki kırmızı renk değişimi şoförün gözünün önünde olmayabilir
+  // (yola bakıyorken ekranı görmüyor). Bu yüzden aşım BAŞLADIĞI anda kısa
+  // bir titreşimle de uyarıyoruz; aşım sürerse şoförü rahatsız etmeden ama
+  // unutturmadan belirli aralıklarla tekrar ediyoruz. Vibration API iOS
+  // Safari'de desteklenmiyor — navigator.vibrate yoksa sessizce hiçbir şey
+  // yapmıyoruz.
+  var OVER_LIMIT_VIBRATE_INTERVAL_MS = 8000; // aşım sürdükçe en fazla ~8 sn'de bir tekrar
+  var lastOverLimitVibrateMs = 0;
+
+  function maybeVibrateOverLimit(overLimit) {
+    if (!navigator.vibrate) return;
+    if (!overLimit) { lastOverLimitVibrateMs = 0; return; }
+    var nowMs = Date.now();
+    if (nowMs - lastOverLimitVibrateMs < OVER_LIMIT_VIBRATE_INTERVAL_MS) return;
+    lastOverLimitVibrateMs = nowMs;
+    navigator.vibrate([200, 100, 200]);
+  }
+
   function updateStatsUI(speedKmh) {
     statsBox.classList.add("show");
     var spd = (typeof speedKmh === "number" ? speedKmh : 0);
@@ -417,6 +451,7 @@
     if (roadLimitEl.textContent) {
       roadLimitEl.classList.toggle("over", overLimit);
     }
+    maybeVibrateOverLimit(overLimit);
   }
 
   // ---------- Mola hatırlatıcısı ----------
@@ -432,7 +467,14 @@
   var stoppedForBreakSinceMs = null; // şu anki duruşun başladığı an (mola tespiti için)
   var restReminderSnoozedUntilMs = 0;
 
-  function hideRestReminder() { restReminderEl.classList.remove("show"); }
+  var restThanksTimeoutId = null;
+
+  function hideRestReminder() {
+    restReminderEl.classList.remove("show");
+    restThanksToastEl.classList.remove("show");
+    restReminderDismissBtn.classList.remove("confirmed");
+    if (restThanksTimeoutId) { clearTimeout(restThanksTimeoutId); restThanksTimeoutId = null; }
+  }
 
   function showRestReminder(drivingMs) {
     var hours = Math.floor(drivingMs / 3600000);
@@ -465,6 +507,19 @@
   restReminderDismissBtn.addEventListener("click", function () {
     restReminderSnoozedUntilMs = Date.now() + REST_REMINDER_SNOOZE_MS;
     hideRestReminder();
+    // Küçük bir pozitif geri bildirim: şoför "Mola Verdim"e bastığında
+    // butonun kendisi anlık olarak yeşile dönüp bir teşekkür mesajı
+    // gösteriliyor, sonra birkaç saniye içinde otomatik kayboluyor.
+    // Bu tamamen kozmetik/yerel bir geri bildirim — hane tarafına
+    // hiçbir şey bildirilmiyor.
+    restReminderDismissBtn.classList.add("confirmed");
+    restThanksToastEl.classList.add("show");
+    if (restThanksTimeoutId) clearTimeout(restThanksTimeoutId);
+    restThanksTimeoutId = setTimeout(function () {
+      restThanksToastEl.classList.remove("show");
+      restReminderDismissBtn.classList.remove("confirmed");
+      restThanksTimeoutId = null;
+    }, 3000);
   });
 
   // ---------- "🆘 Yardım Gerekiyor" ----------
@@ -568,6 +623,80 @@
     }
   }
 
+  // ---------- Pil uyarısı ----------
+  // Amaç: ekranı sürekli açık tutmak (Wake Lock) + GPS + internet paylaşımı
+  // pili normalden hızlı tüketir. Şoför bunu fark etmezse telefon paylaşım
+  // sırasında kapanabilir. Battery Status API her tarayıcıda YOK (özellikle
+  // iOS Safari desteklemiyor) — bu yüzden tamamen "iyi çaba" (best-effort):
+  // API yoksa sessizce hiçbir şey göstermiyoruz, kullanıcıyı desteklenmeyen
+  // bir özellik için rahatsız etmiyoruz.
+  var BATTERY_WARNING_THRESHOLD = 0.15; // %15
+  var batteryRef = null;
+
+  function updateBatteryWarningUI() {
+    if (!sharingActive || !batteryRef) { batteryWarningEl.className = "bg-warning"; return; }
+    var low = !batteryRef.charging && batteryRef.level <= BATTERY_WARNING_THRESHOLD;
+    if (low) {
+      var pct = Math.round(batteryRef.level * 100);
+      batteryWarningEl.innerHTML = "🔋 <strong>Pilin %" + pct + ", şarjını kontrol et.</strong> Telefon kapanırsa konum paylaşımı kesilebilir.";
+      batteryWarningEl.className = "bg-warning show";
+    } else {
+      batteryWarningEl.className = "bg-warning";
+    }
+  }
+
+  function initBatteryMonitoring() {
+    if (!navigator.getBattery) return; // desteklenmiyor, sessizce geç
+    navigator.getBattery().then(function (battery) {
+      batteryRef = battery;
+      battery.addEventListener("levelchange", updateBatteryWarningUI);
+      battery.addEventListener("chargingchange", updateBatteryWarningUI);
+      updateBatteryWarningUI();
+    }).catch(function () {}); // sessizce geç
+  }
+  initBatteryMonitoring();
+
+  // ---------- Bağlantı durumu (offline / zayıf sinyal) ----------
+  // Amaç: şoför internetini kaybettiğinde ("Konum paylaşılıyor…" yazısı
+  // ekranda kalmaya devam ettiği için) bunu FARK ETMEYEBİLİR — halbuki o
+  // sırada hiçbir konum haneye ulaşmıyor olabilir. İki ayrı sinyali
+  // birleştiriyoruz:
+  //  1) deviceOnline: tarayıcının ağ arayüzü durumu (navigator.onLine +
+  //     online/offline olayları). Hızlı ama kesin değil — telefon bir Wi-Fi'a
+  //     "bağlı" görünüp internete gerçekte çıkamıyor olabilir.
+  //  2) firestoreOnline: docRef üzerindeki onSnapshot dinleyicisinin
+  //     (watchForRevoke) metadata.fromCache alanı. fromCache===true demek,
+  //     gelen anlık görüntünün sunucudan DEĞİL yerel önbellekten geldiği,
+  //     yani Firestore'un o an sunucuyla canlı bir bağlantısı OLMADIĞI
+  //     anlamına gelir — bu da "zayıf sinyal" durumunu deviceOnline'ın
+  //     yakalayamadığı durumlarda bile yakalar.
+  // İkisinden biri "yok" derse, durum kutusunda bariz bir uyarı gösteriyoruz;
+  // GPS/konum ölçümü kendisi kesilmiyor (o interneti gerektirmez), sadece
+  // haneye ULAŞMIYOR — bu yüzden "konum gönderilemiyor" diyoruz, "konum
+  // alınamıyor" değil.
+  var deviceOnline = navigator.onLine;
+  var firestoreOnline = true;
+
+  function updateConnectionStatusUI() {
+    if (!sharingActive) return;
+    if (!deviceOnline) {
+      setStatus("📡 <strong>Bağlantı yok, konum gönderilemiyor.</strong> İnternete bağlanınca otomatik olarak devam edecek.", "err");
+    } else if (!firestoreOnline) {
+      setStatus("📶 <strong>Sinyal zayıf, konum gönderilemiyor.</strong> Bağlantı düzelince otomatik olarak devam edecek.", "err");
+    } else if (document.visibilityState === "visible") {
+      setStatus('<span class="pulse"></span>Konum paylaşılıyor…', "ok");
+    }
+  }
+
+  window.addEventListener("online", function () {
+    deviceOnline = true;
+    updateConnectionStatusUI();
+  });
+  window.addEventListener("offline", function () {
+    deviceOnline = false;
+    updateConnectionStatusUI();
+  });
+
   // Sekme görünürlüğü değiştiğinde: (a) tekrar öne geldiğinde Wake Lock'u
   // yeniden iste (tarayıcılar sekme arka plana alınınca kilidi otomatik
   // serbest bırakır) ve taze bir konum gönder; (b) arka plana alındığında
@@ -576,7 +705,7 @@
     if (!sharingActive) return;
     if (document.visibilityState === "visible") {
       requestWakeLock();
-      setStatus('<span class="pulse"></span>Konum paylaşılıyor…', "ok");
+      updateConnectionStatusUI();
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(onPosition, function () {}, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
       }
@@ -676,11 +805,14 @@
     setStatus("Konum izni isteniyor…", "wait");
     sharingActive = true;
     wasStopped = false;
+    deviceOnline = navigator.onLine;
+    firestoreOnline = true;
     helpBtn.style.display = helpRequestActive ? "none" : "block";
     // Wake Lock isteği kullanıcı tıklamasından (gesture) doğan zincirin
     // içinde kaldığı için burada güvenle yapılabilir.
     requestWakeLock();
     updateBgWarning();
+    updateBatteryWarningUI();
 
     watchId = navigator.geolocation.watchPosition(onPosition, onPositionError, {
       enableHighAccuracy: true,
@@ -716,8 +848,12 @@
   var revokeUnsub = null;
   function watchForRevoke() {
     if (revokeUnsub || !docRef) return;
-    revokeUnsub = docRef.onSnapshot(function (snap) {
+    revokeUnsub = docRef.onSnapshot({ includeMetadataChanges: true }, function (snap) {
       if (!sharingActive) return;
+      // Bağlantı durumu — bkz. yukarıdaki "Bağlantı durumu" bölümündeki not.
+      var wasFirestoreOnline = firestoreOnline;
+      firestoreOnline = !snap.metadata.fromCache;
+      if (firestoreOnline !== wasFirestoreOnline) updateConnectionStatusUI();
       if (snap.exists && snap.data().revoked === true) {
         stopSharing(true);
         return;
@@ -746,9 +882,7 @@
     startBtn.style.display = "none";
     stopBtn.style.display = "block";
     helpBtn.style.display = helpRequestActive ? "none" : "block";
-    if (document.visibilityState === "visible") {
-      setStatus('<span class="pulse"></span>Konum paylaşılıyor…', "ok");
-    }
+    updateConnectionStatusUI();
     updateBgWarning();
 
     // ---------- Duruyor / gidiyor tespiti ----------
@@ -1029,6 +1163,8 @@
     }
     releaseWakeLock();
     updateBgWarning();
+    updateBatteryWarningUI();
+    lastOverLimitVibrateMs = 0;
     stopBtn.style.display = "none";
     startBtn.style.display = "block";
     startBtn.disabled = false;
