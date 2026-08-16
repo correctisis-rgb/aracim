@@ -676,6 +676,8 @@
   // alınamıyor" değil.
   var deviceOnline = navigator.onLine;
   var firestoreOnline = true;
+  var hasReceivedFirstFix = false;
+  var searchingGpsTimeoutId = null;
 
   function updateConnectionStatusUI() {
     if (!sharingActive) return;
@@ -807,12 +809,31 @@
     wasStopped = false;
     deviceOnline = navigator.onLine;
     firestoreOnline = true;
+    hasReceivedFirstFix = false;
     helpBtn.style.display = helpRequestActive ? "none" : "block";
     // Wake Lock isteği kullanıcı tıklamasından (gesture) doğan zincirin
     // içinde kaldığı için burada güvenle yapılabilir.
     requestWakeLock();
     updateBgWarning();
     updateBatteryWarningUI();
+
+    // Tarayıcı izin isteğini gösterip kullanıcı "İzin Ver"e bastığı anda
+    // watchPosition() teknik olarak "başlamış" olur ama ilk GPS noktası
+    // (özellikle bina içi/zayıf sinyalde) gelene kadar birkaç saniye
+    // sürebilir. O aralıkta ekranda hâlâ "Konum izni isteniyor…" yazması
+    // şoförü "acaba butona tekrar mı basmalıyım" diye tereddütte
+    // bırakabiliyordu. Kısa bir gecikmeyle (izin isteminin kendisi de
+    // biraz sürdüğü için) ara bir "GPS sinyali aranıyor…" durumuna
+    // geçiyoruz; ilk GPS noktası gelince onPosition() zaten kendi
+    // durumunu (updateConnectionStatusUI) yazacağı için bu zamanlayıcının
+    // hiçbir etkisi kalmaz.
+    if (searchingGpsTimeoutId) clearTimeout(searchingGpsTimeoutId);
+    searchingGpsTimeoutId = setTimeout(function () {
+      searchingGpsTimeoutId = null;
+      if (sharingActive && !hasReceivedFirstFix) {
+        setStatus('<span class="pulse"></span>GPS sinyali aranıyor…', "wait");
+      }
+    }, 1500);
 
     watchId = navigator.geolocation.watchPosition(onPosition, onPositionError, {
       enableHighAccuracy: true,
@@ -879,6 +900,8 @@
     // "Paylaşım durduruldu" yazısıyla birlikte hâlâ aktif görünen butonların
     // asıl sebebi buydu. sharingActive false ise pingi tamamen yok sayıyoruz.
     if (!sharingActive) return;
+    hasReceivedFirstFix = true;
+    if (searchingGpsTimeoutId) { clearTimeout(searchingGpsTimeoutId); searchingGpsTimeoutId = null; }
     startBtn.style.display = "none";
     stopBtn.style.display = "block";
     helpBtn.style.display = helpRequestActive ? "none" : "block";
@@ -1142,21 +1165,45 @@
     return p;
   }
 
+  var positionRetryTimeoutId = null;
+  var POSITION_RETRY_DELAY_MS = 4000;
+
   function onPositionError(err) {
     console.error(err);
     if (!sharingActive) return; // bkz. onPosition() üstündeki not — geç gelen ping/hata yok sayılır
     startBtn.disabled = false;
     if (err.code === err.PERMISSION_DENIED) {
       setStatus("Konum izni reddedildi. Paylaşabilmek için tarayıcı ayarlarından konum iznini açman gerekiyor.", "err");
-    } else {
-      setStatus("Konum alınamadı. Lütfen tekrar dene.", "err");
+      return;
     }
+    // TIMEOUT (ve konum bilgisinin geçici olarak alınamadığı diğer
+    // durumlar): izin reddi değil, sadece o anki GPS denemesi sonuçsuz
+    // kaldı — genelde bina içi/tünel/zayıf sinyalde olur. Bu durumda
+    // şoförü "tekrar dene" butonuna basmaya zorlamak yerine birkaç saniye
+    // sonra kendimiz otomatik olarak tek seferlik yeni bir konum denemesi
+    // başlatıyoruz; watchPosition zaten arka planda çalışmaya devam
+    // ediyor, bu sadece daha hızlı bir ilk/yeni fix almak için ek bir it.
+    if (err.code === err.TIMEOUT) {
+      setStatus('<span class="pulse"></span>GPS sinyali aranıyor… (sinyal zayıf olabilir)', "wait");
+      if (positionRetryTimeoutId) clearTimeout(positionRetryTimeoutId);
+      positionRetryTimeoutId = setTimeout(function () {
+        positionRetryTimeoutId = null;
+        if (!sharingActive || hasReceivedFirstFix) return;
+        navigator.geolocation.getCurrentPosition(onPosition, function () {}, {
+          enableHighAccuracy: true, maximumAge: 0, timeout: 15000
+        });
+      }, POSITION_RETRY_DELAY_MS);
+      return;
+    }
+    setStatus("Konum alınamadı. Lütfen tekrar dene.", "err");
   }
 
   function stopSharing(remote) {
     if (!sharingActive) return; // zaten durdurulmuş (çift tetiklenmeyi önler)
     sharingActive = false;
     unwatchForRevoke();
+    if (searchingGpsTimeoutId) { clearTimeout(searchingGpsTimeoutId); searchingGpsTimeoutId = null; }
+    if (positionRetryTimeoutId) { clearTimeout(positionRetryTimeoutId); positionRetryTimeoutId = null; }
     if (watchId !== null) {
       navigator.geolocation.clearWatch(watchId);
       watchId = null;
