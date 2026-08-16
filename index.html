@@ -1145,7 +1145,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.9.1"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.9.2"; // Dynamic Version Tracking
   var APP_UPDATED = "16 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -2790,6 +2790,31 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return (Date.now() - ms) < DRIVER_LOCATION_STALE_MS;
   }
 
+  // Bir paylaşım pasif görünüyorsa (elle durdurulmuş ya da 3 dk'dır
+  // güncellenmiyor), NEDEN pasif olduğuna dair kısa bir ipucu üretir.
+  // loc.connectionStatus alanı konum.html tarafından her başarılı GPS
+  // ping'inde yazılır ("online"/"weak"/"offline") — cihaz tamamen
+  // offline olduğu anı yakalayamaz (o an sunucuya hiçbir şey yazılamaz)
+  // ama kopmadan hemen önceki son bilinen durumu miras bırakır. Bu
+  // yüzden kesin bir teşhis değil, bir ipucudur.
+  function driverInactiveShortLabelTR(loc) {
+    if (!loc) return "Pasif";
+    if (loc.active === false) return "Durduruldu";
+    if (loc.connectionStatus === "offline") return "Bağlantısı kesildi";
+    if (loc.connectionStatus === "weak") return "Sinyali zayıftı";
+    return "Aktif değil";
+  }
+  // Aynı ipucunu daha uzun/açıklayıcı bir cümle olarak döner; connectionStatus
+  // bilinmiyorsa (ör. bu özellikten önce oluşturulmuş bir paylaşım, ya da
+  // uygulama/sekme aniden kapandığı için son ping hiç "weak" göstermedi)
+  // çağıranın verdiği genel fallback metnini kullanır.
+  function driverInactiveHintTR(loc, fallbackText) {
+    if (!loc || loc.active === false) return fallbackText;
+    if (loc.connectionStatus === "offline") return "🔌 Şoförün bağlantısı kesilmiş görünüyor (son bilinen durum).";
+    if (loc.connectionStatus === "weak") return "📶 Şoförün sinyali zayıftı (son bilinen durum).";
+    return fallbackText;
+  }
+
   var haritaMap = null;
   var haritaMarkers = {}; // shareId -> L.Marker
   var haritaGeofenceLayers = {}; // geofence id -> { circle: L.Circle, marker: L.Marker }
@@ -2934,7 +2959,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   function haritaDriverMetaText(loc, active) {
     if (!loc) return "Henüz konum gelmedi, şoförün linke tıklaması gerekiyor.";
-    if (!active) return "Son paylaşım: " + timeAgoTR(loc.updatedAt) + " (şu an aktif değil)";
+    if (!active) return driverInactiveShortLabelTR(loc) + " · Son paylaşım: " + timeAgoTR(loc.updatedAt);
     return haritaSpeedMovementText(loc) + " · Son güncelleme: " + timeAgoTR(loc.updatedAt);
   }
 
@@ -3171,7 +3196,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         haritaMarkers[d.shareId] = L.marker([loc.lat, loc.lng], { icon: icon }).addTo(haritaMap);
       }
       var popupHtml = '<strong>' + esc(d.name) + '</strong><br/>' +
-        (active ? "🟢 Aktif" : "⚪ Durduruldu") + " · " + esc(timeAgoTR(loc.updatedAt)) +
+        (active ? "🟢 Aktif" : "⚪ " + esc(driverInactiveShortLabelTR(loc))) + " · " + esc(timeAgoTR(loc.updatedAt)) +
         (active ? "<br/>" + esc(haritaSpeedMovementText(loc)) : "");
       if (sos) {
         popupHtml += '<div style="margin-top:6px; color:#dc2626; font-weight:700">🆘 Yardım istiyor · ' + esc(timeAgoTR(loc.helpRequestedAt)) + '</div>';
@@ -8092,7 +8117,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       html += '<p class="field-hint" style="margin-top:-4px">Bu şoför için bir konum paylaşım linki oluştur. Linki şoföre gönder; şoför linke tıklayıp konum izni verdiğinde konumu bu ekranda ve 🗺️ Harita sekmesinde canlı görünür. Şoförün uygulamaya giriş yapması gerekmiyor.</p>';
       html += '<button type="button" class="btn-primary full" data-action="driver-share-start" data-id="' + d.id + '">🔗 Paylaşım Linki Oluştur</button>';
     } else {
-      html += '<p class="field-hint" style="margin-top:-4px">' + (active ? "🟢 Şoför şu anda konum paylaşıyor." : (loc ? "⚪ Paylaşım linki oluşturuldu ama şoför henüz konum paylaşmaya başlamadı ya da paylaşımı durdurdu." : "⚪ Paylaşım linki oluşturuldu, şoförün linke tıklayıp izin vermesi bekleniyor.")) + '</p>';
+      html += '<p class="field-hint" style="margin-top:-4px">' + (active ? "🟢 Şoför şu anda konum paylaşıyor." : (loc ? "⚪ " + driverInactiveHintTR(loc, "Paylaşım linki oluşturuldu ama şoför henüz konum paylaşmaya başlamadı ya da paylaşımı durdurdu.") : "⚪ Paylaşım linki oluşturuldu, şoförün linke tıklayıp izin vermesi bekleniyor.")) + '</p>';
       html += '<div class="qr-code-text" id="driver-share-url-text">' + esc(shareUrl) + '</div>';
       html += '<div class="budget-row">' +
         '<button type="button" class="btn-secondary full" id="driver-share-copy">📋 Linki Kopyala</button>' +
