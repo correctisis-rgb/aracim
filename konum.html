@@ -243,6 +243,26 @@
   // "approx" bayrağıyla, bunun yoldaki gerçek tabeladan değil genel
   // varsayılandan geldiğini arayüzde ayırt ediyoruz.
   var TR_IMPLICIT_MAXSPEED = { "TR:urban": 50, "TR:rural": 90, "TR:motorway": 120, "TR:living_street": 20 };
+
+  // OSM'de Türkiye'deki yolların büyük çoğunluğunda (özellikle mahalle/
+  // servis/tali yollarında) sayısal bir "maxspeed" etiketi HİÇ girilmemiş
+  // oluyor — bu bir sorgu hatası değil, harita verisindeki eksiklik. Yol
+  // etiketi (maxspeed / TR:urban vb.) hiç yoksa, Karayolları Trafik
+  // Kanunu'ndaki NET ve tartışmasız (yol tipine göre değişmeyen, şehir içi/
+  // dışı belirsizliği olmayan) varsayılan limitlere düşüyoruz:
+  //  - motorway (otoyol): kanunen sabit 120
+  //  - living_street (yaya öncelikli yol): kanunen sabit 20
+  //  - residential/service/unclassified/tertiary (mahalle/servis/tali
+  //    yollar): pratikte neredeyse her zaman yerleşim yeri İÇİ sayılır,
+  //    genel varsayılan 50
+  // primary/secondary/trunk gibi HEM şehir içi HEM şehirlerarası olabilen,
+  // bağlama göre gerçek limiti çok değişebilen yollar İÇİN bilerek bir
+  // varsayım YAPMIYORUZ — yanlış/eksik bir "50" ya da "90" göstermek,
+  // "bilinmiyor" göstermekten daha yanıltıcı olurdu.
+  var HIGHWAY_DEFAULT_MAXSPEED_TR = {
+    motorway: 120, living_street: 20,
+    residential: 50, service: 50, unclassified: 50, tertiary: 50
+  };
   var HIGHWAY_LABEL_TR = {
     motorway: "Otoyol", trunk: "Devlet Yolu", primary: "Ana Yol", secondary: "İkincil Yol",
     tertiary: "Yerel Yol", residential: "Mahalle Yolu", living_street: "Yaya Öncelikli Yol",
@@ -352,6 +372,11 @@
       var tags = best.tags || {};
       var name = tags.name || tags.ref || (HIGHWAY_LABEL_TR[tags.highway] || "Yol");
       var parsed = parseMaxSpeedTag(tags.maxspeed);
+      if (!parsed && HIGHWAY_DEFAULT_MAXSPEED_TR[tags.highway] != null) {
+        // Yolda hiçbir maxspeed/TR:* etiketi yok; yukarıdaki net/tartışmasız
+        // yol-tipi varsayımına düş (approx:true — arayüzde "~" ile gösterilir).
+        parsed = { kmh: HIGHWAY_DEFAULT_MAXSPEED_TR[tags.highway], approx: true };
+      }
       return { name: name, maxspeedKmh: parsed ? parsed.kmh : null, approx: parsed ? parsed.approx : false };
     });
   }
