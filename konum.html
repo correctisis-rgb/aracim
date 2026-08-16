@@ -794,6 +794,7 @@
       sessionDistanceKm += haversineKm(prevSpeedFix.lat, prevSpeedFix.lng, pos.coords.latitude, pos.coords.longitude);
     }
     updateStatsUI(speedKmh);
+    trackSpeedViolation(pos.coords.latitude, pos.coords.longitude, speedKmh);
     maybeQueryRoadInfo(pos.coords.latitude, pos.coords.longitude);
 
     var patch = {
@@ -857,6 +858,72 @@
   var TRIP_POINT_MIN_DISTANCE_KM = 0.025; // veya en az 25 m hareket ettiyse
   var TRIP_MAX_POINTS = 500; // çok uzun yolculuklarda doküman şişmesin diye seyreltilir
 
+  // ---------- Hız limiti aşımı günlüğü ----------
+  // Bilinen bir yol hız limiti (lastRoadInfo.maxspeedKmh — gerçek tabela ya
+  // da net yol-tipi varsayımı) 5 km/s toleransla aşıldığında, TEK TEK
+  // GPS pinglerini değil, aşımın "başladığı andan bittiği ana kadarki"
+  // aralığı driverLocations/{shareId}/speedViolations altına kaydediyoruz.
+  // Aşım sürdükçe ayrı bir doküman açmak yerine AYNI dokümanı merge:true
+  // ile güncelleyip endedAt/maxKmh alanlarını tazeliyoruz — böylece 60 km/s
+  // limitte 5 dakika 70 km/s giden bir şoför için tek bir satır oluşur,
+  // yüzlerce değil. Aşım biter bitmez (hız limitin altına düşer/limit
+  // bilinmeyen bir yola geçilir/yolculuk sona erer) doküman kapatılır.
+  var currentViolationRef = null;
+  var currentViolationStartedAtMs = 0;
+  var currentViolationMaxKmh = 0;
+  var currentViolationLimitKmh = 0;
+  var currentViolationRoadName = "";
+  var VIOLATION_MIN_DURATION_MS = 4000; // 4 sn'den kısa anlık GPS sıçramalarını günlüğe yazma
+
+  function trackSpeedViolation(lat, lng, speedKmh) {
+    var limit = lastRoadInfo && typeof lastRoadInfo.maxspeedKmh === "number" ? lastRoadInfo.maxspeedKmh : null;
+    var isOver = limit != null && speedKmh > limit + 5;
+    var nowMs = Date.now();
+
+    if (isOver) {
+      if (!currentViolationRef) {
+        // Yeni aşım başlıyor: hemen Firestore'a yazmıyoruz, süresi
+        // VIOLATION_MIN_DURATION_MS'i geçerse (aşağıdaki devam bloğunda)
+        // ilk yazmayı yapıyoruz — böylece anlık GPS sıçramaları (ör. tek
+        // bir yanlış hızlı ping) günlüğü kirletmiyor.
+        currentViolationStartedAtMs = nowMs;
+        currentViolationMaxKmh = speedKmh;
+        currentViolationLimitKmh = limit;
+        currentViolationRoadName = (lastRoadInfo && lastRoadInfo.name) || "Bilinmeyen yol";
+        currentViolationRef = docRef.collection("speedViolations").doc();
+        currentViolationRef._pendingLat = lat;
+        currentViolationRef._pendingLng = lng;
+        return;
+      }
+      if (speedKmh > currentViolationMaxKmh) currentViolationMaxKmh = speedKmh;
+      var durationMs = nowMs - currentViolationStartedAtMs;
+      if (durationMs < VIOLATION_MIN_DURATION_MS) return;
+      currentViolationRef.set({
+        lat: currentViolationRef._pendingLat || lat,
+        lng: currentViolationRef._pendingLng || lng,
+        roadName: currentViolationRoadName,
+        limitKmh: currentViolationLimitKmh,
+        maxKmh: currentViolationMaxKmh,
+        startedAt: firebase.firestore.Timestamp.fromMillis(currentViolationStartedAtMs),
+        endedAt: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true }).catch(function (err) { console.error("hız aşımı kaydı hatası", err); });
+    } else if (currentViolationRef) {
+      endCurrentViolation();
+    }
+  }
+
+  function endCurrentViolation() {
+    if (!currentViolationRef) return;
+    var durationMs = Date.now() - currentViolationStartedAtMs;
+    var ref = currentViolationRef;
+    currentViolationRef = null;
+    // Doküman hiç yazılmamışsa (4 sn eşiğine ulaşmadan aşım bitti) hiçbir
+    // şey yapmaya gerek yok — zaten Firestore'a hiç yazılmadı.
+    if (durationMs < VIOLATION_MIN_DURATION_MS) return;
+    ref.set({ endedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true })
+      .catch(function (err) { console.error("hız aşımı kapatma hatası", err); });
+  }
+
   function haversineKm(lat1, lng1, lat2, lng2) {
     var R = 6371;
     var dLat = (lat2 - lat1) * Math.PI / 180;
@@ -917,6 +984,7 @@
 
   function endCurrentTrip() {
     if (!currentTripRef) return Promise.resolve();
+    endCurrentViolation(); // yolculuk (dolayısıyla hareket) bitiyorsa açık bir aşım da bitmiş sayılır
     var ref = currentTripRef;
     // Hiç ikinci bir nokta kaydedilmemiş (gerçek hareket doğrulanmamış)
     // ya da mesafesi ölçüm hatası düzeyinde (<50 m) bir "yolculuk" ise,
