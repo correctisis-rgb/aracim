@@ -1145,7 +1145,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.9.3"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.9.4"; // Dynamic Version Tracking
   var APP_UPDATED = "17 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -3049,6 +3049,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         (todayTxt ? '<div class="err-item-meta harita-today-summary">' + esc(todayTxt) + '</div>' : '') +
         (loc && loc.helpRequestActive ? '<div class="err-item-meta" style="margin-top:6px; padding:8px 10px; border-radius:8px; background:rgba(220,38,38,.18); border:1px solid var(--danger,#dc2626); color:var(--danger,#dc2626); font-weight:600; display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap">' +
           '<span>🆘 Yardım istiyor' + (loc.helpRequestedAt ? ' · ' + timeAgoTR(loc.helpRequestedAt) : '') + '</span>' +
+          (d.phone ? '<a href="tel:' + esc(d.phone.replace(/\s+/g, "")) + '" style="display:inline-flex; align-items:center; gap:4px; padding:4px 8px; border-radius:6px; background:var(--danger,#dc2626); color:#fff; font-weight:700; font-size:12px; text-decoration:none; white-space:nowrap">📞 ' + esc(d.phone) + '</a>' : '') +
           (loc.helpAcknowledgedAt
             ? '<span style="font-weight:500; font-size:12px">✅ Bilgilendirildi · ' + timeAgoTR(loc.helpAcknowledgedAt) + '</span>'
             : '<button type="button" class="btn-secondary" style="padding:4px 8px; font-size:12px" data-action="ack-help-request-row" data-share-id="' + esc(d.shareId) + '">✅ Yardıma geliyorum</button>') +
@@ -3200,6 +3201,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         (active ? "<br/>" + esc(haritaSpeedMovementText(loc)) : "");
       if (sos) {
         popupHtml += '<div style="margin-top:6px; color:#dc2626; font-weight:700">🆘 Yardım istiyor · ' + esc(timeAgoTR(loc.helpRequestedAt)) + '</div>';
+        if (d.phone) {
+          popupHtml += '<a href="tel:' + esc(d.phone.replace(/\s+/g, "")) + '" style="display:inline-flex; align-items:center; gap:4px; margin-top:4px; padding:4px 8px; border-radius:6px; background:#dc2626; color:#fff; font-weight:700; font-size:12px; text-decoration:none">📞 ' + esc(d.phone) + ' Ara</a>';
+        }
         if (loc.helpAcknowledgedAt) {
           popupHtml += '<div style="margin-top:2px; font-size:12px; color:var(--muted)">✅ Bilgilendirildi: ' + esc(timeAgoTR(loc.helpAcknowledgedAt)) + '</div>';
         } else {

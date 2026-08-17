@@ -102,9 +102,17 @@
   }
   .speed-hero-value {
     font-size: 46px; font-weight: 800; line-height: 1; color: #f2f2f2;
-    font-variant-numeric: tabular-nums; transition: color 0.25s ease;
+    font-variant-numeric: tabular-nums; transition: color 0.25s ease, font-size 0.25s ease;
   }
   .speed-hero-unit { font-size: 12px; color: #8b909c; margin-top: 5px; letter-spacing: 0.05em; text-transform: uppercase; }
+  /* Paylaşım başlayınca üstteki açıklama metni kaybolur; boşalan yeri
+     hız kutusuna vermek için büyütülmüş hâli (bkz. #intro.hidden ile
+     birlikte eklenen "sharing" class'ı). */
+  .speed-hero.sharing { padding: 26px 10px; }
+  .speed-hero.sharing .speed-hero-value { font-size: 58px; }
+  .speed-hero.sharing .speed-hero-unit { font-size: 13px; margin-top: 7px; }
+  #intro { transition: opacity 0.2s ease, max-height 0.25s ease, margin 0.25s ease; overflow: hidden; }
+  #intro.hidden { opacity: 0; max-height: 0; margin: 0; }
   .speed-hero.stopped .speed-hero-value { color: #8b909c; }
   .speed-hero.over-limit { background: #331414; box-shadow: 0 0 0 2px #f87171 inset; }
   .speed-hero.over-limit .speed-hero-value { color: #f87171; }
@@ -201,6 +209,7 @@
 
   var titleEl = document.getElementById("title");
   var introEl = document.getElementById("intro");
+  var speedHeroEl = document.getElementById("speedHero");
   var statusBox = document.getElementById("statusBox");
   var startBtn = document.getElementById("startBtn");
   var stopBtn = document.getElementById("stopBtn");
@@ -210,7 +219,6 @@
   var bgWarningEl = document.getElementById("bgWarning");
   var batteryWarningEl = document.getElementById("batteryWarning");
   var statsBox = document.getElementById("statsBox");
-  var speedHeroEl = document.getElementById("speedHero");
   var statSpeedEl = document.getElementById("statSpeed");
   var statDistanceEl = document.getElementById("statDistance");
   var statDurationEl = document.getElementById("statDuration");
@@ -869,6 +877,10 @@
 
   function beginGeolocationSharing() {
     setStatus("Konum izni isteniyor…", "wait");
+    // Paylaşım başladığından, ekranda yer kaplayan açıklama metnini
+    // gizleyip o alanı anlık hız/yol limiti kutusuna bırakıyoruz.
+    introEl.classList.add("hidden");
+    speedHeroEl.classList.add("sharing");
     sharingActive = true;
     wasStopped = false;
     deviceOnline = navigator.onLine;
@@ -1298,6 +1310,8 @@
     stopBtn.style.display = "none";
     startBtn.style.display = "block";
     startBtn.disabled = false;
+    introEl.classList.remove("hidden");
+    speedHeroEl.classList.remove("sharing");
     setStatus(remote ? "Paylaşım hane tarafından durduruldu…" : "Paylaşım durduruluyor…", "wait");
     statsBox.classList.remove("show");
     helpBtn.style.display = "none";
