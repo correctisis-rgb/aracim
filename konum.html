@@ -140,6 +140,13 @@
   </div>
   <button id="startBtn" class="btn-start" style="display:none">Paylaşımı Başlat</button>
   <button id="stopBtn" class="btn-stop" style="display:none">Paylaşımı Durdur</button>
+  <div id="stopConfirmPanel" class="help-panel">
+    <p>Paylaşımı durdurmak istediğine emin misin? Hane, konumunu bir daha göremeyecek.</p>
+    <div class="help-panel-row">
+      <button type="button" id="stopConfirmBtn" class="help-confirm-btn">Evet, Durdur</button>
+      <button type="button" id="stopCancelBtn" class="help-cancel-btn">Vazgeç</button>
+    </div>
+  </div>
   <div id="restReminder" class="rest-reminder">
     <span id="restReminderText">☕ Uzun süredir kesintisiz yoldasın. Kısa bir mola vermeyi düşün.</span>
     <button type="button" id="restReminderDismiss" class="rest-reminder-dismiss">Mola Verdim</button>
@@ -187,6 +194,9 @@
   var statusBox = document.getElementById("statusBox");
   var startBtn = document.getElementById("startBtn");
   var stopBtn = document.getElementById("stopBtn");
+  var stopConfirmPanel = document.getElementById("stopConfirmPanel");
+  var stopConfirmBtn = document.getElementById("stopConfirmBtn");
+  var stopCancelBtn = document.getElementById("stopCancelBtn");
   var bgWarningEl = document.getElementById("bgWarning");
   var batteryWarningEl = document.getElementById("batteryWarning");
   var statsBox = document.getElementById("statsBox");
@@ -583,7 +593,7 @@
     helpAckText.classList.toggle("show", acknowledged);
   }
 
-  helpBtn.addEventListener("click", function () { helpPanel.classList.add("show"); });
+  helpBtn.addEventListener("click", function () { stopConfirmPanel.classList.remove("show"); helpPanel.classList.add("show"); });
   helpCancelBtn.addEventListener("click", function () { helpPanel.classList.remove("show"); });
 
   helpConfirmBtn.addEventListener("click", function () {
@@ -790,7 +800,12 @@
     introEl.innerHTML = "Konumunu paylaşmak için aşağıdaki düğmeye bas. Konumun sadece seni davet eden kişi tarafından görülebilir.";
     startBtn.style.display = "block";
     startBtn.addEventListener("click", startSharing);
-    stopBtn.addEventListener("click", function () { stopSharing(false); });
+    stopBtn.addEventListener("click", function () { helpPanel.classList.remove("show"); stopConfirmPanel.classList.add("show"); });
+    stopCancelBtn.addEventListener("click", function () { stopConfirmPanel.classList.remove("show"); });
+    stopConfirmBtn.addEventListener("click", function () {
+      stopConfirmPanel.classList.remove("show");
+      stopSharing(false);
+    });
   }
 
   function startSharing() {
@@ -1275,6 +1290,7 @@
     statsBox.classList.remove("show");
     helpBtn.style.display = "none";
     helpPanel.classList.remove("show");
+    stopConfirmPanel.classList.remove("show");
     hideRestReminder();
     if (durationTimerId) { clearInterval(durationTimerId); durationTimerId = null; }
     sessionStartMs = null;
