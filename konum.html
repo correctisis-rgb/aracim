@@ -69,9 +69,15 @@
     background: #331414; color: #f87171; border: 1px solid #f87171; margin-top: 10px;
   }
   .help-panel {
-    margin-top: 10px; padding: 14px; border-radius: 10px; background: #22262f; display: none; text-align: left;
+    display: none; position: fixed; inset: 0; z-index: 1000;
+    align-items: center; justify-content: center; padding: 20px;
+    background: rgba(0,0,0,0.6);
   }
-  .help-panel.show { display: block; }
+  .help-panel.show { display: flex; }
+  .help-panel-box {
+    width: 100%; max-width: 360px; padding: 18px; border-radius: 14px; background: #22262f;
+    text-align: left; box-shadow: 0 10px 40px rgba(0,0,0,0.5); animation: fadeIn 0.15s ease-out;
+  }
   .help-panel p { margin: 0 0 10px; color: #f2f2f2; font-size: 13.5px; }
   .help-panel-row { display: flex; gap: 8px; }
   .help-panel-row button { margin-top: 0; }
@@ -141,10 +147,12 @@
   <button id="startBtn" class="btn-start" style="display:none">Paylaşımı Başlat</button>
   <button id="stopBtn" class="btn-stop" style="display:none">Paylaşımı Durdur</button>
   <div id="stopConfirmPanel" class="help-panel">
-    <p>Paylaşımı durdurmak istediğine emin misin? Hane, konumunu bir daha göremeyecek.</p>
-    <div class="help-panel-row">
-      <button type="button" id="stopConfirmBtn" class="help-confirm-btn">Evet, Durdur</button>
-      <button type="button" id="stopCancelBtn" class="help-cancel-btn">Vazgeç</button>
+    <div class="help-panel-box">
+      <p>Paylaşımı durdurmak istediğine emin misin? Hane, konumunu bir daha göremeyecek.</p>
+      <div class="help-panel-row">
+        <button type="button" id="stopConfirmBtn" class="help-confirm-btn">Evet, Durdur</button>
+        <button type="button" id="stopCancelBtn" class="help-cancel-btn">Vazgeç</button>
+      </div>
     </div>
   </div>
   <div id="restReminder" class="rest-reminder">
@@ -159,10 +167,12 @@
   </div>
   <button type="button" id="helpBtn" class="help-btn" style="display:none">🆘 Yardım Gerekiyor</button>
   <div id="helpPanel" class="help-panel">
-    <p>Haneye "yardım gerekiyor" bildirimi gönderilsin mi?</p>
-    <div class="help-panel-row">
-      <button type="button" id="helpConfirmBtn" class="help-confirm-btn">Evet, Gönder</button>
-      <button type="button" id="helpCancelBtn" class="help-cancel-btn">Vazgeç</button>
+    <div class="help-panel-box">
+      <p>Haneye "yardım gerekiyor" bildirimi gönderilsin mi?</p>
+      <div class="help-panel-row">
+        <button type="button" id="helpConfirmBtn" class="help-confirm-btn">Evet, Gönder</button>
+        <button type="button" id="helpCancelBtn" class="help-cancel-btn">Vazgeç</button>
+      </div>
     </div>
   </div>
   <div id="bgWarning" class="bg-warning"></div>
@@ -595,6 +605,8 @@
 
   helpBtn.addEventListener("click", function () { stopConfirmPanel.classList.remove("show"); helpPanel.classList.add("show"); });
   helpCancelBtn.addEventListener("click", function () { helpPanel.classList.remove("show"); });
+  helpPanel.addEventListener("click", function (e) { if (e.target === helpPanel) helpPanel.classList.remove("show"); });
+  stopConfirmPanel.addEventListener("click", function (e) { if (e.target === stopConfirmPanel) stopConfirmPanel.classList.remove("show"); });
 
   helpConfirmBtn.addEventListener("click", function () {
     if (!docRef) return;
