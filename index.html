@@ -1145,8 +1145,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.9.2"; // Dynamic Version Tracking
-  var APP_UPDATED = "16 Ağustos 2026";
+  var APP_VERSION = "v2.9.3"; // Dynamic Version Tracking
+  var APP_UPDATED = "17 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -3665,6 +3665,26 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     });
     if (bounds.length === 1) routeReportMap.setView(bounds[0], 14);
     else if (bounds.length > 1) routeReportMap.fitBounds(bounds, { padding: [24, 24], maxZoom: 16 });
+
+    // ---------- Seçili hız aşımı işaretçisi ----------
+    // Bir aşıma tıklanınca, o aşımın başladığı noktayı haritada kırmızı bir
+    // işaretçiyle gösterip haritayı oraya odaklıyoruz — mevcut yolculuk
+    // çizimini (varsa) değiştirmeden, sadece üzerine ekliyoruz.
+    var violations = (state.modal && state.modal.speedViolations) || [];
+    var selViolIdx = (state.modal && typeof state.modal.selectedViolationIdx === "number") ? state.modal.selectedViolationIdx : null;
+    var selViol = selViolIdx != null ? violations[selViolIdx] : null;
+    if (selViol && typeof selViol.lat === "number" && typeof selViol.lng === "number") {
+      var violMarker = L.circleMarker([selViol.lat, selViol.lng], {
+        radius: 9, color: "#fff", weight: 2, fillColor: "#dc2626", fillOpacity: 1
+      }).bindTooltip(
+        "🚨 " + (selViol.roadName || "Bilinmeyen yol") + " · Maks " + (selViol.maxKmh || 0) + " km/s" +
+        (typeof selViol.limitKmh === "number" ? " (limit " + selViol.limitKmh + " km/s)" : ""),
+        { direction: "top" }
+      ).addTo(routeReportMap);
+      routeReportLayers.push(violMarker);
+      routeReportMap.setView([selViol.lat, selViol.lng], 16);
+      violMarker.openTooltip();
+    }
   }
   function bindDriverRouteReportModal() {
     if (!state.modal || state.modal.type !== "driverRouteReport") return;
@@ -3677,6 +3697,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         state.modal.date = newDate;
         state.modal.trips = null;
         state.modal.selectedTripIdx = null;
+        state.modal.selectedViolationIdx = null;
         render();
         loadDriverRouteReport(state.modal.shareIds || [state.modal.shareId], newDate);
       });
@@ -3757,14 +3778,24 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       // trips ile bağımsız bir veri kaynağı olduğu için bu tarihte
       // yolculuk kaydı olsa bile (hiç aşım yapılmadıysa) burası boş
       // görünebilir — bu normaldir, hata değildir.
+      var selViolIdx = (typeof m.selectedViolationIdx === "number") ? m.selectedViolationIdx : null;
       if (m.speedViolations && m.speedViolations.length) {
         html += '<h4 style="margin:16px 0 6px">⚠️ Hız Aşımları (' + m.speedViolations.length + ')</h4>';
+        if (selViolIdx != null) {
+          html += '<button type="button" class="btn-secondary full" style="margin-bottom:8px" data-action="select-report-violation" data-idx="-1">↺ Haritadan Kaldır</button>';
+        } else {
+          html += '<p class="field-hint" style="margin-top:-4px">Bir aşıma dokunarak haritada nerede olduğunu görebilirsin.</p>';
+        }
         html += '<ul class="err-list">';
-        m.speedViolations.forEach(function (v) {
+        m.speedViolations.forEach(function (v, vIdx) {
           var overBy = (typeof v.maxKmh === "number" && typeof v.limitKmh === "number") ? (v.maxKmh - v.limitKmh) : null;
           var durationMin = Math.max(1, Math.round((driverLocationTimestampMs(v.endedAt) - driverLocationTimestampMs(v.startedAt)) / 60000));
-          html += '<li class="err-item">' +
-            '<div class="err-item-head"><span>🚨 ' + esc(v.roadName || "Bilinmeyen yol") + '</span></div>' +
+          var hasLoc = typeof v.lat === "number" && typeof v.lng === "number";
+          var isSelViol = selViolIdx === vIdx;
+          html += '<li class="err-item' + (isSelViol ? ' err-item-selected' : '') + '"' +
+            (hasLoc ? ' style="cursor:pointer" data-action="select-report-violation" data-idx="' + vIdx + '"' : '') + '>' +
+            '<div class="err-item-head"><span>🚨 ' + esc(v.roadName || "Bilinmeyen yol") + '</span>' +
+            (hasLoc ? '<span style="font-size:11px; color:var(--muted)">📍 Haritada göster</span>' : '') + '</div>' +
             '<div class="err-item-meta" style="color:var(--danger,#dc2626); font-weight:600">' +
               'Maks ' + (v.maxKmh || 0) + ' km/s' + (overBy != null ? ' (limit ' + v.limitKmh + ' km/s, +' + overBy + ')' : '') +
             '</div>' +
@@ -12010,7 +12041,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           var reportDriver = (state.drivers || []).find(function (x) { return x.id === reportDriverId; });
           if (!reportDriver || (!reportDriver.shareId && !(reportDriver.shareIdHistory || []).length)) { toast("Bu şoför için konum paylaşımı hiç kurulmamış."); return; }
           var reportShareIds = driverAllShareIds(reportDriver);
-          state.modal = { type: "driverRouteReport", driverId: reportDriverId, shareId: reportDriver.shareId, shareIds: reportShareIds, date: todayStr(), trips: null, speedViolations: null, loading: true, error: null, availableDates: null, datesLoading: true, selectedTripIdx: null };
+          state.modal = { type: "driverRouteReport", driverId: reportDriverId, shareId: reportDriver.shareId, shareIds: reportShareIds, date: todayStr(), trips: null, speedViolations: null, loading: true, error: null, availableDates: null, datesLoading: true, selectedTripIdx: null, selectedViolationIdx: null };
           render();
           purgeOldDriverTrips(reportShareIds);
           loadDriverRouteReport(reportShareIds, state.modal.date);
@@ -12024,6 +12055,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           state.modal.trips = null;
           state.modal.speedViolations = null;
           state.modal.selectedTripIdx = null;
+          state.modal.selectedViolationIdx = null;
           render();
           loadDriverRouteReport(state.modal.shareIds || [state.modal.shareId], pickedDate);
         }
@@ -12036,6 +12068,18 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             state.modal.selectedTripIdx = null;
           } else {
             state.modal.selectedTripIdx = tripIdx;
+          }
+          render();
+        }
+        else if (action === "select-report-violation") {
+          if (!state.modal || state.modal.type !== "driverRouteReport") return;
+          var violIdx = parseInt(el.getAttribute("data-idx"), 10);
+          // Aynı aşıma tekrar tıklamak (ya da -1 = "Haritadan Kaldır"
+          // düğmesi) seçimi kaldırır — select-report-trip ile aynı desen.
+          if (isNaN(violIdx) || violIdx < 0 || state.modal.selectedViolationIdx === violIdx) {
+            state.modal.selectedViolationIdx = null;
+          } else {
+            state.modal.selectedViolationIdx = violIdx;
           }
           render();
         }
