@@ -416,23 +416,60 @@
     }).then(function () { roadQueryInFlight = false; });
   }
 
-  // ---------- Hız aşımı titreşim uyarısı ----------
+  // ---------- Hız aşımı titreşim + bip uyarısı ----------
   // Amaç: ekrandaki kırmızı renk değişimi şoförün gözünün önünde olmayabilir
   // (yola bakıyorken ekranı görmüyor). Bu yüzden aşım BAŞLADIĞI anda kısa
-  // bir titreşimle de uyarıyoruz; aşım sürerse şoförü rahatsız etmeden ama
-  // unutturmadan belirli aralıklarla tekrar ediyoruz. Vibration API iOS
-  // Safari'de desteklenmiyor — navigator.vibrate yoksa sessizce hiçbir şey
-  // yapmıyoruz.
+  // bir titreşim VE kısa bir bip sesiyle de uyarıyoruz; aşım sürerse şoförü
+  // rahatsız etmeden ama unutturmadan belirli aralıklarla tekrar ediyoruz.
+  // Vibration API iOS Safari'de desteklenmiyor — navigator.vibrate yoksa
+  // sessizce hiçbir şey yapmıyoruz. Bip sesi için harici bir ses dosyasına
+  // gerek kalmasın diye Web Audio API ile anlık üretiyoruz (offline de
+  // çalışır). Tarayıcıların "kullanıcı etkileşimi olmadan ses çalınamaz"
+  // kısıtı yüzünden AudioContext, "Paylaşımı Başlat" tıklamasının içinde
+  // (beginGeolocationSharing → initAudioContext) oluşturuluyor.
   var OVER_LIMIT_VIBRATE_INTERVAL_MS = 8000; // aşım sürdükçe en fazla ~8 sn'de bir tekrar
   var lastOverLimitVibrateMs = 0;
+  var audioCtx = null;
 
-  function maybeVibrateOverLimit(overLimit) {
-    if (!navigator.vibrate) return;
+  function initAudioContext() {
+    if (audioCtx) return;
+    var AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) return; // desteklenmiyor, sessizce geç
+    try { audioCtx = new AudioContextCtor(); } catch (e) { audioCtx = null; }
+  }
+
+  function playOverLimitBeep() {
+    if (!audioCtx) return;
+    // Bazı tarayıcılarda (özellikle iOS) context kullanıcı etkileşiminden
+    // sonra bile "suspended" başlayabiliyor — çalmadan hemen önce tekrar
+    // resume deniyoruz, aksi halde ses hiç duyulmaz.
+    if (audioCtx.state === "suspended" && audioCtx.resume) audioCtx.resume().catch(function () {});
+    try {
+      var nowT = audioCtx.currentTime;
+      var oscillator = audioCtx.createOscillator();
+      var gainNode = audioCtx.createGain();
+      oscillator.type = "square";
+      oscillator.frequency.setValueAtTime(1100, nowT);
+      // Kısa bir "attack/release" zarfı: sesin başında/sonunda ani bir
+      // tıklama sesi (click/pop) oluşmasını önler, kulağa daha temiz bir
+      // "bip" gibi gelir.
+      gainNode.gain.setValueAtTime(0, nowT);
+      gainNode.gain.linearRampToValueAtTime(0.25, nowT + 0.01);
+      gainNode.gain.linearRampToValueAtTime(0, nowT + 0.18);
+      oscillator.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      oscillator.start(nowT);
+      oscillator.stop(nowT + 0.2);
+    } catch (e) { console.warn("bip sesi çalınamadı:", e); }
+  }
+
+  function maybeAlertOverLimit(overLimit) {
     if (!overLimit) { lastOverLimitVibrateMs = 0; return; }
     var nowMs = Date.now();
     if (nowMs - lastOverLimitVibrateMs < OVER_LIMIT_VIBRATE_INTERVAL_MS) return;
     lastOverLimitVibrateMs = nowMs;
-    navigator.vibrate([200, 100, 200]);
+    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+    playOverLimitBeep();
   }
 
   function updateStatsUI(speedKmh) {
@@ -451,7 +488,7 @@
     if (roadLimitEl.textContent) {
       roadLimitEl.classList.toggle("over", overLimit);
     }
-    maybeVibrateOverLimit(overLimit);
+    maybeAlertOverLimit(overLimit);
   }
 
   // ---------- Mola hatırlatıcısı ----------
@@ -812,8 +849,11 @@
     hasReceivedFirstFix = false;
     helpBtn.style.display = helpRequestActive ? "none" : "block";
     // Wake Lock isteği kullanıcı tıklamasından (gesture) doğan zincirin
-    // içinde kaldığı için burada güvenle yapılabilir.
+    // içinde kaldığı için burada güvenle yapılabilir. AudioContext de aynı
+    // sebeple burada oluşturuluyor — tarayıcılar kullanıcı etkileşimi
+    // olmadan ses çalınmasını engelliyor.
     requestWakeLock();
+    initAudioContext();
     updateBgWarning();
     updateBatteryWarningUI();
 
@@ -1220,6 +1260,14 @@
     updateBgWarning();
     updateBatteryWarningUI();
     lastOverLimitVibrateMs = 0;
+    if (audioCtx) {
+      // Kapatmazsak sekme açık kaldığı sürece askıda kalır; bazı
+      // tarayıcılar aynı sayfada çok fazla AudioContext açılmasından
+      // şikayet eder. Bir sonraki paylaşımda initAudioContext() zaten
+      // yeni bir tane oluşturuyor.
+      try { audioCtx.close(); } catch (e) {}
+      audioCtx = null;
+    }
     stopBtn.style.display = "none";
     startBtn.style.display = "block";
     startBtn.disabled = false;
