@@ -64,15 +64,19 @@
     <tr><td>İşlem güvenliği ve kullanım kaydı</td><td>Uygulama içi aktivite geçmişi (kim, ne zaman, hangi kaydı ekledi/değiştirdi/sildi), hata/performans günlükleri, hesap kapatma talebiniz varsa bu talebin oluşturulma zamanı ve durumu (bkz. Madde 9)</td></tr>
     <tr><td>Bildirim verisi</td><td>Push bildirim izni verdiyseniz, cihazınıza özel bildirim belirteci (FCM token)</td></tr>
     <tr><td>Teknik veri</td><td>Uygulama sürümü, çevrimiçi/çevrimdışı durum, senkronizasyon zaman bilgisi</td></tr>
+    <tr><td>Şoför belge verisi</td><td>Ehliyet sınıfı ve geçerlilik tarihi, SRC belgesi türü/geçerlilik tarihi, psikoteknik ve sağlık raporu geçerlilik tarihleri; yurt dışında çalışıyorsa pasaport ve vize bilgileri (no, geçerlilik tarihi)</td></tr>
+    <tr><td>Konum ve rota verisi (opsiyonel, açık rızaya dayalı)</td><td>Şoför/araç kullanıcısı "Konum Paylaş" özelliğini bilerek başlattığında: anlık GPS konumu (enlem/boylam), hız, yön (heading), konum doğruluğu (accuracy), yolculuk (trip) başlangıç/bitiş zamanı ve tüm rota izi (path), kat edilen mesafe; tespit edilen yol hız sınırını aşan sürüş olayları (hız aşımı: yol adı, hız limiti, ölçülen maksimum hız, aşımın başlangıç/bitiş zamanı ve süresi); paylaşım sırasında cihazın pil seviyesi/şarj durumu ve bağlantı durumu (çevrimiçi/çevrimdışı/zayıf sinyal); şoförün elle tetiklediği "Yardım İste" bildirimi ve bu bildirimin hane tarafından onaylanma zamanı.</td></tr>
   </table>
-  <p>Uygulama; konum, kamera görüntüsü (fotoğraf çekimi hariç canlı kamera erişimi QR kod okutma amacıyla sınırlıdır) veya sağlık verisi gibi özel nitelikli kişisel veri toplamaz.</p>
+  <p>Uygulama; kamera görüntüsü (fotoğraf çekimi hariç canlı kamera erişimi QR kod okutma amacıyla sınırlıdır) veya sağlık durumu/teşhis bilgisi gibi özel nitelikli kişisel veri toplamaz. Ehliyet/SRC/psikoteknik/sağlık raporu/pasaport/vize alanları yalnızca bu belgelerin GEÇERLİLİK TARİHLERİNİ takip edip hatırlatma üretmek amacıyla, siz veya hane sahibi tarafından isteğe bağlı olarak girilir; belgenin kendisi (görsel/tarama) talep edilmez. Konum ve rota verisi yalnızca ilgili kullanıcı "Konum Paylaş" özelliğini kendi cihazından açık bir işlemle başlattığında toplanır; paylaşım kapatıldığında yeni konum verisi gönderilmez.</p>
 
   <h2>3. Kişisel Verilerin İşlenme Amaçları</h2>
   <ul>
     <li>Hesabınızı oluşturmak, kimliğinizi doğrulamak ve oturumunuzu güvenli şekilde yönetmek,</li>
     <li>Araç ve masraf kayıtlarınızı saklamak, listelemek, raporlamak ve cihazlar arasında senkronize etmek,</li>
-    <li>Bakım/vergi/muayene gibi vade tarihleri için hatırlatma bildirimleri göndermek,</li>
+    <li>Bakım/vergi/muayene/ehliyet/SRC/psikoteknik/sağlık raporu/pasaport/vize gibi vade tarihleri için hatırlatma bildirimleri göndermek,</li>
     <li>"Ortak Hane" özelliği ile paylaşım tercihinize bağlı olarak verilerinizi belirlediğiniz kişilerle paylaşmak,</li>
+    <li>Açık rızanızla açtığınız "Konum Paylaş" özelliğinde, aracın/şoförün canlı konumunu ve geçmiş rota/hız aşımı kayıtlarını hane içinde görüntülenebilir kılmak, hız aşımı ve "yardım iste" bildirimleri üretmek,</li>
+    <li>Talebiniz üzerine araç, şoför, masraf, bakım/onarım ve geçmiş rota verilerinizi Excel/PDF formatında dışa aktarmanızı sağlamak,</li>
     <li>Hizmetin güvenliğini sağlamak, kötüye kullanımı önlemek, hataları tespit edip gidermek,</li>
     <li>Yasal yükümlülüklerimizi yerine getirmek ve talep hâlinde yetkili mercilere bilgi sunmak.</li>
   </ul>
@@ -81,10 +85,11 @@
   <p>Kişisel verileriniz KVKK m.5/2 kapsamında; bir sözleşmenin (kullanıcı sözleşmesi/hizmet şartları) kurulması ve ifası için gerekli olması, veri sorumlusunun hukuki yükümlülüğünü yerine getirmesi ve meşru menfaati sebepleriyle işlenir. Zorunlu olmayan işleme faaliyetleri (ör. bildirim gönderimi) için ayrıca açık rızanız alınır. Kayıt sırasında onayladığınız bu metin, açık rızanızın kaydı olarak saklanır.</p>
 
   <h2>5. Kişisel Verilerin Aktarılması</h2>
-  <p>Uygulama; kimlik doğrulama, veritabanı ve bildirim altyapısı için Google LLC'ye ait Firebase (Authentication, Cloud Firestore, Cloud Messaging) hizmetlerini kullanır. Bu kapsamda verileriniz, Google'ın sunucularında (yurt içi ve/veya yurt dışında bulunabilir) barındırılabilir; bu, KVKK m.9 anlamında yurt dışına aktarım teşkil edebilir ve kayıt olurken onayladığınız açık rızanıza dayanılarak gerçekleştirilir. Verileriniz, yasal zorunluluk olmadıkça reklam/pazarlama amacıyla üçüncü taraflarla paylaşılmaz veya satılmaz.</p>
+  <p>Uygulama; kimlik doğrulama, veritabanı ve bildirim altyapısı için Google LLC'ye ait Firebase (Authentication, Cloud Firestore, Cloud Messaging) hizmetlerini kullanır. Bu kapsamda verileriniz, Google'ın sunucularında (yurt içi ve/veya yurt dışında bulunabilir) barındırılabilir; bu, KVKK m.9 anlamında yurt dışına aktarım teşkil edebilir ve kayıt olurken onayladığınız açık rızanıza dayanılarak gerçekleştirilir. Ayrıca, "Konum Paylaş" özelliği açıkken bulunduğunuz yolun adı ve hız sınırı bilgisini göstermek amacıyla, konumunuz OpenStreetMap tabanlı açık kaynaklı harita/yol verisi servislerine iletilir; bu sorgu, hesabınızla ilişkilendirilmeden yalnızca en yakın yol bilgisini almak için yapılır. Verileriniz, yasal zorunluluk olmadıkça reklam/pazarlama amacıyla üçüncü taraflarla paylaşılmaz veya satılmaz.</p>
 
   <h2>6. Saklama Süresi</h2>
   <p>Verileriniz, hesabınız aktif olduğu sürece veya işleme amacının gerektirdiği süre boyunca saklanır. Hesabınızı Uygulama içinden kalıcı olarak sildiğinizde, ilişkili tüm veriler (araçlar, masraflar, fotoğraflar, aktivite geçmişi) makul bir süre içinde sistemlerimizden silinir; yalnızca yasal saklama yükümlülüğü doğuran veriler (varsa) mevzuatın öngördüğü süre kadar saklanır.</p>
+  <p>Konum/rota verisi ve hız aşımı kayıtları en fazla <strong>30 gün</strong> süreyle saklanır; bu sürenin dolduğu kayıtlar, Uygulamanın normal kullanımı sırasında (ör. geçmiş rota raporunun görüntülenmesi veya harita ekranının periyodik olarak açık tutulması) otomatik olarak ve kalıcı şekilde silinir, öncesine ait bir yedek tutulmaz.</p>
   <p>İstisna: Bir "Ortak Hane"nin sahibi olarak hesabınızı kapattığınızda ve hanenizde başka üyeler varsa, veriler anında silinmez; olası bir yanlış işlemi geri almanız için 10 günlük bir bekleme süresi boyunca değişmeden saklanır (bkz. Madde 9). Bu süre boyunca veriler, hesabınız hâlâ aktifmiş gibi işlenmeye devam eder; süre dolduğunda (talep iptal edilmediyse) kalıcı olarak silinir.</p>
 
   <h2>7. Veri Güvenliği</h2>
