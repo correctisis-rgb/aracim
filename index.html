@@ -1149,7 +1149,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.9.6"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.9.7"; // Dynamic Version Tracking
   var APP_UPDATED = "18 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -3308,13 +3308,20 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // doküman sayısının Firestore'da bir üst sınırı yoktur.
   //
   // 30 GÜNDEN ESKİ VERİLERİ SİLME: Bu projede zamanlanmış bir sunucu görevi
-  // (Cloud Function) YOK — bu yüzden temizlik, birisi bir şoförün "Geçmiş
-  // Rota" raporunu her AÇTIĞINDA çalışır (aşağıda purgeOldDriverTrips).
-  // Yani otomatik/arka planda değil, "fırsat buldukça" (opportunistic) bir
-  // temizliktir: rapor hiç açılmazsa eski veriler orada kalmaya devam eder.
-  // Tam otomatik silme istenirse, bir Cloud Function + Cloud Scheduler
-  // kurulması gerekir (bu, Firebase konsolundan ayrıca kurulacak bir
-  // sunucu tarafı iş; bu dosyanın kapsamı dışında).
+  // (Cloud Function) YOK — bu yüzden temizlik istemci tarafında, "fırsat
+  // buldukça" (opportunistic) çalışır; ama tetiklendiği iki nokta var:
+  //   1) Birisi bir şoförün "Geçmiş Rota" raporunu AÇTIĞINDA — o şoförün
+  //      kayıtları temizlenir (purgeOldDriverTrips, aşağıda).
+  //   2) Harita ekranı açıkken periyodik olarak (fetchHaritaTodaySummaries,
+  //      her 2 dk'da bir) — GÖRÜNÜR TÜM şoförlerin kayıtları, günde/oturumda
+  //      en fazla bir kez, toplu olarak temizlenir (bkz.
+  //      purgeOldDriverTripsForAllVisibleDriversIfDue). Böylece kimse hiç
+  //      "Geçmiş Rota" raporunu açmasa bile, harita ekranı normal şekilde
+  //      kullanıldıkça 30 günden eski veri kendiliğinden silinir/"üzerine
+  //      yazılır" — ayrı bir Cloud Function/Scheduler kurmaya gerek kalmaz.
+  //   Not: Uygulama HİÇ açılmazsa (ne harita ne rapor) elbette hiçbir
+  //   temizlik tetiklenmez — bu, sunucu tarafı zamanlanmış görev olmadığı
+  //   sürece kaçınılmaz bir sınırdır.
   var DRIVER_TRIP_RETENTION_DAYS = 30;
 
   function purgeOldDriverTrips(shareIds) {
@@ -3533,7 +3540,30 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // kullanır, ama modal açmadan, harita ekranına girildiğinde tüm paylaşımı
   // aktif şoförler için otomatik çalışır. Sonuçlar state.haritaTodaySummaries
   // içinde shareId'ye göre önbelleklenir; bkz. init()'teki periyodik tazeleme.
+  // 30 günden eski yolculuk/hız aşımı kayıtlarını silme işlemi (bkz.
+  // purgeOldDriverTrips) daha önce SADECE birisi bir şoförün "Geçmiş Rota"
+  // penceresini açtığında çalışıyordu — o pencere hiç açılmazsa eski veri
+  // Firestore'da sonsuza dek birikirdi. Harita ekranı zaten periyodik olarak
+  // (fetchHaritaTodaySummaries üzerinden, her 2 dakikada bir) açık kalan
+  // TÜM görünür şoförler için tetiklendiği için, aynı fırsatı 30 günlük
+  // "üzerine yazma" temizliğini TÜM şoförler için de yaymak üzere kullanıyoruz.
+  // Firestore sorgu/silme maliyetini gereksiz artırmamak için bu, oturum
+  // başına ve günde en fazla bir kez çalışacak şekilde localStorage'a
+  // yazılan bir zaman damgasıyla kısıtlanıyor.
+  var DRIVER_TRIP_PURGE_MIN_INTERVAL_MS = 20 * 60 * 60 * 1000; // ~20 saat
+  function purgeOldDriverTripsForAllVisibleDriversIfDue() {
+    var lastRun = getLocalData("trip_purge_last_run", 0);
+    if (Date.now() - (lastRun || 0) < DRIVER_TRIP_PURGE_MIN_INTERVAL_MS) return;
+    setLocalData("trip_purge_last_run", Date.now());
+    var allShareIds = [];
+    (state.drivers || []).forEach(function (d) {
+      allShareIds = allShareIds.concat(driverAllShareIds(d));
+    });
+    allShareIds = allShareIds.filter(function (id, idx) { return id && allShareIds.indexOf(id) === idx; });
+    if (allShareIds.length) purgeOldDriverTrips(allShareIds);
+  }
   function fetchHaritaTodaySummaries() {
+    purgeOldDriverTripsForAllVisibleDriversIfDue();
     var driversWithShare = (visibleDriversForMe() || []).filter(function (d) { return d.shareId && d.employmentStatus !== "terminated"; });
     if (!driversWithShare.length) return;
     var todayDate = todayStr();
@@ -3762,6 +3792,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         '<div><strong>' + sum.avgSpeedKmh + ' km/s</strong><span>Ortalama hız</span></div>' +
       '</div>';
       html += '<p class="field-hint" style="margin-top:2px">*Sadece kaydedilen yolculuklar arasındaki duruşları kapsar; paylaşımın hiç açık olmadığı saatler dahil değildir.</p>';
+      html += '<button type="button" class="btn-secondary full" style="margin-top:8px" data-action="download-route-report-pdf">📄 Bu Günün PDF Raporunu İndir</button>';
       html += '<div id="route-report-map" class="harita-map-box" style="height:280px; margin-top:10px;"></div>';
       var selIdx = (typeof m.selectedTripIdx === "number") ? m.selectedTripIdx : null;
       if (selIdx != null) {
@@ -11517,6 +11548,119 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       filterFn: function (e) { return e.category === "bakim"; }
     });
   }
+  // "Geçmiş Rota" (şoför bazlı, tek günlük) raporunun PDF çıktısı. Diğer PDF
+  // raporlarıyla aynı görsel dilini (pdfAddBanner/pdfKpiCard/pdfAddFooter)
+  // kullanır; veri kaynağı olarak zaten ekranda gösterilen state.modal
+  // (m.trips, m.speedViolations, m.date) kullanılır — ayrıca bir Firestore
+  // sorgusu yapmaz, o yüzden rapor penceresi açıkken anında indirilebilir.
+  function buildPdfDriverRouteReport(driverName, m) {
+    var doc = new jspdf.jsPDF({ orientation: "landscape" });
+    doc.setFont("DejaVuSans", "normal");
+    var margin = 18;
+    var dateLabel = fmtDateTR(todayStr());
+    var trips = m.trips || [];
+    var violations = m.speedViolations || [];
+    var sum = computeRouteReportSummary(trips);
+    var dayLabel = formatShortDateTR(m.date);
+
+    pdfAddBanner(doc, {
+      title: "Garaj Defteri — Geçmiş Rota Raporu",
+      subtitle: driverName + " · " + dayLabel,
+      right: "Oluşturulma tarihi: " + dateLabel,
+      color: "#9B51E0", margin: margin
+    });
+
+    var kpiY = 46, kpiH = 34, kpiGap = 10;
+    var kpiW = (doc.internal.pageSize.getWidth() - 2 * margin - 3 * kpiGap) / 4;
+    pdfKpiCard(doc, margin, kpiY, kpiW, kpiH, "#9B51E0", "Toplam Mesafe", sum.totalDistanceKm + " km");
+    pdfKpiCard(doc, margin + (kpiW + kpiGap), kpiY, kpiW, kpiH, "#4FA8D8", "Hareket Süresi", formatMinutesTR(sum.totalMovingMin));
+    pdfKpiCard(doc, margin + 2 * (kpiW + kpiGap), kpiY, kpiW, kpiH, "#F2A93B", "Duruş Süresi", formatMinutesTR(sum.totalStoppedMin));
+    pdfKpiCard(doc, margin + 3 * (kpiW + kpiGap), kpiY, kpiW, kpiH, "#7BC67E", "Ort. Hız", sum.avgSpeedKmh + " km/s");
+
+    // ---- Yolculuklar tablosu ----
+    var tripHeaders = ["#", "Başlangıç", "Bitiş", "Mesafe", "Ort. Hız", "Maks Hız"];
+    var tripBody = trips.length
+      ? trips.map(function (t, idx) {
+          return [
+            String(idx + 1),
+            formatClockTR(t.startedAt),
+            formatClockTR(t.endedAt),
+            (typeof t.distanceKm === "number" ? t.distanceKm : 0) + " km",
+            (t.avgSpeedKmh || 0) + " km/s",
+            (typeof t.maxSpeedKmh === "number" ? t.maxSpeedKmh : 0) + " km/s"
+          ];
+        })
+      : [["—", "—", "—", "—", "—", "Bu tarihte yolculuk kaydı yok"]];
+    var tripSectionY = kpiY + kpiH + 20;
+    doc.setFont("DejaVuSans", "normal");
+    doc.setFontSize(11);
+    doc.setTextColor(27, 31, 36);
+    doc.text("🚗 Yolculuklar (" + trips.length + ")", margin, tripSectionY);
+    doc.autoTable({
+      startY: tripSectionY + 6,
+      head: [tripHeaders],
+      body: tripBody,
+      styles: { fontSize: 8.5, font: "DejaVuSans", fontStyle: "normal", cellPadding: { top: 5, right: 5, bottom: 5, left: 5 }, overflow: "linebreak", valign: "middle" },
+      headStyles: { fillColor: pdfTint("#9B51E0", 0.9), textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold", fontSize: 8.5, lineWidth: 0, halign: "left" },
+      alternateRowStyles: { fillColor: [245, 246, 248] },
+      margin: { top: 40, left: margin, right: margin, bottom: 24 },
+      tableWidth: doc.internal.pageSize.getWidth() - 2 * margin,
+      showHead: "everyPage",
+      didDrawPage: function (data) {
+        if (data.pageNumber > 1) {
+          pdfAddBanner(doc, { title: "Garaj Defteri — Geçmiş Rota Raporu", subtitle: driverName + " · " + dayLabel + " (devamı)", right: "Oluşturulma tarihi: " + dateLabel, color: "#9B51E0", margin: margin });
+        }
+      }
+    });
+
+    // ---- Hız Aşımları tablosu ----
+    var violHeaders = ["Yol", "Maks Hız", "Limit", "Başlangıç", "Bitiş", "Süre"];
+    var violBody = violations.length
+      ? violations.map(function (v) {
+          var durationMin = Math.max(1, Math.round((driverLocationTimestampMs(v.endedAt) - driverLocationTimestampMs(v.startedAt)) / 60000));
+          return [
+            v.roadName || "Bilinmeyen yol",
+            (v.maxKmh || 0) + " km/s",
+            typeof v.limitKmh === "number" ? v.limitKmh + " km/s" : "—",
+            formatClockTR(v.startedAt),
+            formatClockTR(v.endedAt),
+            "~" + durationMin + " dk"
+          ];
+        })
+      : [["—", "—", "—", "—", "—", "Bu tarihte hız aşımı kaydı yok"]];
+    var violSectionY = doc.lastAutoTable.finalY + 16;
+    var violPageBreak = violSectionY > doc.internal.pageSize.getHeight() - 40;
+    if (violPageBreak) {
+      doc.addPage();
+      pdfAddBanner(doc, { title: "Garaj Defteri — Geçmiş Rota Raporu", subtitle: driverName + " · " + dayLabel + " (devamı)", right: "Oluşturulma tarihi: " + dateLabel, color: "#9B51E0", margin: margin });
+      violSectionY = 46;
+    }
+    doc.setFont("DejaVuSans", "normal");
+    doc.setFontSize(11);
+    doc.setTextColor(27, 31, 36);
+    doc.text("🚨 Hız Aşımları (" + violations.length + ")", margin, violSectionY);
+    doc.autoTable({
+      startY: violSectionY + 6,
+      head: [violHeaders],
+      body: violBody,
+      styles: { fontSize: 8.5, font: "DejaVuSans", fontStyle: "normal", cellPadding: { top: 5, right: 5, bottom: 5, left: 5 }, overflow: "linebreak", valign: "middle" },
+      headStyles: { fillColor: pdfTint("#E2574C", 0.85), textColor: [27, 31, 36], font: "DejaVuSans", fontStyle: "bold", fontSize: 8.5, lineWidth: 0, halign: "left" },
+      alternateRowStyles: { fillColor: [245, 246, 248] },
+      margin: { top: 40, left: margin, right: margin, bottom: 24 },
+      tableWidth: doc.internal.pageSize.getWidth() - 2 * margin,
+      showHead: "everyPage",
+      didDrawPage: function (data) {
+        if (data.pageNumber > 1) {
+          pdfAddBanner(doc, { title: "Garaj Defteri — Geçmiş Rota Raporu", subtitle: driverName + " · " + dayLabel + " (devamı)", right: "Oluşturulma tarihi: " + dateLabel, color: "#9B51E0", margin: margin });
+        }
+      }
+    });
+
+    pdfAddFooter(doc, margin, "Şoför: " + driverName + " · Tarih: " + dayLabel);
+    var safeDriverName = (driverName || "sofor").toLowerCase().replace(/[^a-z0-9ığüşöç]+/gi, "-").replace(/^-+|-+$/g, "");
+    doc.save("garaj-defteri-gecmis-rota-" + safeDriverName + "-" + m.date + ".pdf");
+    toast("Geçmiş Rota PDF raporu indirildi.");
+  }
   function pdfColumnPickerHTML(fields, idPrefix, groupLabel) {
     var items = fields.map(function (f) {
       return '<label class="car-checklist-item"><input type="checkbox" data-col="' + esc(f.key) + '" checked /> ' + esc(f.label) + '</label>';
@@ -12078,7 +12222,17 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           } else {
             state.modal.selectedTripIdx = tripIdx;
           }
+          // Bir yolculuk seçilince, önceden seçili kalmış bir hız aşımı
+          // olmasın: yoksa harita, çizilen yolculuğu değil o aşımın
+          // konumunu göstermeye devam ediyordu (bkz. drawRouteReportTrips).
+          state.modal.selectedViolationIdx = null;
           render();
+        }
+        else if (action === "download-route-report-pdf") {
+          if (!state.modal || state.modal.type !== "driverRouteReport") return;
+          var pdfDriver = (state.drivers || []).find(function (x) { return x.id === state.modal.driverId; });
+          try { buildPdfDriverRouteReport(pdfDriver ? pdfDriver.name : "Şoför", state.modal); }
+          catch (e) { toast("PDF raporu oluşturulamadı."); }
         }
         else if (action === "select-report-violation") {
           if (!state.modal || state.modal.type !== "driverRouteReport") return;
@@ -12090,6 +12244,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           } else {
             state.modal.selectedViolationIdx = violIdx;
           }
+          // Aynı nedenle: aşım seçilince eski yolculuk seçimini de temizle,
+          // yoksa filtrelenmiş tek yolculuk çizimiyle aşımın setView'i
+          // çakışıp hangisinin görüneceği karışabiliyordu.
+          state.modal.selectedTripIdx = null;
           render();
         }
         else if (action === "dismiss-onboarding") { state.onboardingDismissed = true; setLocalData("onboarding_dismissed", true); render(); }
