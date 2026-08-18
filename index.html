@@ -1145,8 +1145,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.9.4"; // Dynamic Version Tracking
-  var APP_UPDATED = "17 Ağustos 2026";
+  var APP_VERSION = "v2.9.5"; // Dynamic Version Tracking
+  var APP_UPDATED = "18 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -10243,6 +10243,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             '<span class="driver-item-name">' + esc(d.name) + (d.worksAbroad ? '<span class="driver-abroad-badge">🛂 Yurtdışı</span>' : '') + (isTerminated ? '<span class="status-badge terminated">👋 Ayrıldı</span>' : '') + '</span>' +
             '<span class="driver-item-actions">' +
               (isTerminated ? '' : '<button type="button" class="exp-del driver-share-btn' + (d.shareId ? ' driver-share-btn-active' : '') + '" data-action="open-driver-share" data-id="' + d.id + '" title="Konum Paylaşım Linki" aria-label="Konum Paylaşım Linki">📍</button>') +
+              '<button type="button" class="exp-del" data-action="open-driver-route-report" data-id="' + d.id + '" title="Geçmiş Rota" aria-label="Geçmiş Rota">📊</button>' +
               '<button type="button" class="exp-del" data-action="open-edit-driver" data-id="' + d.id + '" title="Düzenle" aria-label="Düzenle">✏️</button>' +
               (isTerminated
                 ? '<button type="button" class="exp-del" data-action="rehire-driver" data-id="' + d.id + '" title="Yeniden İşe Al" aria-label="Yeniden İşe Al">🔄</button>'
