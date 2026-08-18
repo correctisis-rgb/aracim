@@ -1397,6 +1397,21 @@
   // hane tarafındaki 3 dakikalık "son güncelleme" eşiği ile zaten otomatik
   // olarak pasif gösteriliyor — updatedAt alanı üzerinden, active bayrağına
   // gerek kalmadan.
+  // ---------- TEST: hız aşımı uyarısını GPS beklemeden tetiklemek için ----------
+  // Tarayıcı konsolundan çağrılır, arayüzde herhangi bir düğme/iz bırakmaz:
+  //   testSpeedAlert()          → 110 km/s, limit 50 km/s ile dener
+  //   testSpeedAlert(130, 90)   → istediğiniz hız/limit ile dener
+  // Titreşim + bip + kırmızı tabelayı gerçek sürüş olmadan görüp
+  // duyabilmeniz içindir; GPS/konum paylaşımını etkilemez.
+  window.testSpeedAlert = function (speedKmh, limitKmh) {
+    speedKmh = typeof speedKmh === "number" ? speedKmh : 110;
+    limitKmh = typeof limitKmh === "number" ? limitKmh : 50;
+    if (!audioCtx) initAudioContext();
+    lastRoadInfo = { name: "TEST YOLU (simülasyon)", maxspeedKmh: limitKmh, approx: false };
+    updateRoadUI(lastRoadInfo);
+    updateStatsUI(speedKmh);
+    console.log("testSpeedAlert: " + speedKmh + " km/s, limit " + limitKmh + " km/s — titreşim + bip tetiklendi (varsa).");
+  };
 })();
 </script>
 </body>
