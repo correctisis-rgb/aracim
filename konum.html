@@ -117,15 +117,24 @@
   .speed-hero.over-limit { background: #331414; box-shadow: 0 0 0 2px #f87171 inset; }
   .speed-hero.over-limit .speed-hero-value { color: #f87171; }
   .road-info {
-    background: #1b2530; border-radius: 10px; padding: 10px 13px; margin-bottom: 10px;
-    display: flex; align-items: center; justify-content: space-between; gap: 10px; text-align: left;
+    background: #1b2530; border-radius: 14px; padding: 14px 10px 12px; margin-bottom: 10px;
+    display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center;
   }
+  .speed-sign {
+    width: 58px; height: 58px; border-radius: 50%; flex-shrink: 0;
+    background: #fff; border: 5px solid #d21f1f; box-sizing: border-box;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 21px; font-weight: 800; color: #14151a; font-variant-numeric: tabular-nums;
+    transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  }
+  .speed-sign.approx { border-style: dashed; }
+  .speed-sign.unknown { background: #2b3542; border: 5px solid #3d4959; color: #8b909c; font-size: 24px; }
+  .speed-sign.over { background: #f87171; border-color: #7f1d1d; color: #fff; }
   .road-info-name {
-    font-size: 12.5px; color: #c7cbd4; font-weight: 600; overflow: hidden;
-    text-overflow: ellipsis; white-space: nowrap; flex: 1;
+    font-size: 12.5px; color: #c7cbd4; font-weight: 600; max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .road-info-limit { font-size: 13px; font-weight: 800; color: #ffb020; white-space: nowrap; flex-shrink: 0; }
-  .road-info-limit.over { color: #f87171; }
+  .road-info-approx-note { font-size: 10px; color: #6b7280; margin-top: -4px; }
   .stats-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
   .stats-item { background: #22262f; border-radius: 10px; padding: 13px 6px; }
   .stats-value { font-size: 21px; font-weight: 700; color: #f2f2f2; }
@@ -144,8 +153,8 @@
       <div class="speed-hero-unit">km/s</div>
     </div>
     <div class="road-info" id="roadInfo">
+      <div class="speed-sign unknown" id="statRoadLimit">–</div>
       <div class="road-info-name" id="statRoadName">Yol bilgisi aranıyor…</div>
-      <div class="road-info-limit" id="statRoadLimit"></div>
     </div>
     <div class="stats-grid">
       <div class="stats-item"><div class="stats-value" id="statDistance">0</div><div class="stats-label">km (bugün)</div></div>
@@ -339,20 +348,21 @@
   function updateRoadUI(info) {
     if (!info) {
       roadNameEl.textContent = "Yol bilgisi bulunamadı";
-      roadLimitEl.textContent = "";
-      roadLimitEl.className = "road-info-limit";
+      roadLimitEl.textContent = "–";
+      roadLimitEl.className = "speed-sign unknown";
       return;
     }
     roadNameEl.textContent = info.name;
     if (info.maxspeedKmh) {
       // "approx" olan (tabeladan değil genel TR varsayılanından gelen)
-      // değerleri "~" işaretiyle işaretliyoruz ki gerçek tabelayla
-      // karıştırılmasın.
-      roadLimitEl.textContent = (info.approx ? "~" : "") + info.maxspeedKmh + " km/s";
+      // değerleri kesikli çerçeveyle işaretliyoruz ki gerçek tabelayla
+      // karıştırılmasın; sayının kendisi tabeladaki gibi sade gösteriliyor.
+      roadLimitEl.textContent = String(info.maxspeedKmh);
+      roadLimitEl.className = "speed-sign" + (info.approx ? " approx" : "");
     } else {
-      roadLimitEl.textContent = "Limit bilinmiyor";
+      roadLimitEl.textContent = "–";
+      roadLimitEl.className = "speed-sign unknown";
     }
-    roadLimitEl.className = "road-info-limit";
   }
 
   // Noktanın (lat,lng) bir yol segmentine (lat1,lng1)-(lat2,lng2) olan en
@@ -533,7 +543,7 @@
     var overLimit = typeof limit === "number" && spd > limit + 5;
     speedHeroEl.classList.toggle("stopped", spd < 5);
     speedHeroEl.classList.toggle("over-limit", overLimit);
-    if (roadLimitEl.textContent) {
+    if (roadLimitEl.textContent && roadLimitEl.textContent !== "–") {
       roadLimitEl.classList.toggle("over", overLimit);
     }
     maybeAlertOverLimit(overLimit);
@@ -947,8 +957,8 @@
     lastRoadInfo = null;
     lastRoadQueryPoint = null;
     roadNameEl.textContent = "Yol bilgisi aranıyor…";
-    roadLimitEl.textContent = "";
-    roadLimitEl.className = "road-info-limit";
+    roadLimitEl.textContent = "–";
+    roadLimitEl.className = "speed-sign unknown";
     continuousDriveStartMs = null;
     stoppedForBreakSinceMs = null;
     restReminderSnoozedUntilMs = 0;
