@@ -1149,8 +1149,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.9.7"; // Dynamic Version Tracking
-  var APP_UPDATED = "18 Ağustos 2026";
+  var APP_VERSION = "v2.9.8"; // Dynamic Version Tracking
+  var APP_UPDATED = "19 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
     { id: "bakim", label: "Bakım / Servis", emoji: "🔧", color: "#4FA8D8" },
@@ -2762,7 +2762,17 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (min < 60) return min + " dk önce";
     var hr = Math.floor(min / 60);
     if (hr < 24) return hr + " sa önce";
-    return Math.floor(hr / 24) + " gün önce";
+    // 1-2 gün öncesi hâlâ "X gün önce" olarak gösterilir (dün/önceki gün için
+    // daha okunaklı), ama 3 günden eski olaylarda artık göreli süre yerine
+    // net tarih (ve saat) gösteriyoruz — bildirim listesi gibi kronolojik
+    // dökümlerde "5 gün önce" gibi ifadeler günler ilerledikçe ayırt
+    // edilmesi zor hale geliyordu.
+    var days = Math.floor(hr / 24);
+    if (days < 3) return days + " gün önce";
+    var d = dateLike.toDate ? dateLike.toDate() : new Date(dateLike);
+    var dateStr = d.toLocaleDateString("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric" });
+    var timeStr = d.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+    return dateStr + " " + timeStr;
   }
 
   function fmtTimeTR(dateLike) {
