@@ -1149,7 +1149,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // ---------- constants ----------
-  var APP_VERSION = "v2.9.8"; // Dynamic Version Tracking
+  var APP_VERSION = "v2.9.9"; // Dynamic Version Tracking
   var APP_UPDATED = "19 Ağustos 2026";
   var CATEGORIES = [
     { id: "yakit", label: "Yakıt", emoji: "⛽", color: "#F2A93B" },
@@ -2750,6 +2750,18 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return out;
   }
 
+  // Bir olay zamanını liste satırlarında gösterirken kullanılan ortak yardımcı:
+  // timeAgoTR artık 3 günden eski olaylar için zaten tam tarih+saat döndürüyor
+  // (bkz. timeAgoTR). Bu durumda saati ayrıca fmtTimeTR ile de basarsak saat
+  // iki kez görünür (ör. "21:54 · 14.08.2026 21:54"). Bu yüzden: olay yakınsa
+  // "saat · göreli süre", eskiyse sadece timeAgoTR'nin döndürdüğü tam tarih.
+  function eventTimeLabelTR(dateLike) {
+    var ago = timeAgoTR(dateLike);
+    if (!ago) return "";
+    var isFullDate = /\d{2}\.\d{2}\.\d{4}/.test(ago);
+    return isFullDate ? ago : fmtTimeTR(dateLike) + " · " + ago;
+  }
+
   function timeAgoTR(dateLike) {
     if (!dateLike) return "";
     var ms;
@@ -3092,7 +3104,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       geofenceOnlyEvents.slice(0, 30).forEach(function (ev) {
         html += '<li class="err-item" style="padding:8px 12px">' +
           '<div class="err-item-meta">' + (ev.type === "enter" ? "📍" : "🚪") + ' <strong>' + esc(ev.driverName) + '</strong> — ' + esc(ev.geofenceName) +
-            (ev.type === "enter" ? "'a vardı" : "'dan ayrıldı") + ' · ' + esc(fmtTimeTR(ev.at)) + ' · ' + esc(timeAgoTR(ev.at)) +
+            (ev.type === "enter" ? "'a vardı" : "'dan ayrıldı") + ' · ' + esc(eventTimeLabelTR(ev.at)) +
           '</div>' +
         '</li>';
       });
@@ -9223,7 +9235,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       list.forEach(function (ev) {
         var isHelp = ev.kind === "help";
         html += '<li class="err-item">' +
-          '<div class="err-item-head"><span class="err-item-time">' + esc(fmtTimeTR(ev.at)) + ' · ' + esc(timeAgoTR(ev.at)) + '</span></div>' +
+          '<div class="err-item-head"><span class="err-item-time">' + esc(eventTimeLabelTR(ev.at)) + '</span></div>' +
           '<div class="err-item-msg"' + (isHelp && ev.type === "help-start" ? ' style="color:var(--danger,#dc2626); font-weight:600"' : '') + '>' + esc(driverEventLogText(ev)) + '</div>' +
         '</li>';
       });
