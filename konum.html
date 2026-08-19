@@ -117,7 +117,7 @@
   .speed-hero.over-limit { background: #331414; box-shadow: 0 0 0 2px #f87171 inset; }
   .speed-hero.over-limit .speed-hero-value { color: #f87171; }
   .road-info {
-    border-radius: 14px; padding: 14px 10px 12px; margin-bottom: 10px;
+    background: #1b2530; border-radius: 14px; padding: 14px 10px 12px; margin-bottom: 10px;
     display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center;
   }
   .speed-sign {
@@ -523,11 +523,17 @@
 
   function maybeAlertOverLimit(overLimit) {
     if (!overLimit) { lastOverLimitVibrateMs = 0; return; }
+    // Bip sesi artık aşım başına yalnızca BİR kez çalar: lastOverLimitVibrateMs
+    // sıfırdan farklıysa bu aşım için zaten çalınmış demektir, tekrar çalmayız.
+    // Aşım biterse (overLimit=false) yukarıda sıfırlanıp bir sonraki aşımda
+    // yeniden çalabilir hale gelir. Titreşim ise aşım sürdükçe belirli
+    // aralıklarla devam eder.
     var nowMs = Date.now();
-    if (nowMs - lastOverLimitVibrateMs < OVER_LIMIT_VIBRATE_INTERVAL_MS) return;
+    var alreadyBeeped = lastOverLimitVibrateMs !== 0;
+    if (lastOverLimitVibrateMs !== 0 && nowMs - lastOverLimitVibrateMs < OVER_LIMIT_VIBRATE_INTERVAL_MS) return;
     lastOverLimitVibrateMs = nowMs;
     if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
-    playOverLimitBeep();
+    if (!alreadyBeeped) playOverLimitBeep();
   }
 
   function updateStatsUI(speedKmh) {
