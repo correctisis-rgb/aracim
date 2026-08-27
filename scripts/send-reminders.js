@@ -463,17 +463,34 @@ async function main() {
       });
 
       if (car.maintenanceKm != null && car.currentKm != null) {
-        const remaining = car.maintenanceKm - car.currentKm;
-        const tier = kmTier(remaining);
-        if (tier != null) {
-          const stateKey = car.id + "_maintenanceKm";
-          if (bypassDedup || newNotifState[stateKey] !== tier) {
-            newNotifState[stateKey] = tier;
-            const carName = car.name || "Aracın";
-            const kmText = remaining <= 0
-              ? `bakım kilometresi ${Math.abs(Math.round(remaining)).toLocaleString("tr-TR")} km geçti`
-              : `bakıma ${Math.round(remaining).toLocaleString("tr-TR")} km kaldı`;
-            triggered.push({ text: `🔧 ${carName}: ${kmText}`, carId: car.id, fieldKey: null, actionable: false });
+        // Bakım/Servis (km) hatırlatması, Bakım/Servis (tarih) ile AYNI
+        // randevuya bağlıdır (bkz. index.html computeSummaryItems'daki
+        // aynı bağlama). maintenanceDate için henüz "çözülmemiş" (yani
+        // kullanıcının vade tarihini randevu sonrası güncellemediği) aktif
+        // bir randevu varsa, km bazlı hatırlatma da tamamen susar — km
+        // eşiği geçmiş olsa bile ayrı bir push gönderilmez. Randevu
+        // "çözülünce" (vade tarihi randevu sırasında alınan anlık
+        // görüntüden farklı hale gelince) km hatırlatması normal akışına
+        // döner.
+        const maintAppt = (car.appointments || {}).maintenanceDate;
+        let maintApptActive = false;
+        if (maintAppt) {
+          const maintDueSnapshot = (car.appointments || {}).maintenanceDateDueSnapshot;
+          maintApptActive = maintDueSnapshot == null || maintDueSnapshot === car.maintenanceDate;
+        }
+        if (!maintApptActive) {
+          const remaining = car.maintenanceKm - car.currentKm;
+          const tier = kmTier(remaining);
+          if (tier != null) {
+            const stateKey = car.id + "_maintenanceKm";
+            if (bypassDedup || newNotifState[stateKey] !== tier) {
+              newNotifState[stateKey] = tier;
+              const carName = car.name || "Aracın";
+              const kmText = remaining <= 0
+                ? `bakım kilometresi ${Math.abs(Math.round(remaining)).toLocaleString("tr-TR")} km geçti`
+                : `bakıma ${Math.round(remaining).toLocaleString("tr-TR")} km kaldı`;
+              triggered.push({ text: `🔧 ${carName}: ${kmText}`, carId: car.id, fieldKey: null, actionable: false });
+            }
           }
         }
       }
